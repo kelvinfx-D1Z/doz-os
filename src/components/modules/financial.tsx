@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -19,6 +19,7 @@ import {
   EmptyState,
   MiniBar,
 } from "@/components/doz/ui-primitives";
+import { ReceiptUpload } from "@/components/doz/receipt-upload";
 import { formatNGN, formatDate, formatPct, isOverdue } from "@/lib/format";
 import {
   ResponsiveContainer,
@@ -43,6 +44,7 @@ import {
   Receipt,
   Star,
   ArrowUpDown,
+  Paperclip,
 } from "lucide-react";
 
 // ---------- Types ----------
@@ -81,6 +83,7 @@ interface Expense {
   amount: number;
   expenseDate: string;
   isVerified: boolean;
+  receiptUrl?: string | null;
   project: { name: string };
   vendor: { name: string };
 }
@@ -254,6 +257,16 @@ export function Financial() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
+
+  const loadData = useCallback(() => {
+    fetch("/api/doz/finance")
+      .then((r) => r.json())
+      .then((d) => {
+        setData(d);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -494,7 +507,7 @@ export function Financial() {
 
         {/* EXPENSES */}
         <TabsContent value="expenses" className="mt-4">
-          <ExpensesTable rows={data.expenses} />
+          <ExpensesTable rows={data.expenses} onRefresh={loadData} />
         </TabsContent>
 
         {/* BUDGETS */}
@@ -835,7 +848,13 @@ function InvoicesTable({ rows }: { rows: Invoice[] }) {
 }
 
 // ---------- Expenses ----------
-function ExpensesTable({ rows }: { rows: Expense[] }) {
+function ExpensesTable({
+  rows,
+  onRefresh,
+}: {
+  rows: Expense[];
+  onRefresh?: () => void;
+}) {
   const [filter, setFilter] = useState<string>("ALL");
   const cats = useMemo(() => {
     const s = new Set<string>();
@@ -844,6 +863,10 @@ function ExpensesTable({ rows }: { rows: Expense[] }) {
   }, [rows]);
 
   const filtered = filter === "ALL" ? rows : rows.filter((r) => r.category === filter);
+
+  // Lightweight stats summary (with-receipt / verified counts)
+  const withReceipt = rows.filter((r) => !!r.receiptUrl).length;
+  const verified = rows.filter((r) => r.isVerified).length;
 
   const CAT_TONE: Record<string, string> = {
     CREW: "bg-emerald-500/15 text-emerald-300",
@@ -858,11 +881,24 @@ function ExpensesTable({ rows }: { rows: Expense[] }) {
   return (
     <Card className="p-0">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border p-4">
-        <SectionHeader
-          title="Expenses"
-          description="All logged expenses with verification status"
-          icon={<Receipt className="h-4 w-4" />}
-        />
+        <div className="space-y-1">
+          <SectionHeader
+            title="Expenses"
+            description="All logged expenses with verification status"
+            icon={<Receipt className="h-4 w-4" />}
+          />
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <Paperclip className="h-3 w-3" />
+              {withReceipt}/{rows.length} with receipt
+            </span>
+            <span className="text-border">·</span>
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              {verified}/{rows.length} verified
+            </span>
+          </div>
+        </div>
         <div className="scroll-thin flex max-w-full gap-1 overflow-x-auto">
           {cats.map((c) => (
             <button
@@ -894,6 +930,7 @@ function ExpensesTable({ rows }: { rows: Expense[] }) {
                 <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Amount</TableHead>
                 <TableHead className="text-xs font-semibold uppercase tracking-wider">Date</TableHead>
                 <TableHead className="text-center text-xs font-semibold uppercase tracking-wider">Verified</TableHead>
+                <TableHead className="text-center text-xs font-semibold uppercase tracking-wider">Receipt</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -926,6 +963,14 @@ function ExpensesTable({ rows }: { rows: Expense[] }) {
                         Pending
                       </span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <ReceiptUpload
+                      expenseId={e.id}
+                      currentReceiptUrl={e.receiptUrl}
+                      isVerified={e.isVerified}
+                      onUploaded={onRefresh}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

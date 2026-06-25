@@ -10,7 +10,8 @@ export type ModuleId =
   | "finance"
   | "team"
   | "sop"
-  | "ai";
+  | "ai"
+  | "field";
 
 interface AppState {
   activeModule: ModuleId;

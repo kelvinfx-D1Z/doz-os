@@ -24,6 +24,7 @@ model User {
   avatar    String?
   capacity  Int      @default(40) // available hours/week
   isActive  Boolean  @default(true)
+  password  String?  // hashed (sha256) — demo password: doz2025
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -454,6 +455,7 @@ model Expense {
   vendor      Vendor?  @relation(fields: [vendorId], references: [id])
   expenseDate DateTime @default(now())
   isVerified  Boolean  @default(false)
+  receiptUrl  String?  // path to uploaded receipt file
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -546,4 +548,26 @@ model ActivityLog {
   opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
   detail      String?
   createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// VENDOR ONBOARDING (Phase 2)
+// ============================================================
+
+model VendorApplication {
+  id            String   @id @default(cuid())
+  companyName   String
+  category      String   // EQUIPMENT, CATERING, DECOR, PRINTING, TRANSPORT, SOUND, LIGHTING, LED, STAGE, OTHER
+  contactName   String
+  phone         String?
+  email         String?
+  cacNumber     String?  // Corporate Affairs Commission registration
+  bankName      String?
+  bankAccount   String?
+  references    String?  // past clients / past work, newline separated
+  notes         String?
+  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  vendorId      String?  // created Vendor id on approval
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

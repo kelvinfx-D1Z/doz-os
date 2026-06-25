@@ -1,8 +1,11 @@
 // DOZ OS — Seed script
 // Populates the database with realistic Digit One Zero Ltd data
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 
 const db = new PrismaClient();
+const hashPassword = (p: string) => crypto.createHash("sha256").update(p).digest("hex");
+const DEMO_PW = hashPassword("doz2025");
 
 const now = new Date();
 const daysFromNow = (n: number) => new Date(now.getTime() + n * 86400000);
@@ -20,6 +23,7 @@ async function main() {
       title: "Founder & CEO",
       phone: "+234 803 000 0001",
       capacity: 60,
+      password: DEMO_PW,
     },
   });
 
@@ -31,6 +35,7 @@ async function main() {
       title: "Operations Lead",
       phone: "+234 803 000 0002",
       capacity: 45,
+      password: DEMO_PW,
     },
   });
 
@@ -42,6 +47,7 @@ async function main() {
       title: "Finance Officer",
       phone: "+234 803 000 0003",
       capacity: 40,
+      password: DEMO_PW,
     },
   });
 
@@ -51,7 +57,7 @@ async function main() {
       { name: "Emeka Obi", title: "Intern — Media", email: "emeka@digitonezero.com" },
       { name: "Fatima Yusuf", title: "Intern — Creative", email: "fatima@digitonezero.com" },
     ].map((i) =>
-      db.user.create({ data: { ...i, role: "INTERN", capacity: 30, phone: "+234 803 000 00XX" } })
+      db.user.create({ data: { ...i, role: "INTERN", capacity: 30, phone: "+234 803 000 00XX", password: DEMO_PW } })
     )
   );
 
@@ -65,7 +71,7 @@ async function main() {
       { name: "Grace Idowu", title: "Video Editor", email: "grace@freelance.ng", capacity: 35 },
       { name: "Mike Afolabi", title: "Stage Manager", email: "mike@freelance.ng", capacity: 24 },
     ].map((f) =>
-      db.user.create({ data: { ...f, role: "FREELANCER", phone: "+234 803 000 00XX" } })
+      db.user.create({ data: { ...f, role: "FREELANCER", phone: "+234 803 000 00XX", password: DEMO_PW } })
     )
   );
 
@@ -395,6 +401,40 @@ async function main() {
   await db.activityLog.create({ data: { userId: interns[0].id, action: "Submitted daily report", entityType: "DAILY_REPORT", detail: "7h, 3 tasks done", createdAt: daysAgo(0) } });
   await db.activityLog.create({ data: { userId: founder.id, action: "Closed opportunity", entityType: "OPPORTUNITY", opportunityId: createdOpps[5].id, detail: "Lagos Chamber WON — ₦4.5M", createdAt: daysAgo(8) } });
   await db.activityLog.create({ data: { userId: freelancers[5].id, action: "Delivered asset", entityType: "DELIVERABLE", detail: "LCC Aftermovie v1", createdAt: daysAgo(3) } });
+
+  // ---------- VENDOR APPLICATIONS (Phase 2) ----------
+  await db.vendorApplication.create({
+    data: {
+      companyName: "CrystalVisuals NG",
+      category: "EQUIPMENT",
+      contactName: "Samuel Okwu",
+      phone: "+234 807 444 0001",
+      email: "samuel@crystalvisuals.ng",
+      cacNumber: "BN-9876543",
+      bankName: "GTBank",
+      bankAccount: "0123456789",
+      references: "Standard Chartered Gala 2024\nLagos Fashion Week 2024",
+      notes: "Specializes in 4K cinema cameras + stabilizers. Can supply 2x FX6 + 1x Ronin.",
+      status: "PENDING",
+      createdAt: daysAgo(2),
+    },
+  });
+  await db.vendorApplication.create({
+    data: {
+      companyName: "PowerSource Generators",
+      category: "OTHER",
+      contactName: "Ibrahim Sule",
+      phone: "+234 807 444 0002",
+      email: "ibrahim@powersource.ng",
+      cacNumber: "RC-1122334",
+      bankName: "Access Bank",
+      bankAccount: "0099887766",
+      references: "Eko Hotel backup power contracts\nOando events",
+      notes: "Silent generators 5kVA-100kVA. Delivery + operator included.",
+      status: "PENDING",
+      createdAt: daysAgo(1),
+    },
+  });
 
   console.log("Seed complete.");
   console.log({ founder: founder.id, interns: interns.length, freelancers: freelancers.length, accounts: accounts.length });

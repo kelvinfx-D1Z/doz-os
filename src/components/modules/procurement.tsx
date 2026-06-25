@@ -16,9 +16,12 @@ import {
   Wallet,
   TrendingUp,
   ChevronDown,
+  Plus,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { VendorApplications } from "@/components/doz/vendor-applications";
+import { VendorApply } from "@/components/doz/vendor-apply";
 import {
   Table,
   TableBody,
@@ -931,6 +934,7 @@ export function Procurement() {
   const [data, setData] = useState<ProcurementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [showApply, setShowApply] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -1053,6 +1057,16 @@ export function Procurement() {
         title="Procurement & Vendor Management"
         description="RFQs, quotes, purchase orders, and 3-way segregated payments"
         icon={<Truck className="h-5 w-5" />}
+        action={
+          <Button
+            size="sm"
+            onClick={() => setShowApply(true)}
+            className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Vendor Apply Form
+          </Button>
+        }
       />
 
       <ControlBanner violations={stats.segregationViolations} />
@@ -1123,6 +1137,10 @@ export function Procurement() {
             <Users2 className="h-3.5 w-3.5" />
             Vendors
           </TabsTrigger>
+          <TabsTrigger value="onboarding" className="gap-1.5 text-xs">
+            <Plus className="h-3.5 w-3.5" />
+            Onboarding
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="approvals" className="mt-4">
@@ -1144,7 +1162,13 @@ export function Procurement() {
         <TabsContent value="vendors" className="mt-4">
           <VendorsTab vendors={vendors} />
         </TabsContent>
+
+        <TabsContent value="onboarding" className="mt-4">
+          <VendorApplications />
+        </TabsContent>
       </Tabs>
+
+      {showApply && <VendorApply onClose={() => setShowApply(false)} />}
     </div>
   );
 }

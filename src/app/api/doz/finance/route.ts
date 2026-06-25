@@ -276,6 +276,7 @@ export async function GET() {
       amount: e.amount,
       expenseDate: e.expenseDate,
       isVerified: e.isVerified,
+      receiptUrl: e.receiptUrl,
       project: { name: e.project?.name ?? "—" },
       vendor: { name: e.vendor?.name ?? "—" },
     }))

@@ -1,0 +1,1013 @@
+     1→"use client";
+     2→import { useEffect, useMemo, useState } from "react";
+     3→import { Card } from "@/components/ui/card";
+     4→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+     5→import {
+     6→  Table,
+     7→  TableBody,
+     8→  TableCell,
+     9→  TableHead,
+    10→  TableHeader,
+    11→  TableRow,
+    12→} from "@/components/ui/table";
+    13→import { Skeleton } from "@/components/ui/skeleton";
+    14→import { Badge } from "@/components/ui/badge";
+    15→import {
+    16→  StatCard,
+    17→  StatusBadge,
+    18→  SectionHeader,
+    19→  EmptyState,
+    20→  MiniBar,
+    21→} from "@/components/doz/ui-primitives";
+    22→import { formatNGN, formatDate, formatPct, isOverdue } from "@/lib/format";
+    23→import {
+    24→  ResponsiveContainer,
+    25→  BarChart,
+    26→  Bar,
+    27→  XAxis,
+    28→  YAxis,
+    29→  Tooltip,
+    30→  CartesianGrid,
+    31→  ComposedChart,
+    32→  Line,
+    33→  Legend,
+    34→} from "recharts";
+    35→import {
+    36→  TrendingUp,
+    37→  TrendingDown,
+    38→  Wallet,
+    39→  Banknote,
+    40→  AlertTriangle,
+    41→  CheckCircle2,
+    42→  FileText,
+    43→  Receipt,
+    44→  Star,
+    45→  ArrowUpDown,
+    46→} from "lucide-react";
+    47→
+    48→// ---------- Types ----------
+    49→interface Stats {
+    50→  totalRevenue: number;
+    51→  totalExpenses: number;
+    52→  grossProfit: number;
+    53→  marginPct: number;
+    54→  outstandingAmount: number;
+    55→  overdueAmount: number;
+    56→  overdueCount: number;
+    57→  cashPosition: number;
+    58→  collectedThisMonth: number;
+    59→  paidOutThisMonth: number;
+    60→  avgProjectMargin: number;
+    61→  profitableProjects: number;
+    62→  lossProjects: number;
+    63→}
+    64→interface Invoice {
+    65→  id: string;
+    66→  code: string;
+    67→  amount: number;
+    68→  tax: number;
+    69→  amountPaid: number;
+    70→  status: string;
+    71→  issuedDate: string;
+    72→  dueDate: string | null;
+    73→  paidDate: string | null;
+    74→  account: { name: string };
+    75→  project: { name: string };
+    76→}
+    77→interface Expense {
+    78→  id: string;
+    79→  category: string;
+    80→  description: string;
+    81→  amount: number;
+    82→  expenseDate: string;
+    83→  isVerified: boolean;
+    84→  project: { name: string };
+    85→  vendor: { name: string };
+    86→}
+    87→interface ProjectPnl {
+    88→  projectId: string;
+    89→  name: string;
+    90→  code: string;
+    91→  serviceType: string;
+    92→  revenue: number;
+    93→  expenses: number;
+    94→  profit: number;
+    95→  margin: number;
+    96→}
+    97→interface ClientPnl {
+    98→  accountId: string;
+    99→  name: string;
+   100→  isStrategic: boolean;
+   101→  revenue: number;
+   102→  expenses: number;
+   103→  profit: number;
+   104→  margin: number;
+   105→  projectCount: number;
+   106→}
+   107→interface ServicePnl {
+   108→  serviceType: string;
+   109→  revenue: number;
+   110→  expenses: number;
+   111→  profit: number;
+   112→  margin: number;
+   113→  projectCount: number;
+   114→}
+   115→interface ExpenseByCategory {
+   116→  category: string;
+   117→  amount: number;
+   118→  pct: number;
+   119→}
+   120→interface MonthlyCashFlow {
+   121→  month: string;
+   122→  revenue: number;
+   123→  expenses: number;
+   124→  net: number;
+   125→}
+   126→interface Budget {
+   127→  projectId: string;
+   128→  project: { name: string };
+   129→  category: string;
+   130→  amount: number;
+   131→  spent: number;
+   132→  utilization: number;
+   133→}
+   134→interface FinanceData {
+   135→  stats: Stats;
+   136→  invoices: Invoice[];
+   137→  expenses: Expense[];
+   138→  projectPnl: ProjectPnl[];
+   139→  clientPnl: ClientPnl[];
+   140→  servicePnl: ServicePnl[];
+   141→  expenseByCategory: ExpenseByCategory[];
+   142→  monthlyCashFlow: MonthlyCashFlow[];
+   143→  budgets: Budget[];
+   144→}
+   145→
+   146→// ---------- Chart colors ----------
+   147→const CHART = {
+   148→  revenue: "#10b981", // emerald-500
+   149→  expenses: "#f43f5e", // rose-500
+   150→  net: "#f59e0b", // amber-500
+   151→};
+   152→
+   153→const SERVICE_TONE: Record<string, string> = {
+   154→  EVENT_PRODUCTION: "bg-emerald-500/15 text-emerald-300",
+   155→  VIDEO_PRODUCTION: "bg-amber-500/15 text-amber-300",
+   156→  CONFERENCE_PRODUCTION: "bg-rose-500/15 text-rose-300",
+   157→  EVENT_MANAGEMENT: "bg-teal-500/15 text-teal-300",
+   158→  TITLE_SEQUENCE: "bg-violet-500/15 text-violet-300",
+   159→  COLOR_GRADING: "bg-fuchsia-500/15 text-fuchsia-300",
+   160→};
+   161→
+   162→function ServiceBadge({ type }: { type: string }) {
+   163→  const tone = SERVICE_TONE[type] ?? "bg-muted text-muted-foreground";
+   164→  return (
+   165→    <span
+   166→      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone}`}
+   167→    >
+   168→      {type.replace(/_/g, " ")}
+   169→    </span>
+   170→  );
+   171→}
+   172→
+   173→function ProfitCell({ value }: { value: number }) {
+   174→  return (
+   175→    <span
+   176→      className={
+   177→        value > 0
+   178→          ? "font-semibold text-emerald-400"
+   179→          : value < 0
+   180→            ? "font-semibold text-rose-400"
+   181→            : "text-muted-foreground"
+   182→      }
+   183→    >
+   184→      {formatNGN(value)}
+   185→    </span>
+   186→  );
+   187→}
+   188→
+   189→function MarginCell({ value }: { value: number }) {
+   190→  const color =
+   191→    value >= 30
+   192→      ? "text-emerald-400"
+   193→      : value >= 10
+   194→        ? "text-amber-400"
+   195→        : value < 0
+   196→          ? "text-rose-400"
+   197→          : "text-muted-foreground";
+   198→  return <span className={`font-medium ${color}`}>{formatPct(value)}</span>;
+   199→}
+   200→
+   201→function CashflowTooltip({ active, payload, label }: any) {
+   202→  if (!active || !payload?.length) return null;
+   203→  return (
+   204→    <div className="rounded-md border border-border bg-popover p-2.5 text-xs shadow-lg">
+   205→      <p className="mb-1.5 font-semibold">{label}</p>
+   206→      <div className="space-y-0.5">
+   207→        <div className="flex items-center justify-between gap-3">
+   208→          <span className="flex items-center gap-1.5 text-muted-foreground">
+   209→            <span className="h-2 w-2 rounded-sm" style={{ background: CHART.revenue }} />
+   210→            Revenue
+   211→          </span>
+   212→          <span className="font-medium">{formatNGN(payload[0]?.payload.revenue ?? 0, true)}</span>
+   213→        </div>
+   214→        <div className="flex items-center justify-between gap-3">
+   215→          <span className="flex items-center gap-1.5 text-muted-foreground">
+   216→            <span className="h-2 w-2 rounded-sm" style={{ background: CHART.expenses }} />
+   217→            Expenses
+   218→          </span>
+   219→          <span className="font-medium">{formatNGN(payload[0]?.payload.expenses ?? 0, true)}</span>
+   220→        </div>
+   221→        <div className="flex items-center justify-between gap-3 border-t border-border pt-1">
+   222→          <span className="flex items-center gap-1.5 text-muted-foreground">
+   223→            <span className="h-2 w-2 rounded-full" style={{ background: CHART.net }} />
+   224→            Net
+   225→          </span>
+   226→          <span
+   227→            className={`font-medium ${(payload[0]?.payload.net ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+   228→          >
+   229→            {formatNGN(payload[0]?.payload.net ?? 0, true)}
+   230→          </span>
+   231→        </div>
+   232→      </div>
+   233→    </div>
+   234→  );
+   235→}
+   236→
+   237→// ---------- Skeleton ----------
+   238→function FinanceSkeleton() {
+   239→  return (
+   240→    <div className="space-y-5">
+   241→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+   242→        {Array.from({ length: 6 }).map((_, i) => (
+   243→          <Skeleton key={i} className="h-24 w-full" />
+   244→        ))}
+   245→      </div>
+   246→      <Skeleton className="h-10 w-full max-w-md" />
+   247→      <Skeleton className="h-72 w-full" />
+   248→    </div>
+   249→  );
+   250→}
+   251→
+   252→// ---------- Main ----------
+   253→export function Financial() {
+   254→  const [data, setData] = useState<FinanceData | null>(null);
+   255→  const [loading, setLoading] = useState(true);
+   256→  const [tab, setTab] = useState("overview");
+   257→
+   258→  useEffect(() => {
+   259→    let alive = true;
+   260→    fetch("/api/doz/finance")
+   261→      .then((r) => r.json())
+   262→      .then((d) => {
+   263→        if (!alive) return;
+   264→        setData(d);
+   265→        setLoading(false);
+   266→      })
+   267→      .catch(() => setLoading(false));
+   268→    return () => {
+   269→      alive = false;
+   270→    };
+   271→  }, []);
+   272→
+   273→  if (loading || !data) return <FinanceSkeleton />;
+   274→
+   275→  const { stats } = data;
+   276→
+   277→  return (
+   278→    <div className="space-y-5">
+   279→      {/* KPI ROW */}
+   280→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+   281→        <StatCard
+   282→          label="Total Revenue"
+   283→          value={formatNGN(stats.totalRevenue, true)}
+   284→          icon={<Banknote className="h-4 w-4" />}
+   285→          sub="Collected (cash-in)"
+   286→          trend={{ value: formatPct(stats.marginPct) + " margin", positive: stats.marginPct >= 0 }}
+   287→          accent="primary"
+   288→        />
+   289→        <StatCard
+   290→          label="Total Expenses"
+   291→          value={formatNGN(stats.totalExpenses, true)}
+   292→          icon={<Receipt className="h-4 w-4" />}
+   293→          sub="All logged costs"
+   294→          trend={{ value: formatNGN(stats.paidOutThisMonth, true) + " this month", positive: false }}
+   295→          accent="default"
+   296→        />
+   297→        <StatCard
+   298→          label="Gross Profit"
+   299→          value={formatNGN(stats.grossProfit, true)}
+   300→          icon={<TrendingUp className="h-4 w-4" />}
+   301→          sub={`Margin ${formatPct(stats.marginPct)}`}
+   302→          accent={stats.grossProfit >= 0 ? "primary" : "danger"}
+   303→        />
+   304→        <StatCard
+   305→          label="Outstanding"
+   306→          value={formatNGN(stats.outstandingAmount, true)}
+   307→          icon={<AlertTriangle className="h-4 w-4" />}
+   308→          sub={`${stats.overdueCount} overdue · ${formatNGN(stats.overdueAmount, true)}`}
+   309→          accent={stats.overdueCount > 0 ? "danger" : "default"}
+   310→        />
+   311→        <StatCard
+   312→          label="Cash Position"
+   313→          value={formatNGN(stats.cashPosition, true)}
+   314→          icon={<Wallet className="h-4 w-4" />}
+   315→          sub={stats.cashPosition >= 0 ? "Healthy" : "Negative — review"}
+   316→          accent={stats.cashPosition >= 0 ? "primary" : "danger"}
+   317→        />
+   318→        <StatCard
+   319→          label="Avg Project Margin"
+   320→          value={formatPct(stats.avgProjectMargin)}
+   321→          icon={<TrendingUp className="h-4 w-4" />}
+   322→          sub={`${stats.profitableProjects} profitable · ${stats.lossProjects} loss`}
+   323→          accent={stats.avgProjectMargin >= 20 ? "primary" : stats.avgProjectMargin >= 0 ? "warning" : "danger"}
+   324→        />
+   325→      </div>
+   326→
+   327→      {/* TABS */}
+   328→      <Tabs value={tab} onValueChange={setTab}>
+   329→        <TabsList className="scroll-thin h-auto w-full max-w-full overflow-x-auto">
+   330→          <TabsTrigger value="overview">Overview</TabsTrigger>
+   331→          <TabsTrigger value="project">Project P&L</TabsTrigger>
+   332→          <TabsTrigger value="client">Client P&L</TabsTrigger>
+   333→          <TabsTrigger value="service">Service P&L</TabsTrigger>
+   334→          <TabsTrigger value="invoices">Invoices</TabsTrigger>
+   335→          <TabsTrigger value="expenses">Expenses</TabsTrigger>
+   336→          <TabsTrigger value="budgets">Budgets</TabsTrigger>
+   337→        </TabsList>
+   338→
+   339→        {/* OVERVIEW */}
+   340→        <TabsContent value="overview" className="mt-4 space-y-4">
+   341→          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+   342→            {/* Cash flow chart */}
+   343→            <Card className="p-5 lg:col-span-2">
+   344→              <SectionHeader
+   345→                title="Cash Flow — Last 6 Months"
+   346→                description="Revenue (collected) vs Expenses, with net trend"
+   347→                icon={<TrendingUp className="h-4 w-4" />}
+   348→              />
+   349→              <div className="mt-4 h-72 w-full">
+   350→                <ResponsiveContainer width="100%" height="100%">
+   351→                  <ComposedChart data={data.monthlyCashFlow} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+   352→                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+   353→                    <XAxis
+   354→                      dataKey="month"
+   355→                      tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 11 }}
+   356→                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+   357→                      tickLine={false}
+   358→                    />
+   359→                    <YAxis
+   360→                      tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 11 }}
+   361→                      axisLine={false}
+   362→                      tickLine={false}
+   363→                      tickFormatter={(v) => formatNGN(v, true)}
+   364→                      width={56}
+   365→                    />
+   366→                    <Tooltip content={<CashflowTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+   367→                    <Legend
+   368→                      wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+   369→                      iconType="circle"
+   370→                    />
+   371→                    <Bar dataKey="revenue" name="Revenue" fill={CHART.revenue} radius={[3, 3, 0, 0]} barSize={18} />
+   372→                    <Bar dataKey="expenses" name="Expenses" fill={CHART.expenses} radius={[3, 3, 0, 0]} barSize={18} />
+   373→                    <Line
+   374→                      type="monotone"
+   375→                      dataKey="net"
+   376→                      name="Net"
+   377→                      stroke={CHART.net}
+   378→                      strokeWidth={2}
+   379→                      dot={{ r: 3, fill: CHART.net, strokeWidth: 0 }}
+   380→                      activeDot={{ r: 4 }}
+   381→                    />
+   382→                  </ComposedChart>
+   383→                </ResponsiveContainer>
+   384→              </div>
+   385→            </Card>
+   386→
+   387→            {/* Outstanding summary */}
+   388→            <Card className="p-5">
+   389→              <SectionHeader
+   390→                title="Outstanding Invoices"
+   391→                description="What clients still owe"
+   392→                icon={<AlertTriangle className="h-4 w-4" />}
+   393→              />
+   394→              <div className="mt-4 space-y-3">
+   395→                <div className="grid grid-cols-2 gap-2">
+   396→                  <div className="rounded-md border border-border bg-muted/30 p-3">
+   397→                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   398→                      Outstanding
+   399→                    </p>
+   400→                    <p className="mt-0.5 text-lg font-semibold">{formatNGN(stats.outstandingAmount, true)}</p>
+   401→                  </div>
+   402→                  <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3">
+   403→                    <p className="text-[10px] font-semibold uppercase tracking-wider text-rose-400">
+   404→                      Overdue
+   405→                    </p>
+   406→                    <p className="mt-0.5 text-lg font-semibold text-rose-300">
+   407→                      {formatNGN(stats.overdueAmount, true)}
+   408→                    </p>
+   409→                  </div>
+   410→                </div>
+   411→                <div className="space-y-1.5">
+   412→                  <p className="text-xs font-medium text-muted-foreground">Overdue invoices</p>
+   413→                  {data.invoices.filter((i) => i.status === "OVERDUE").length === 0 ? (
+   414→                    <p className="text-xs text-emerald-400">No overdue invoices — all clear.</p>
+   415→                  ) : (
+   416→                    <div className="max-h-56 space-y-1.5 overflow-y-auto">
+   417→                      {data.invoices
+   418→                        .filter((i) => i.status === "OVERDUE")
+   419→                        .map((inv) => (
+   420→                          <div
+   421→                            key={inv.id}
+   422→                            className="flex items-center justify-between gap-2 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2"
+   423→                          >
+   424→                            <div className="min-w-0">
+   425→                              <p className="truncate text-xs font-semibold text-rose-200">{inv.code}</p>
+   426→                              <p className="truncate text-[11px] text-muted-foreground">
+   427→                                {inv.account.name} · {inv.project.name}
+   428→                              </p>
+   429→                            </div>
+   430→                            <div className="text-right">
+   431→                              <p className="text-xs font-semibold text-rose-300">
+   432→                                {formatNGN(inv.amount - inv.amountPaid, true)}
+   433→                              </p>
+   434→                              <p className="text-[10px] text-muted-foreground">due {formatDate(inv.dueDate)}</p>
+   435→                            </div>
+   436→                          </div>
+   437→                        ))}
+   438→                    </div>
+   439→                  )}
+   440→                </div>
+   441→              </div>
+   442→            </Card>
+   443→          </div>
+   444→
+   445→          {/* Expense breakdown */}
+   446→          <Card className="p-5">
+   447→            <SectionHeader
+   448→              title="Expense Breakdown by Category"
+   449→              description="Where the money went"
+   450→              icon={<Receipt className="h-4 w-4" />}
+   451→            />
+   452→            <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 md:grid-cols-2">
+   453→              {data.expenseByCategory.length === 0 ? (
+   454→                <EmptyState icon={<Receipt className="h-5 w-5" />} title="No expenses logged" />
+   455→              ) : (
+   456→                data.expenseByCategory.map((c) => (
+   457→                  <div key={c.category} className="flex items-center gap-3 py-1.5">
+   458→                    <div className="w-28 shrink-0">
+   459→                      <p className="truncate text-xs font-medium">{c.category}</p>
+   460→                      <p className="text-[10px] text-muted-foreground">{formatPct(c.pct)}</p>
+   461→                    </div>
+   462→                    <div className="flex-1">
+   463→                      <MiniBar value={c.amount} max={data.expenseByCategory[0].amount} color="bg-amber-500" />
+   464→                    </div>
+   465→                    <div className="w-24 shrink-0 text-right text-xs font-medium">
+   466→                      {formatNGN(c.amount, true)}
+   467→                    </div>
+   468→                  </div>
+   469→                ))
+   470→              )}
+   471→            </div>
+   472→          </Card>
+   473→        </TabsContent>
+   474→
+   475→        {/* PROJECT P&L */}
+   476→        <TabsContent value="project" className="mt-4">
+   477→          <ProjectPnlTable rows={data.projectPnl} />
+   478→        </TabsContent>
+   479→
+   480→        {/* CLIENT P&L */}
+   481→        <TabsContent value="client" className="mt-4">
+   482→          <ClientPnlTable rows={data.clientPnl} />
+   483→        </TabsContent>
+   484→
+   485→        {/* SERVICE P&L */}
+   486→        <TabsContent value="service" className="mt-4">
+   487→          <ServicePnlView rows={data.servicePnl} />
+   488→        </TabsContent>
+   489→
+   490→        {/* INVOICES */}
+   491→        <TabsContent value="invoices" className="mt-4">
+   492→          <InvoicesTable rows={data.invoices} />
+   493→        </TabsContent>
+   494→
+   495→        {/* EXPENSES */}
+   496→        <TabsContent value="expenses" className="mt-4">
+   497→          <ExpensesTable rows={data.expenses} />
+   498→        </TabsContent>
+   499→
+   500→        {/* BUDGETS */}
+   501→        <TabsContent value="budgets" className="mt-4">
+   502→          <BudgetsView rows={data.budgets} />
+   503→        </TabsContent>
+   504→      </Tabs>
+   505→    </div>
+   506→  );
+   507→}
+   508→
+   509→// ---------- Project P&L ----------
+   510→function ProjectPnlTable({ rows }: { rows: ProjectPnl[] }) {
+   511→  const [sortKey, setSortKey] = useState<"profit" | "revenue" | "margin" | "name">("profit");
+   512→  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+   513→
+   514→  const sorted = useMemo(() => {
+   515→    const out = [...rows];
+   516→    out.sort((a, b) => {
+   517→      let av: number | string = a[sortKey];
+   518→      let bv: number | string = b[sortKey];
+   519→      if (typeof av === "string" && typeof bv === "string") {
+   520→        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+   521→      }
+   522→      return sortDir === "asc"
+   523→        ? (av as number) - (bv as number)
+   524→        : (bv as number) - (av as number);
+   525→    });
+   526→    return out;
+   527→  }, [rows, sortKey, sortDir]);
+   528→
+   529→  const toggle = (k: typeof sortKey) => {
+   530→    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+   531→    else {
+   532→      setSortKey(k);
+   533→      setSortDir("desc");
+   534→    }
+   535→  };
+   536→
+   537→  const renderSortHead = (k: typeof sortKey, label: string, className?: string) => (
+   538→    <TableHead key={k} className={className}>
+   539→      <button
+   540→        onClick={() => toggle(k)}
+   541→        className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider hover:text-foreground"
+   542→      >
+   543→        {label}
+   544→        <ArrowUpDown className={`h-3 w-3 ${sortKey === k ? "text-primary" : "text-muted-foreground/50"}`} />
+   545→      </button>
+   546→    </TableHead>
+   547→  );
+   548→
+   549→  return (
+   550→    <Card className="p-0">
+   551→      <div className="border-b border-border p-4">
+   552→        <SectionHeader
+   553→          title="Project Profit & Loss"
+   554→          description="Where you make — and lose — money. Sorted by profit by default."
+   555→          icon={<TrendingUp className="h-4 w-4" />}
+   556→        />
+   557→      </div>
+   558→      {sorted.length === 0 ? (
+   559→        <div className="p-6">
+   560→          <EmptyState icon={<FileText className="h-5 w-5" />} title="No project P&L data" hint="No projects with invoices or expenses yet." />
+   561→        </div>
+   562→      ) : (
+   563→        <div className="scroll-thin max-h-[600px] overflow-auto">
+   564→          <Table>
+   565→            <TableHeader className="sticky top-0 z-10 bg-card">
+   566→              <TableRow>
+   567→                <TableHead className="min-w-[200px] text-xs font-semibold uppercase tracking-wider">Project</TableHead>
+   568→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Service</TableHead>
+   569→                {renderSortHead("revenue", "Revenue", "text-right")}
+   570→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Expenses</TableHead>
+   571→                {renderSortHead("profit", "Profit", "text-right")}
+   572→                {renderSortHead("margin", "Margin", "text-right")}
+   573→              </TableRow>
+   574→            </TableHeader>
+   575→            <TableBody>
+   576→              {sorted.map((p) => {
+   577→                const isLoss = p.profit < 0;
+   578→                return (
+   579→                  <TableRow
+   580→                    key={p.projectId}
+   581→                    className={isLoss ? "bg-rose-500/5 hover:bg-rose-500/10" : "hover:bg-accent/30"}
+   582→                  >
+   583→                    <TableCell>
+   584→                      <div className="flex flex-col">
+   585→                        <span className="font-medium">{p.name}</span>
+   586→                        <span className="font-mono text-[10px] text-muted-foreground">{p.code}</span>
+   587→                      </div>
+   588→                    </TableCell>
+   589→                    <TableCell>
+   590→                      <ServiceBadge type={p.serviceType} />
+   591→                    </TableCell>
+   592→                    <TableCell className="text-right text-sm">{formatNGN(p.revenue)}</TableCell>
+   593→                    <TableCell className="text-right text-sm text-muted-foreground">{formatNGN(p.expenses)}</TableCell>
+   594→                    <TableCell className="text-right text-sm">
+   595→                      <ProfitCell value={p.profit} />
+   596→                    </TableCell>
+   597→                    <TableCell className="text-right text-sm">
+   598→                      <MarginCell value={p.margin} />
+   599→                    </TableCell>
+   600→                  </TableRow>
+   601→                );
+   602→              })}
+   603→            </TableBody>
+   604→          </Table>
+   605→        </div>
+   606→      )}
+   607→    </Card>
+   608→  );
+   609→}
+   610→
+   611→// ---------- Client P&L ----------
+   612→function ClientPnlTable({ rows }: { rows: ClientPnl[] }) {
+   613→  return (
+   614→    <Card className="p-0">
+   615→      <div className="border-b border-border p-4">
+   616→        <SectionHeader
+   617→          title="Client Profit & Loss"
+   618→          description="Revenue, cost & margin by account — see who pays the bills"
+   619→          icon={<Wallet className="h-4 w-4" />}
+   620→        />
+   621→      </div>
+   622→      {rows.length === 0 ? (
+   623→        <div className="p-6">
+   624→          <EmptyState icon={<Wallet className="h-5 w-5" />} title="No client P&L data" />
+   625→        </div>
+   626→      ) : (
+   627→        <div className="scroll-thin max-h-[600px] overflow-auto">
+   628→          <Table>
+   629→            <TableHeader className="sticky top-0 z-10 bg-card">
+   630→              <TableRow>
+   631→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Client</TableHead>
+   632→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Projects</TableHead>
+   633→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Revenue</TableHead>
+   634→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Expenses</TableHead>
+   635→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Profit</TableHead>
+   636→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Margin</TableHead>
+   637→              </TableRow>
+   638→            </TableHeader>
+   639→            <TableBody>
+   640→              {rows.map((c) => (
+   641→                <TableRow key={c.accountId} className="hover:bg-accent/30">
+   642→                  <TableCell>
+   643→                    <div className="flex items-center gap-2">
+   644→                      <span className="font-medium">{c.name}</span>
+   645→                      {c.isStrategic && (
+   646→                        <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+   647→                          <Star className="h-2.5 w-2.5 fill-amber-300" />
+   648→                          Strategic
+   649→                        </span>
+   650→                      )}
+   651→                    </div>
+   652→                  </TableCell>
+   653→                  <TableCell className="text-right text-sm text-muted-foreground">{c.projectCount}</TableCell>
+   654→                  <TableCell className="text-right text-sm">{formatNGN(c.revenue)}</TableCell>
+   655→                  <TableCell className="text-right text-sm text-muted-foreground">{formatNGN(c.expenses)}</TableCell>
+   656→                  <TableCell className="text-right text-sm">
+   657→                    <ProfitCell value={c.profit} />
+   658→                  </TableCell>
+   659→                  <TableCell className="text-right text-sm">
+   660→                    <MarginCell value={c.margin} />
+   661→                  </TableCell>
+   662→                </TableRow>
+   663→              ))}
+   664→            </TableBody>
+   665→          </Table>
+   666→        </div>
+   667→      )}
+   668→    </Card>
+   669→  );
+   670→}
+   671→
+   672→// ---------- Service P&L ----------
+   673→function ServicePnlView({ rows }: { rows: ServicePnl[] }) {
+   674→  const totalRev = rows.reduce((s, r) => s + r.revenue, 0);
+   675→
+   676→  return (
+   677→    <div className="space-y-4">
+   678→      <Card className="p-4">
+   679→        <SectionHeader
+   680→          title="Service Mix — Revenue by Service Type"
+   681→          description="The 80/15/4/1 view of where revenue comes from"
+   682→          icon={<TrendingUp className="h-4 w-4" />}
+   683→        />
+   684→        <div className="mt-3 space-y-1.5">
+   685→          {rows.map((r) => (
+   686→            <div key={r.serviceType} className="flex items-center gap-3 py-1">
+   687→              <div className="w-44 shrink-0">
+   688→                <ServiceBadge type={r.serviceType} />
+   689→              </div>
+   690→              <div className="flex-1">
+   691→                <MiniBar
+   692→                  value={r.revenue}
+   693→                  max={totalRev}
+   694→                  color={r.profit >= 0 ? "bg-emerald-500" : "bg-rose-500"}
+   695→                />
+   696→              </div>
+   697→              <div className="w-28 shrink-0 text-right text-xs font-medium">
+   698→                {formatPct(totalRev > 0 ? (r.revenue / totalRev) * 100 : 0)}
+   699→              </div>
+   700→            </div>
+   701→          ))}
+   702→        </div>
+   703→      </Card>
+   704→
+   705→      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+   706→        {rows.map((r) => {
+   707→          const isLoss = r.profit < 0;
+   708→          return (
+   709→            <Card
+   710→              key={r.serviceType}
+   711→              className={`p-5 ${isLoss ? "ring-1 ring-rose-500/30" : "ring-1 ring-emerald-500/20"}`}
+   712→            >
+   713→              <div className="flex items-start justify-between gap-2">
+   714→                <ServiceBadge type={r.serviceType} />
+   715→                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   716→                  {r.projectCount} project{r.projectCount !== 1 ? "s" : ""}
+   717→                </span>
+   718→              </div>
+   719→              <div className="mt-3 space-y-2">
+   720→                <div className="flex items-center justify-between">
+   721→                  <span className="text-xs text-muted-foreground">Revenue</span>
+   722→                  <span className="text-sm font-medium">{formatNGN(r.revenue, true)}</span>
+   723→                </div>
+   724→                <div className="flex items-center justify-between">
+   725→                  <span className="text-xs text-muted-foreground">Expenses</span>
+   726→                  <span className="text-sm font-medium text-muted-foreground">{formatNGN(r.expenses, true)}</span>
+   727→                </div>
+   728→                <div className="flex items-center justify-between border-t border-border pt-2">
+   729→                  <span className="text-xs font-medium">Profit</span>
+   730→                  <ProfitCell value={r.profit} />
+   731→                </div>
+   732→                <div className="flex items-center justify-between">
+   733→                  <span className="text-xs text-muted-foreground">Margin</span>
+   734→                  <MarginCell value={r.margin} />
+   735→                </div>
+   736→              </div>
+   737→            </Card>
+   738→          );
+   739→        })}
+   740→      </div>
+   741→      {rows.length === 0 && (
+   742→        <EmptyState icon={<TrendingUp className="h-5 w-5" />} title="No service P&L yet" />
+   743→      )}
+   744→    </div>
+   745→  );
+   746→}
+   747→
+   748→// ---------- Invoices ----------
+   749→function InvoicesTable({ rows }: { rows: Invoice[] }) {
+   750→  return (
+   751→    <Card className="p-0">
+   752→      <div className="border-b border-border p-4">
+   753→        <SectionHeader
+   754→          title="Invoices"
+   755→          description="All invoices — overdue rows highlighted"
+   756→          icon={<FileText className="h-4 w-4" />}
+   757→        />
+   758→      </div>
+   759→      {rows.length === 0 ? (
+   760→        <div className="p-6">
+   761→          <EmptyState icon={<FileText className="h-5 w-5" />} title="No invoices" />
+   762→        </div>
+   763→      ) : (
+   764→        <div className="scroll-thin max-h-[600px] overflow-auto">
+   765→          <Table>
+   766→            <TableHeader className="sticky top-0 z-10 bg-card">
+   767→              <TableRow>
+   768→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Code</TableHead>
+   769→                <TableHead className="min-w-[180px] text-xs font-semibold uppercase tracking-wider">Project / Account</TableHead>
+   770→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Amount</TableHead>
+   771→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Paid</TableHead>
+   772→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Balance</TableHead>
+   773→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Status</TableHead>
+   774→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Issued</TableHead>
+   775→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Due</TableHead>
+   776→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Paid On</TableHead>
+   777→              </TableRow>
+   778→            </TableHeader>
+   779→            <TableBody>
+   780→              {rows.map((inv) => {
+   781→                const overdue = inv.status === "OVERDUE" || (inv.status !== "PAID" && inv.dueDate && isOverdue(inv.dueDate));
+   782→                const balance = inv.amount - inv.amountPaid;
+   783→                return (
+   784→                  <TableRow
+   785→                    key={inv.id}
+   786→                    className={
+   787→                      inv.status === "OVERDUE"
+   788→                        ? "bg-rose-500/5 hover:bg-rose-500/10"
+   789→                        : overdue
+   790→                          ? "bg-amber-500/5 hover:bg-amber-500/10"
+   791→                          : "hover:bg-accent/30"
+   792→                    }
+   793→                  >
+   794→                    <TableCell>
+   795→                      <span className="font-mono text-xs font-medium">{inv.code}</span>
+   796→                    </TableCell>
+   797→                    <TableCell>
+   798→                      <div className="flex flex-col">
+   799→                        <span className="truncate text-sm font-medium">{inv.project.name}</span>
+   800→                        <span className="text-[11px] text-muted-foreground">{inv.account.name}</span>
+   801→                      </div>
+   802→                    </TableCell>
+   803→                    <TableCell className="text-right text-sm">{formatNGN(inv.amount)}</TableCell>
+   804→                    <TableCell className="text-right text-sm text-emerald-400">
+   805→                      {inv.amountPaid > 0 ? formatNGN(inv.amountPaid) : "—"}
+   806→                    </TableCell>
+   807→                    <TableCell className="text-right text-sm">
+   808→                      {balance > 0 ? (
+   809→                        <span className={overdue ? "font-semibold text-rose-400" : "font-medium text-amber-400"}>
+   810→                          {formatNGN(balance)}
+   811→                        </span>
+   812→                      ) : (
+   813→                        <span className="text-emerald-400">₦0</span>
+   814→                      )}
+   815→                    </TableCell>
+   816→                    <TableCell>
+   817→                      <StatusBadge status={inv.status} />
+   818→                    </TableCell>
+   819→                    <TableCell className="text-xs text-muted-foreground">{formatDate(inv.issuedDate)}</TableCell>
+   820→                    <TableCell className="text-xs">
+   821→                      <span className={overdue ? "font-medium text-rose-400" : "text-muted-foreground"}>
+   822→                        {formatDate(inv.dueDate)}
+   823→                      </span>
+   824→                    </TableCell>
+   825→                    <TableCell className="text-xs text-emerald-400">{formatDate(inv.paidDate)}</TableCell>
+   826→                  </TableRow>
+   827→                );
+   828→              })}
+   829→            </TableBody>
+   830→          </Table>
+   831→        </div>
+   832→      )}
+   833→    </Card>
+   834→  );
+   835→}
+   836→
+   837→// ---------- Expenses ----------
+   838→function ExpensesTable({ rows }: { rows: Expense[] }) {
+   839→  const [filter, setFilter] = useState<string>("ALL");
+   840→  const cats = useMemo(() => {
+   841→    const s = new Set<string>();
+   842→    rows.forEach((r) => s.add(r.category));
+   843→    return ["ALL", ...Array.from(s).sort()];
+   844→  }, [rows]);
+   845→
+   846→  const filtered = filter === "ALL" ? rows : rows.filter((r) => r.category === filter);
+   847→
+   848→  const CAT_TONE: Record<string, string> = {
+   849→    CREW: "bg-emerald-500/15 text-emerald-300",
+   850→    EQUIPMENT: "bg-amber-500/15 text-amber-300",
+   851→    VENDOR: "bg-rose-500/15 text-rose-300",
+   852→    LOGISTICS: "bg-teal-500/15 text-teal-300",
+   853→    MARKETING: "bg-fuchsia-500/15 text-fuchsia-300",
+   854→    ADMIN: "bg-violet-500/15 text-violet-300",
+   855→    OTHER: "bg-muted text-muted-foreground",
+   856→  };
+   857→
+   858→  return (
+   859→    <Card className="p-0">
+   860→      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border p-4">
+   861→        <SectionHeader
+   862→          title="Expenses"
+   863→          description="All logged expenses with verification status"
+   864→          icon={<Receipt className="h-4 w-4" />}
+   865→        />
+   866→        <div className="scroll-thin flex max-w-full gap-1 overflow-x-auto">
+   867→          {cats.map((c) => (
+   868→            <button
+   869→              key={c}
+   870→              onClick={() => setFilter(c)}
+   871→              className={`shrink-0 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+   872→                filter === c
+   873→                  ? "bg-primary/15 text-primary"
+   874→                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+   875→              }`}
+   876→            >
+   877→              {c}
+   878→            </button>
+   879→          ))}
+   880→        </div>
+   881→      </div>
+   882→      {filtered.length === 0 ? (
+   883→        <div className="p-6">
+   884→          <EmptyState icon={<Receipt className="h-5 w-5" />} title="No expenses" />
+   885→        </div>
+   886→      ) : (
+   887→        <div className="scroll-thin max-h-[600px] overflow-auto">
+   888→          <Table>
+   889→            <TableHeader className="sticky top-0 z-10 bg-card">
+   890→              <TableRow>
+   891→                <TableHead className="min-w-[200px] text-xs font-semibold uppercase tracking-wider">Description</TableHead>
+   892→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Category</TableHead>
+   893→                <TableHead className="min-w-[160px] text-xs font-semibold uppercase tracking-wider">Project / Vendor</TableHead>
+   894→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Amount</TableHead>
+   895→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Date</TableHead>
+   896→                <TableHead className="text-center text-xs font-semibold uppercase tracking-wider">Verified</TableHead>
+   897→              </TableRow>
+   898→            </TableHeader>
+   899→            <TableBody>
+   900→              {filtered.map((e) => (
+   901→                <TableRow key={e.id} className="hover:bg-accent/30">
+   902→                  <TableCell className="text-sm font-medium">{e.description}</TableCell>
+   903→                  <TableCell>
+   904→                    <span
+   905→                      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+   906→                        CAT_TONE[e.category] ?? "bg-muted text-muted-foreground"
+   907→                      }`}
+   908→                    >
+   909→                      {e.category}
+   910→                    </span>
+   911→                  </TableCell>
+   912→                  <TableCell>
+   913→                    <div className="flex flex-col">
+   914→                      <span className="truncate text-xs">{e.project.name}</span>
+   915→                      <span className="text-[11px] text-muted-foreground">{e.vendor.name}</span>
+   916→                    </div>
+   917→                  </TableCell>
+   918→                  <TableCell className="text-right text-sm font-medium">{formatNGN(e.amount)}</TableCell>
+   919→                  <TableCell className="text-xs text-muted-foreground">{formatDate(e.expenseDate)}</TableCell>
+   920→                  <TableCell className="text-center">
+   921→                    {e.isVerified ? (
+   922→                      <CheckCircle2 className="mx-auto h-4 w-4 text-emerald-400" />
+   923→                    ) : (
+   924→                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400">
+   925→                        <AlertTriangle className="h-3 w-3" />
+   926→                        Pending
+   927→                      </span>
+   928→                    )}
+   929→                  </TableCell>
+   930→                </TableRow>
+   931→              ))}
+   932→            </TableBody>
+   933→          </Table>
+   934→        </div>
+   935→      )}
+   936→    </Card>
+   937→  );
+   938→}
+   939→
+   940→// ---------- Budgets ----------
+   941→function BudgetsView({ rows }: { rows: Budget[] }) {
+   942→  return (
+   943→    <Card className="p-0">
+   944→      <div className="border-b border-border p-4">
+   945→        <SectionHeader
+   946→          title="Budgets vs Spent"
+   947→          description="Per project, per category — over 100% utilization flagged red"
+   948→          icon={<Wallet className="h-4 w-4" />}
+   949→        />
+   950→      </div>
+   951→      {rows.length === 0 ? (
+   952→        <div className="p-6">
+   953→          <EmptyState icon={<Wallet className="h-5 w-5" />} title="No budgets set" />
+   954→        </div>
+   955→      ) : (
+   956→        <div className="scroll-thin max-h-[600px] overflow-auto">
+   957→          <Table>
+   958→            <TableHeader className="sticky top-0 z-10 bg-card">
+   959→              <TableRow>
+   960→                <TableHead className="min-w-[180px] text-xs font-semibold uppercase tracking-wider">Project</TableHead>
+   961→                <TableHead className="text-xs font-semibold uppercase tracking-wider">Category</TableHead>
+   962→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Budget</TableHead>
+   963→                <TableHead className="text-right text-xs font-semibold uppercase tracking-wider">Spent</TableHead>
+   964→                <TableHead className="min-w-[160px] text-xs font-semibold uppercase tracking-wider">Utilization</TableHead>
+   965→              </TableRow>
+   966→            </TableHeader>
+   967→            <TableBody>
+   968→              {rows.map((b, i) => {
+   969→                const over = b.utilization > 100;
+   970→                const danger = b.utilization > 100;
+   971→                const warn = b.utilization >= 80 && b.utilization <= 100;
+   972→                const color = danger ? "bg-rose-500" : warn ? "bg-amber-500" : "bg-emerald-500";
+   973→                return (
+   974→                  <TableRow key={`${b.projectId}-${b.category}-${i}`} className="hover:bg-accent/30">
+   975→                    <TableCell className="text-sm font-medium">{b.project.name}</TableCell>
+   976→                    <TableCell>
+   977→                      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+   978→                        {b.category}
+   979→                      </span>
+   980→                    </TableCell>
+   981→                    <TableCell className="text-right text-sm">{formatNGN(b.amount)}</TableCell>
+   982→                    <TableCell className="text-right text-sm">
+   983→                      <span className={over ? "font-semibold text-rose-400" : ""}>{formatNGN(b.spent)}</span>
+   984→                    </TableCell>
+   985→                    <TableCell>
+   986→                      <div className="flex items-center gap-2">
+   987→                        <div className="flex-1">
+   988→                          <MiniBar
+   989→                            value={Math.min(b.utilization, 100)}
+   990→                            max={100}
+   991→                            color={color}
+   992→                          />
+   993→                        </div>
+   994→                        <span
+   995→                          className={`w-14 shrink-0 text-right text-xs font-medium ${
+   996→                            danger ? "text-rose-400" : warn ? "text-amber-400" : "text-emerald-400"
+   997→                          }`}
+   998→                        >
+   999→                          {formatPct(b.utilization)}
+  1000→                        </span>
+  1001→                      </div>
+  1002→                    </TableCell>
+  1003→                  </TableRow>
+  1004→                );
+  1005→              })}
+  1006→            </TableBody>
+  1007→          </Table>
+  1008→        </div>
+  1009→      )}
+  1010→    </Card>
+  1011→  );
+  1012→}
+  1013→

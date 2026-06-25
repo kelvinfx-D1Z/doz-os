@@ -16,6 +16,10 @@ import {
   Command,
   ChevronRight,
   CircleDot,
+  Smartphone,
+  LogOut,
+  Loader2,
+  ShieldCheck,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -26,6 +30,7 @@ import { Financial } from "@/components/modules/financial";
 import { Team } from "@/components/modules/team";
 import { SopKnowledge } from "@/components/modules/sop-knowledge";
 import { AiChiefOfStaff } from "@/components/modules/ai-chief-of-staff";
+import { FieldMode } from "@/components/modules/field-mode";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,7 +42,21 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useEffect } from "react";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { SignIn } from "@/components/doz/sign-in";
+import { initials, avatarColor } from "@/lib/format";
+import { toast } from "sonner";
 
 interface NavItem {
   id: ModuleId;
@@ -51,6 +70,7 @@ const NAV: NavItem[] = [
   { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, group: "Operate" },
   { id: "planning", label: "Strategic Planning", icon: <Target className="h-4 w-4" />, group: "Operate" },
   { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, group: "Operate", hint: "AI" },
+  { id: "field", label: "Field Mode", icon: <Smartphone className="h-4 w-4" />, group: "Operate", hint: "Mobile" },
   { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, group: "Grow" },
   { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-4 w-4" />, group: "Deliver" },
   { id: "procurement", label: "Procurement", icon: <Truck className="h-4 w-4" />, group: "Deliver" },
@@ -58,6 +78,14 @@ const NAV: NavItem[] = [
   { id: "team", label: "Team Management", icon: <UserCog className="h-4 w-4" />, group: "Control" },
   { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, group: "Scale" },
 ];
+
+// Role-based module access (Phase 2)
+const ROLE_MODULES: Record<string, ModuleId[]> = {
+  FOUNDER: ["command", "planning", "ai", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
+  STAFF: ["command", "planning", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
+  INTERN: ["command", "field", "team", "sop"],
+  FREELANCER: ["command", "field", "projects", "team"],
+};
 
 const MODULES: Record<ModuleId, React.ReactNode> = {
   command: <CommandCenter />,
@@ -69,6 +97,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   team: <Team />,
   sop: <SopKnowledge />,
   ai: <AiChiefOfStaff />,
+  field: <FieldMode />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -81,10 +110,27 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   team: { title: "Team Management", subtitle: "Interns, freelancers, accountability" },
   sop: { title: "SOP & Knowledge Base", subtitle: "Process is the product" },
   ai: { title: "AI Chief of Staff", subtitle: "Your digital Operations Director" },
+  field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  FOUNDER: "Founder & CEO",
+  STAFF: "Staff",
+  INTERN: "Intern",
+  FREELANCER: "Freelancer",
+};
+
+const ROLE_BADGE_COLOR: Record<string, string> = {
+  FOUNDER: "bg-emerald-500/15 text-emerald-300",
+  STAFF: "bg-teal-500/15 text-teal-300",
+  INTERN: "bg-violet-500/15 text-violet-300",
+  FREELANCER: "bg-fuchsia-500/15 text-fuchsia-300",
 };
 
 export function AppShell() {
   const { activeModule, setModule, commandOpen, setCommandOpen } = useAppStore();
+  const { user, status } = useCurrentUser();
+  const router = useRouter();
 
   // keyboard shortcut cmd+k
   useEffect(() => {
@@ -98,12 +144,46 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", handler);
   }, [setCommandOpen]);
 
-  const grouped = NAV.reduce<Record<string, NavItem[]>>((acc, item) => {
+  // Loading state while session resolves
+  if (status === "loading") {
+    return (
+      <div className="bg-grid flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-mono text-lg font-bold text-primary-foreground">
+            10
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading DOZ OS…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Not signed in → show sign-in overlay
+  if (!user) {
+    return <SignIn />;
+  }
+
+  const role = user.role;
+  const allowed = ROLE_MODULES[role] ?? ROLE_MODULES.FOUNDER;
+  const visibleNav = NAV.filter((n) => allowed.includes(n.id));
+
+  // If the active module isn't allowed for this role, fall back to command
+  const effectiveModule = allowed.includes(activeModule) ? activeModule : "command";
+
+  const grouped = visibleNav.reduce<Record<string, NavItem[]>>((acc, item) => {
     (acc[item.group] ||= []).push(item);
     return acc;
   }, {});
 
-  const meta = MODULE_META[activeModule];
+  const meta = MODULE_META[effectiveModule];
+
+  async function handleSignOut() {
+    await signOut({ redirect: false });
+    toast.success("Signed out");
+    router.refresh();
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -128,7 +208,7 @@ export function AppShell() {
                 </p>
                 <div className="space-y-0.5">
                   {items.map((item) => {
-                    const active = activeModule === item.id;
+                    const active = effectiveModule === item.id;
                     return (
                       <button
                         key={item.id}
@@ -149,6 +229,11 @@ export function AppShell() {
                             AI
                           </span>
                         )}
+                        {item.hint === "Mobile" && (
+                          <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-400">
+                            App
+                          </span>
+                        )}
                         {active && <ChevronRight className="h-3.5 w-3.5 text-primary" />}
                       </button>
                     );
@@ -158,19 +243,42 @@ export function AppShell() {
             ))}
           </nav>
 
+          {/* User menu */}
           <div className="border-t border-sidebar-border p-3">
-            <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-              <Avatar className="h-8 w-8 border border-sidebar-border">
-                <AvatarFallback className="bg-primary/20 text-xs font-semibold text-primary">
-                  AO
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate text-xs font-semibold text-sidebar-foreground">Adaeze Okonkwo</p>
-                <p className="truncate text-[10px] text-muted-foreground">Founder & CEO</p>
-              </div>
-              <CircleDot className="h-3 w-3 text-primary pulse-dot" />
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent/50">
+                  <Avatar className="h-8 w-8 border border-sidebar-border">
+                    <AvatarFallback className={cn("text-xs font-semibold", avatarColor(user.name))}>
+                      {initials(user.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1 leading-tight">
+                    <p className="truncate text-xs font-semibold text-sidebar-foreground">{user.name}</p>
+                    <p className="truncate text-[10px] text-muted-foreground">{ROLE_LABELS[role] ?? role}</p>
+                  </div>
+                  <CircleDot className="h-3 w-3 text-primary pulse-dot" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="flex items-center gap-2">
+                  <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs">{user.email}</span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase", ROLE_BADGE_COLOR[role] ?? "bg-muted")}>
+                    {role}
+                  </span>
+                  {user.title && <p className="mt-1 text-xs text-muted-foreground">{user.title}</p>}
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 h-3.5 w-3.5" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </aside>
 
@@ -212,13 +320,13 @@ export function AppShell() {
 
           {/* Mobile nav */}
           <div className="scroll-thin flex gap-1 overflow-x-auto border-b border-border px-3 py-2 lg:hidden">
-            {NAV.map((item) => (
+            {visibleNav.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setModule(item.id)}
                 className={cn(
                   "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-                  activeModule === item.id
+                  effectiveModule === item.id
                     ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:bg-accent"
                 )}
@@ -231,8 +339,8 @@ export function AppShell() {
 
           {/* Module content */}
           <main className="scroll-thin flex-1 overflow-y-auto p-4 lg:p-6">
-            <div key={activeModule} className="mx-auto max-w-[1400px] animate-in fade-in-50 duration-300">
-              {MODULES[activeModule]}
+            <div key={effectiveModule} className="mx-auto max-w-[1400px] animate-in fade-in-50 duration-300">
+              {MODULES[effectiveModule]}
             </div>
           </main>
         </div>
@@ -244,7 +352,7 @@ export function AppShell() {
           <div className="flex items-center gap-3">
             <span className="font-mono font-semibold text-primary">DOZ OS</span>
             <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">Founder Operating System v1.0</span>
+            <span className="hidden sm:inline">Founder Operating System v2.0</span>
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="outline" className="gap-1 border-primary/30 text-[10px] text-primary">
@@ -261,7 +369,7 @@ export function AppShell() {
         <CommandList>
           <CommandEmpty>No results.</CommandEmpty>
           <CommandGroup heading="Modules">
-            {NAV.map((item) => (
+            {visibleNav.map((item) => (
               <CommandItem
                 key={item.id}
                 onSelect={() => {
