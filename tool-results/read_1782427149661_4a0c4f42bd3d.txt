@@ -1,0 +1,1029 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useMemo } from "react";
+     4→import { Card } from "@/components/ui/card";
+     5→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+     6→import {
+     7→  Table,
+     8→  TableBody,
+     9→  TableCell,
+    10→  TableHead,
+    11→  TableHeader,
+    12→  TableRow,
+    13→} from "@/components/ui/table";
+    14→import { Skeleton } from "@/components/ui/skeleton";
+    15→import { Badge } from "@/components/ui/badge";
+    16→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    17→import {
+    18→  StatCard,
+    19→  StatusBadge,
+    20→  SectionHeader,
+    21→  EmptyState,
+    22→  MiniBar,
+    23→} from "@/components/doz/ui-primitives";
+    24→import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
+    25→import {
+    26→  Users,
+    27→  UserCog,
+    28→  GraduationCap,
+    29→  Briefcase,
+    30→  CheckCircle2,
+    31→  Clock,
+    32→  AlertTriangle,
+    33→  FileText,
+    34→  Calendar,
+    35→  Smile,
+    36→  Phone,
+    37→  Mail,
+    38→  ListChecks,
+    39→  CalendarDays,
+    40→  Target,
+    41→  Sparkles,
+    42→  Lightbulb,
+    43→  Rocket,
+    44→  Inbox,
+    45→} from "lucide-react";
+    46→
+    47→// ============================================================
+    48→// Types
+    49→// ============================================================
+    50→type Role = "FOUNDER" | "STAFF" | "INTERN" | "FREELANCER";
+    51→type Mood = "GREAT" | "OK" | "STRESSED" | null | undefined;
+    52→
+    53→interface MemberCount {
+    54→  tasksAssigned: number;
+    55→  dailyReports: number;
+    56→  weeklyReports: number;
+    57→  crewAssignments: number;
+    58→}
+    59→interface Member {
+    60→  id: string;
+    61→  name: string;
+    62→  role: Role;
+    63→  title: string | null;
+    64→  email: string | null;
+    65→  phone: string | null;
+    66→  capacity: number;
+    67→  isActive: boolean;
+    68→  _count: MemberCount;
+    69→  openTasks: number;
+    70→  lastReport: { reportDate: string; mood: Mood; hoursWorked: number } | null;
+    71→}
+    72→interface ReportUser {
+    73→  name: string;
+    74→  role: Role;
+    75→  title: string | null;
+    76→}
+    77→interface DailyReport {
+    78→  id: string;
+    79→  user: ReportUser;
+    80→  reportDate: string;
+    81→  tasksDone: string;
+    82→  tasksPlanned: string | null;
+    83→  blockers: string | null;
+    84→  hoursWorked: number;
+    85→  mood: Mood;
+    86→  createdAt: string;
+    87→}
+    88→interface WeeklyReport {
+    89→  id: string;
+    90→  user: ReportUser;
+    91→  weekStart: string;
+    92→  weekEnd: string;
+    93→  achievements: string | null;
+    94→  challenges: string | null;
+    95→  learnings: string | null;
+    96→  nextWeekPlan: string | null;
+    97→  createdAt: string;
+    98→}
+    99→interface TodayTask {
+   100→  id: string;
+   101→  title: string;
+   102→  status: string;
+   103→  priority: string;
+   104→  dueDate: string | null;
+   105→  assignee: { name: string; role: string };
+   106→}
+   107→interface TeamData {
+   108→  stats: {
+   109→    totalMembers: number;
+   110→    interns: number;
+   111→    freelancers: number;
+   112→    staff: number;
+   113→    founder: number;
+   114→    reportingToday: number;
+   115→    reportingRate: number;
+   116→    openTasks: number;
+   117→    completedToday: number;
+   118→    avgHours: number;
+   119→  };
+   120→  members: Member[];
+   121→  dailyReports: DailyReport[];
+   122→  weeklyReports: WeeklyReport[];
+   123→  todayTasks: TodayTask[];
+   124→}
+   125→
+   126→// ============================================================
+   127→// Helpers
+   128→// ============================================================
+   129→const ROLE_BADGE_CLASS: Record<Role, string> = {
+   130→  FOUNDER: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+   131→  STAFF: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
+   132→  INTERN: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+   133→  FREELANCER: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
+   134→};
+   135→
+   136→const ROLE_ICON: Record<Role, React.ReactNode> = {
+   137→  FOUNDER: <UserCog className="h-3 w-3" />,
+   138→  STAFF: <Users className="h-3 w-3" />,
+   139→  INTERN: <GraduationCap className="h-3 w-3" />,
+   140→  FREELANCER: <Briefcase className="h-3 w-3" />,
+   141→};
+   142→
+   143→function moodEmoji(mood: Mood): string {
+   144→  switch (mood) {
+   145→    case "GREAT":
+   146→      return "😄";
+   147→    case "OK":
+   148→      return "😐";
+   149→    case "STRESSED":
+   150→      return "😟";
+   151→    default:
+   152→      return "—";
+   153→  }
+   154→}
+   155→
+   156→function isSameDay(d1: Date, d2: Date): boolean {
+   157→  return (
+   158→    d1.getFullYear() === d2.getFullYear() &&
+   159→    d1.getMonth() === d2.getMonth() &&
+   160→    d1.getDate() === d2.getDate()
+   161→  );
+   162→}
+   163→
+   164→function dateKey(d: string | Date): string {
+   165→  const date = typeof d === "string" ? new Date(d) : d;
+   166→  return date.toISOString().slice(0, 10);
+   167→}
+   168→
+   169→function splitLines(s: string | null): string[] {
+   170→  if (!s) return [];
+   171→  return s
+   172→    .split(/\r?\n/)
+   173→    .map((l) => l.trim())
+   174→    .filter(Boolean);
+   175→}
+   176→
+   177→// Utilization: assume 40h week is "full"; cap display at 100%
+   178→function utilizationPct(openTasks: number): number {
+   179→  // Heuristic indicator: more open tasks => higher util bar
+   180→  return Math.min(100, openTasks * 12);
+   181→}
+   182→
+   183→// ============================================================
+   184→// Filter pill
+   185→// ============================================================
+   186→function FilterPill({
+   187→  active,
+   188→  onClick,
+   189→  count,
+   190→  children,
+   191→}: {
+   192→  active: boolean;
+   193→  onClick: () => void;
+   194→  count?: number;
+   195→  children: React.ReactNode;
+   196→}) {
+   197→  return (
+   198→    <button
+   199→      type="button"
+   200→      onClick={onClick}
+   201→      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+   202→        active
+   203→          ? "border-primary/40 bg-primary/10 text-primary"
+   204→          : "border-border bg-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground"
+   205→      }`}
+   206→    >
+   207→      {children}
+   208→      {typeof count === "number" && (
+   209→        <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold leading-4">
+   210→          {count}
+   211→        </span>
+   212→      )}
+   213→    </button>
+   214→  );
+   215→}
+   216→
+   217→// ============================================================
+   218→// Member card
+   219→// ============================================================
+   220→function MemberCard({ m }: { m: Member }) {
+   221→  const today = new Date();
+   222→  const reportedToday =
+   223→    m.lastReport && isSameDay(new Date(m.lastReport.reportDate), today);
+   224→
+   225→  return (
+   226→    <Card className="flex flex-col gap-3 p-4">
+   227→      {/* Header */}
+   228→      <div className="flex items-start gap-3">
+   229→        <Avatar className="h-10 w-10 shrink-0">
+   230→          <AvatarFallback className={avatarColor(m.name)}>
+   231→            {initials(m.name)}
+   232→          </AvatarFallback>
+   233→        </Avatar>
+   234→        <div className="min-w-0 flex-1">
+   235→          <div className="flex items-center justify-between gap-2">
+   236→            <p className="truncate font-semibold leading-tight">{m.name}</p>
+   237→            <span
+   238→              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ROLE_BADGE_CLASS[m.role]}`}
+   239→            >
+   240→              {ROLE_ICON[m.role]}
+   241→              {m.role}
+   242→            </span>
+   243→          </div>
+   244→          <p className="truncate text-xs text-muted-foreground">
+   245→            {m.title ?? m.role.toLowerCase()}
+   246→          </p>
+   247→        </div>
+   248→      </div>
+   249→
+   250→      {/* Contact */}
+   251→      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+   252→        {m.email && (
+   253→          <span className="flex items-center gap-1.5 truncate">
+   254→            <Mail className="h-3 w-3 shrink-0" />
+   255→            <span className="truncate">{m.email}</span>
+   256→          </span>
+   257→        )}
+   258→        {m.phone && (
+   259→          <span className="flex items-center gap-1.5 truncate">
+   260→            <Phone className="h-3 w-3 shrink-0" />
+   261→            <span className="truncate">{m.phone}</span>
+   262→          </span>
+   263→        )}
+   264→      </div>
+   265→
+   266→      {/* Capacity + utilization */}
+   267→      <div>
+   268→        <div className="mb-1 flex items-center justify-between text-[11px]">
+   269→          <span className="text-muted-foreground">Capacity</span>
+   270→          <span className="font-medium">
+   271→            {m.capacity} hrs/week
+   272→          </span>
+   273→        </div>
+   274→        <MiniBar
+   275→          value={utilizationPct(m.openTasks)}
+   276→          max={100}
+   277→          color={
+   278→            m.openTasks >= 6
+   279→              ? "bg-rose-500"
+   280→              : m.openTasks >= 3
+   281→                ? "bg-amber-500"
+   282→                : "bg-primary"
+   283→          }
+   284→        />
+   285→      </div>
+   286→
+   287→      {/* Stats row */}
+   288→      <div className="grid grid-cols-3 gap-1.5 text-center">
+   289→        <div className="rounded-md bg-muted/40 py-1.5">
+   290→          <p className="text-sm font-semibold">{m.openTasks}</p>
+   291→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   292→            Open
+   293→          </p>
+   294→        </div>
+   295→        <div className="rounded-md bg-muted/40 py-1.5">
+   296→          <p className="text-sm font-semibold">
+   297→            {m._count.dailyReports + m._count.weeklyReports}
+   298→          </p>
+   299→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   300→            Reports
+   301→          </p>
+   302→        </div>
+   303→        <div className="rounded-md bg-muted/40 py-1.5">
+   304→          <p className="text-sm font-semibold">{m._count.crewAssignments}</p>
+   305→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   306→            Crew
+   307→          </p>
+   308→        </div>
+   309→      </div>
+   310→
+   311→      {/* Last report indicator */}
+   312→      <div className="flex items-center justify-between border-t border-border pt-2 text-[11px]">
+   313→        <span className="flex items-center gap-1.5">
+   314→          <span
+   315→            className={`inline-block h-2 w-2 rounded-full ${
+   316→              reportedToday ? "bg-emerald-500" : "bg-amber-500"
+   317→            }`}
+   318→          />
+   319→          <span className={reportedToday ? "text-emerald-400" : "text-amber-400"}>
+   320→            {reportedToday ? "Reported today" : "No report today"}
+   321→          </span>
+   322→        </span>
+   323→        {m.lastReport && (
+   324→          <span className="flex items-center gap-1 text-muted-foreground">
+   325→            <Smile className="h-3 w-3" />
+   326→            <span className="text-base leading-none">
+   327→              {moodEmoji(m.lastReport.mood)}
+   328→            </span>
+   329→            <span className="ml-1">{m.lastReport.hoursWorked}h</span>
+   330→          </span>
+   331→        )}
+   332→      </div>
+   333→    </Card>
+   334→  );
+   335→}
+   336→
+   337→// ============================================================
+   338→// Daily report card
+   339→// ============================================================
+   340→function DailyReportCard({ r }: { r: DailyReport }) {
+   341→  const doneLines = splitLines(r.tasksDone);
+   342→  const plannedLines = splitLines(r.tasksPlanned);
+   343→  const blockerLines = splitLines(r.blockers);
+   344→  const hasBlockers =
+   345→    blockerLines.length > 0 &&
+   346→    !blockerLines.every((l) => l.toLowerCase() === "none");
+   347→
+   348→  return (
+   349→    <Card className="flex flex-col gap-3 p-4">
+   350→      {/* Header */}
+   351→      <div className="flex items-start justify-between gap-3">
+   352→        <div className="flex items-center gap-2.5">
+   353→          <Avatar className="h-8 w-8">
+   354→            <AvatarFallback className={avatarColor(r.user.name)}>
+   355→              {initials(r.user.name)}
+   356→            </AvatarFallback>
+   357→          </Avatar>
+   358→          <div>
+   359→            <p className="text-sm font-semibold leading-tight">{r.user.name}</p>
+   360→            <p className="text-[11px] text-muted-foreground">
+   361→              {r.user.title ?? r.user.role}
+   362→            </p>
+   363→          </div>
+   364→        </div>
+   365→        <div className="flex items-center gap-2">
+   366→          <span className="text-base leading-none">{moodEmoji(r.mood)}</span>
+   367→          <Badge
+   368→            variant="outline"
+   369→            className="border-border bg-muted/40 text-[11px] font-medium"
+   370→          >
+   371→            <Clock className="mr-1 h-3 w-3" />
+   372→            {r.hoursWorked}h
+   373→          </Badge>
+   374→          <span className="text-[11px] text-muted-foreground">
+   375→            {formatDate(r.reportDate)}
+   376→          </span>
+   377→        </div>
+   378→      </div>
+   379→
+   380→      {/* Done */}
+   381→      <div>
+   382→        <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
+   383→          <CheckCircle2 className="h-3 w-3" />
+   384→          Done
+   385→        </p>
+   386→        {doneLines.length > 0 ? (
+   387→          <ul className="space-y-1">
+   388→            {doneLines.map((line, i) => (
+   389→              <li
+   390→                key={i}
+   391→                className="flex items-start gap-1.5 text-[12px] leading-snug"
+   392→              >
+   393→                <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+   394→                <span>{line}</span>
+   395→              </li>
+   396→            ))}
+   397→          </ul>
+   398→        ) : (
+   399→          <p className="text-[12px] italic text-muted-foreground">—</p>
+   400→        )}
+   401→      </div>
+   402→
+   403→      {/* Planned */}
+   404→      {plannedLines.length > 0 && (
+   405→        <div>
+   406→          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   407→            <Target className="h-3 w-3" />
+   408→            Planned
+   409→          </p>
+   410→          <ul className="space-y-1">
+   411→            {plannedLines.map((line, i) => (
+   412→              <li
+   413→                key={i}
+   414→                className="flex items-start gap-1.5 text-[12px] leading-snug"
+   415→              >
+   416→                <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+   417→                <span>{line}</span>
+   418→              </li>
+   419→            ))}
+   420→          </ul>
+   421→        </div>
+   422→      )}
+   423→
+   424→      {/* Blockers */}
+   425→      {hasBlockers && (
+   426→        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+   427→          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+   428→            <AlertTriangle className="h-3 w-3" />
+   429→            Blockers
+   430→          </p>
+   431→          <ul className="space-y-1">
+   432→            {blockerLines.map((line, i) => (
+   433→              <li
+   434→                key={i}
+   435→                className="flex items-start gap-1.5 text-[12px] leading-snug text-amber-200/90"
+   436→              >
+   437→                <span className="mt-1 inline-block h-1 w-1 shrink-0 rounded-full bg-amber-400" />
+   438→                <span>{line}</span>
+   439→              </li>
+   440→            ))}
+   441→          </ul>
+   442→        </div>
+   443→      )}
+   444→    </Card>
+   445→  );
+   446→}
+   447→
+   448→// ============================================================
+   449→// Missing report card (flag for interns who haven't reported)
+   450→// ============================================================
+   451→function MissingReportCard({ name, title }: { name: string; title?: string | null }) {
+   452→  return (
+   453→    <Card className="border-amber-500/40 bg-amber-500/5 p-4">
+   454→      <div className="flex items-center gap-3">
+   455→        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
+   456→          <AlertTriangle className="h-4 w-4" />
+   457→        </div>
+   458→        <div className="min-w-0 flex-1">
+   459→          <p className="text-sm font-semibold text-amber-200">
+   460→            {name} — No daily report submitted
+   461→          </p>
+   462→          <p className="text-[11px] text-amber-300/70">
+   463→            {title ?? "Intern"} · Please follow up by 6:00 PM
+   464→          </p>
+   465→        </div>
+   466→      </div>
+   467→    </Card>
+   468→  );
+   469→}
+   470→
+   471→// ============================================================
+   472→// Weekly report card
+   473→// ============================================================
+   474→function WeeklyReportCard({ r }: { r: WeeklyReport }) {
+   475→  const sections: Array<{
+   476→    label: string;
+   477→    icon: React.ReactNode;
+   478→    color: string;
+   479→    text: string | null;
+   480→  }> = [
+   481→    {
+   482→      label: "Achievements",
+   483→      icon: <Sparkles className="h-3 w-3" />,
+   484→      color: "text-emerald-400",
+   485→      text: r.achievements,
+   486→    },
+   487→    {
+   488→      label: "Challenges",
+   489→      icon: <AlertTriangle className="h-3 w-3" />,
+   490→      color: "text-amber-400",
+   491→      text: r.challenges,
+   492→    },
+   493→    {
+   494→      label: "Learnings",
+   495→      icon: <Lightbulb className="h-3 w-3" />,
+   496→      color: "text-teal-400",
+   497→      text: r.learnings,
+   498→    },
+   499→    {
+   500→      label: "Next Week Plan",
+   501→      icon: <Rocket className="h-3 w-3" />,
+   502→      color: "text-primary",
+   503→      text: r.nextWeekPlan,
+   504→    },
+   505→  ];
+   506→
+   507→  return (
+   508→    <Card className="flex flex-col gap-3 p-4">
+   509→      {/* Header */}
+   510→      <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
+   511→        <div className="flex items-center gap-2.5">
+   512→          <Avatar className="h-9 w-9">
+   513→            <AvatarFallback className={avatarColor(r.user.name)}>
+   514→              {initials(r.user.name)}
+   515→            </AvatarFallback>
+   516→          </Avatar>
+   517→          <div>
+   518→            <p className="text-sm font-semibold leading-tight">{r.user.name}</p>
+   519→            <p className="text-[11px] text-muted-foreground">
+   520→              {r.user.title ?? r.user.role}
+   521→            </p>
+   522→          </div>
+   523→        </div>
+   524→        <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] font-medium">
+   525→          <CalendarDays className="h-3 w-3 text-muted-foreground" />
+   526→          <span>
+   527→            {formatDate(r.weekStart)} → {formatDate(r.weekEnd)}
+   528→          </span>
+   529→        </div>
+   530→      </div>
+   531→
+   532→      {/* Sections */}
+   533→      <div className="grid gap-3 sm:grid-cols-2">
+   534→        {sections.map((s) => {
+   535→          const lines = splitLines(s.text);
+   536→          return (
+   537→            <div key={s.label}>
+   538→              <p
+   539→                className={`mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${s.color}`}
+   540→              >
+   541→                {s.icon}
+   542→                {s.label}
+   543→              </p>
+   544→              {lines.length > 0 ? (
+   545→                <ul className="space-y-1">
+   546→                  {lines.map((line, i) => (
+   547→                    <li
+   548→                      key={i}
+   549→                      className="flex items-start gap-1.5 text-[12px] leading-snug"
+   550→                    >
+   551→                      <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+   552→                      <span>{line}</span>
+   553→                    </li>
+   554→                  ))}
+   555→                </ul>
+   556→              ) : (
+   557→                <p className="text-[12px] italic text-muted-foreground">—</p>
+   558→              )}
+   559→            </div>
+   560→          );
+   561→        })}
+   562→      </div>
+   563→    </Card>
+   564→  );
+   565→}
+   566→
+   567→// ============================================================
+   568→// Today's tasks table — grouped by priority
+   569→// ============================================================
+   570→const PRIORITY_GROUPS = [
+   571→  { key: "URGENT", label: "Urgent", color: "text-rose-400" },
+   572→  { key: "HIGH", label: "High", color: "text-amber-400" },
+   573→  { key: "MEDIUM", label: "Medium", color: "text-teal-400" },
+   574→  { key: "LOW", label: "Low", color: "text-zinc-400" },
+   575→];
+   576→
+   577→function TodayTasksTable({ tasks }: { tasks: TodayTask[] }) {
+   578→  if (tasks.length === 0) {
+   579→    return (
+   580→      <EmptyState
+   581→        icon={<Inbox className="h-8 w-8" />}
+   582→        title="No open tasks"
+   583→        hint="All tasks assigned to the team are completed."
+   584→      />
+   585→    );
+   586→  }
+   587→
+   588→  return (
+   589→    <div className="space-y-5">
+   590→      {PRIORITY_GROUPS.map((grp) => {
+   591→        const groupTasks = tasks.filter((t) => t.priority === grp.key);
+   592→        if (groupTasks.length === 0) return null;
+   593→        return (
+   594→          <div key={grp.key} className="space-y-2">
+   595→            <div className="flex items-center gap-2">
+   596→              <span
+   597→                className={`inline-block h-2 w-2 rounded-full ${
+   598→                  grp.key === "URGENT"
+   599→                    ? "bg-rose-500"
+   600→                    : grp.key === "HIGH"
+   601→                      ? "bg-amber-500"
+   602→                      : grp.key === "MEDIUM"
+   603→                        ? "bg-teal-500"
+   604→                        : "bg-zinc-500"
+   605→                }`}
+   606→              />
+   607→              <h3 className={`text-sm font-semibold ${grp.color}`}>
+   608→                {grp.label}
+   609→              </h3>
+   610→              <span className="text-[11px] text-muted-foreground">
+   611→                {groupTasks.length} task{groupTasks.length === 1 ? "" : "s"}
+   612→              </span>
+   613→            </div>
+   614→            <Card className="overflow-hidden p-0">
+   615→              <Table>
+   616→                <TableHeader>
+   617→                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+   618→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   619→                      Task
+   620→                    </TableHead>
+   621→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   622→                      Assignee
+   623→                    </TableHead>
+   624→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   625→                      Status
+   626→                    </TableHead>
+   627→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   628→                      Due
+   629→                    </TableHead>
+   630→                  </TableRow>
+   631→                </TableHeader>
+   632→                <TableBody>
+   633→                  {groupTasks.map((t) => (
+   634→                    <TableRow key={t.id}>
+   635→                      <TableCell className="py-2.5 text-[13px] font-medium">
+   636→                        {t.title}
+   637→                      </TableCell>
+   638→                      <TableCell className="py-2.5">
+   639→                        <div className="flex items-center gap-2">
+   640→                          <Avatar className="h-6 w-6">
+   641→                            <AvatarFallback
+   642→                              className={`text-[10px] ${avatarColor(t.assignee.name)}`}
+   643→                            >
+   644→                              {initials(t.assignee.name)}
+   645→                            </AvatarFallback>
+   646→                          </Avatar>
+   647→                          <div className="leading-tight">
+   648→                            <p className="text-[12px] font-medium">
+   649→                              {t.assignee.name}
+   650→                            </p>
+   651→                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   652→                              {t.assignee.role}
+   653→                            </p>
+   654→                          </div>
+   655→                        </div>
+   656→                      </TableCell>
+   657→                      <TableCell className="py-2.5">
+   658→                        <StatusBadge status={t.status} />
+   659→                      </TableCell>
+   660→                      <TableCell className="py-2.5 text-[12px] text-muted-foreground">
+   661→                        {t.dueDate ? relativeTime(t.dueDate) : "—"}
+   662→                      </TableCell>
+   663→                    </TableRow>
+   664→                  ))}
+   665→                </TableBody>
+   666→              </Table>
+   667→            </Card>
+   668→          </div>
+   669→        );
+   670→      })}
+   671→    </div>
+   672→  );
+   673→}
+   674→
+   675→// ============================================================
+   676→// Loading skeleton
+   677→// ============================================================
+   678→function TeamSkeleton() {
+   679→  return (
+   680→    <div className="space-y-5">
+   681→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+   682→        {Array.from({ length: 6 }).map((_, i) => (
+   683→          <Skeleton key={i} className="h-24 w-full" />
+   684→        ))}
+   685→      </div>
+   686→      <Skeleton className="h-10 w-full max-w-md" />
+   687→      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   688→        {Array.from({ length: 6 }).map((_, i) => (
+   689→          <Skeleton key={i} className="h-56 w-full" />
+   690→        ))}
+   691→      </div>
+   692→    </div>
+   693→  );
+   694→}
+   695→
+   696→// ============================================================
+   697→// Main component
+   698→// ============================================================
+   699→export function Team() {
+   700→  const [data, setData] = useState<TeamData | null>(null);
+   701→  const [error, setError] = useState<string | null>(null);
+   702→  const [filter, setFilter] = useState<Role | "ALL">("ALL");
+   703→
+   704→  useEffect(() => {
+   705→    let cancelled = false;
+   706→    (async () => {
+   707→      try {
+   708→        const res = await fetch("/api/doz/team");
+   709→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   710→        const json = (await res.json()) as TeamData;
+   711→        if (!cancelled) setData(json);
+   712→      } catch (e) {
+   713→        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load team");
+   714→      }
+   715→    })();
+   716→    return () => {
+   717→      cancelled = true;
+   718→    };
+   719→  }, []);
+   720→
+   721→  // ---- Filtered members
+   722→  const filteredMembers = useMemo(() => {
+   723→    if (!data) return [];
+   724→    if (filter === "ALL") return data.members;
+   725→    return data.members.filter((m) => m.role === filter);
+   726→  }, [data, filter]);
+   727→
+   728→  // ---- Filter counts
+   729→  const filterCounts = useMemo(() => {
+   730→    if (!data) return { ALL: 0, FOUNDER: 0, STAFF: 0, INTERN: 0, FREELANCER: 0 };
+   731→    const c = { ALL: data.members.length, FOUNDER: 0, STAFF: 0, INTERN: 0, FREELANCER: 0 };
+   732→    for (const m of data.members) c[m.role]++;
+   733→    return c;
+   734→  }, [data]);
+   735→
+   736→  // ---- Daily reports grouped by date (desc)
+   737→  const dailyByDate = useMemo(() => {
+   738→    if (!data) return [] as Array<{ date: string; reports: DailyReport[] }>;
+   739→    const map = new Map<string, DailyReport[]>();
+   740→    for (const r of data.dailyReports) {
+   741→      const k = dateKey(r.reportDate);
+   742→      const arr = map.get(k) ?? [];
+   743→      arr.push(r);
+   744→      map.set(k, arr);
+   745→    }
+   746→    return Array.from(map.entries())
+   747→      .map(([date, reports]) => ({ date, reports }))
+   748→      .sort((a, b) => (a.date < b.date ? 1 : -1));
+   749→  }, [data]);
+   750→
+   751→  // ---- Interns who have NOT reported today
+   752→  const internsMissingToday = useMemo(() => {
+   753→    if (!data) return [] as Array<{ name: string; title: string | null }>;
+   754→    const today = new Date();
+   755→    return data.members
+   756→      .filter((m) => m.role === "INTERN")
+   757→      .filter(
+   758→        (m) => !m.lastReport || !isSameDay(new Date(m.lastReport.reportDate), today)
+   759→      )
+   760→      .map((m) => ({ name: m.name, title: m.title }));
+   761→  }, [data]);
+   762→
+   763→  // ---- Loading state
+   764→  if (!data && !error) {
+   765→    return (
+   766→      <div className="space-y-5">
+   767→        <SectionHeader
+   768→          title="Team Management"
+   769→          description="Interns, freelancers, daily reports & accountability"
+   770→          icon={<Users className="h-5 w-5" />}
+   771→        />
+   772→        <TeamSkeleton />
+   773→      </div>
+   774→    );
+   775→  }
+   776→
+   777→  // ---- Error state
+   778→  if (error) {
+   779→    return (
+   780→      <div className="space-y-5">
+   781→        <SectionHeader
+   782→          title="Team Management"
+   783→          description="Interns, freelancers, daily reports & accountability"
+   784→          icon={<Users className="h-5 w-5" />}
+   785→        />
+   786→        <EmptyState
+   787→          icon={<AlertTriangle className="h-8 w-8" />}
+   788→          title="Failed to load team data"
+   789→          hint={error}
+   790→        />
+   791→      </div>
+   792→    );
+   793→  }
+   794→
+   795→  const s = data!.stats;
+   796→  const reportingRateLow = s.reportingRate < 80;
+   797→
+   798→  return (
+   799→    <div className="space-y-5">
+   800→      <SectionHeader
+   801→        title="Team Management"
+   802→        description="Interns, freelancers, daily reports & accountability"
+   803→        icon={<Users className="h-5 w-5" />}
+   804→      />
+   805→
+   806→      {/* KPI ROW */}
+   807→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+   808→        <StatCard
+   809→          label="Team Members"
+   810→          value={s.totalMembers}
+   811→          sub={`${s.founder + s.staff} core`}
+   812→          icon={<Users className="h-4 w-4" />}
+   813→        />
+   814→        <StatCard
+   815→          label="Interns"
+   816→          value={s.interns}
+   817→          sub={`${s.reportingToday} reporting today`}
+   818→          icon={<GraduationCap className="h-4 w-4" />}
+   819→          accent="primary"
+   820→        />
+   821→        <StatCard
+   822→          label="Freelancers"
+   823→          value={s.freelancers}
+   824→          sub="On-call crew"
+   825→          icon={<Briefcase className="h-4 w-4" />}
+   826→        />
+   827→        <StatCard
+   828→          label="Reporting Rate"
+   829→          value={`${s.reportingRate}%`}
+   830→          sub={`${s.reportingToday}/${s.interns} interns today`}
+   831→          icon={<CheckCircle2 className="h-4 w-4" />}
+   832→          accent={reportingRateLow ? "danger" : "primary"}
+   833→        />
+   834→        <StatCard
+   835→          label="Open Tasks"
+   836→          value={s.openTasks}
+   837→          sub={`${s.completedToday} done today`}
+   838→          icon={<FileText className="h-4 w-4" />}
+   839→          accent={s.openTasks >= 10 ? "warning" : "default"}
+   840→        />
+   841→        <StatCard
+   842→          label="Avg Hours/Day"
+   843→          value={`${s.avgHours}h`}
+   844→          sub="Across today's reports"
+   845→          icon={<Clock className="h-4 w-4" />}
+   846→        />
+   847→      </div>
+   848→
+   849→      {/* TABS */}
+   850→      <Tabs defaultValue="team" className="space-y-4">
+   851→        <TabsList className="flex w-full max-w-2xl flex-wrap gap-1">
+   852→          <TabsTrigger value="team" className="flex-1">
+   853→            <Users className="mr-1.5 h-3.5 w-3.5" />
+   854→            Team
+   855→          </TabsTrigger>
+   856→          <TabsTrigger value="daily" className="flex-1">
+   857→            <Calendar className="mr-1.5 h-3.5 w-3.5" />
+   858→            Daily Reports
+   859→          </TabsTrigger>
+   860→          <TabsTrigger value="weekly" className="flex-1">
+   861→            <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+   862→            Weekly Reports
+   863→          </TabsTrigger>
+   864→          <TabsTrigger value="tasks" className="flex-1">
+   865→            <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+   866→            Today&apos;s Tasks
+   867→          </TabsTrigger>
+   868→        </TabsList>
+   869→
+   870→        {/* ============== TEAM TAB ============== */}
+   871→        <TabsContent value="team" className="space-y-4">
+   872→          {/* Filter pills */}
+   873→          <div className="flex flex-wrap items-center gap-2">
+   874→            <FilterPill
+   875→              active={filter === "ALL"}
+   876→              onClick={() => setFilter("ALL")}
+   877→              count={filterCounts.ALL}
+   878→            >
+   879→              All
+   880→            </FilterPill>
+   881→            <FilterPill
+   882→              active={filter === "FOUNDER"}
+   883→              onClick={() => setFilter("FOUNDER")}
+   884→              count={filterCounts.FOUNDER}
+   885→            >
+   886→              Founder
+   887→            </FilterPill>
+   888→            <FilterPill
+   889→              active={filter === "STAFF"}
+   890→              onClick={() => setFilter("STAFF")}
+   891→              count={filterCounts.STAFF}
+   892→            >
+   893→              Staff
+   894→            </FilterPill>
+   895→            <FilterPill
+   896→              active={filter === "INTERN"}
+   897→              onClick={() => setFilter("INTERN")}
+   898→              count={filterCounts.INTERN}
+   899→            >
+   900→              Interns
+   901→            </FilterPill>
+   902→            <FilterPill
+   903→              active={filter === "FREELANCER"}
+   904→              onClick={() => setFilter("FREELANCER")}
+   905→              count={filterCounts.FREELANCER}
+   906→            >
+   907→              Freelancers
+   908→            </FilterPill>
+   909→          </div>
+   910→
+   911→          {/* Member cards grid */}
+   912→          {filteredMembers.length === 0 ? (
+   913→            <EmptyState
+   914→              icon={<Users className="h-8 w-8" />}
+   915→              title="No members in this filter"
+   916→              hint="Try selecting a different role."
+   917→            />
+   918→          ) : (
+   919→            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   920→              {filteredMembers.map((m) => (
+   921→                <MemberCard key={m.id} m={m} />
+   922→              ))}
+   923→            </div>
+   924→          )}
+   925→        </TabsContent>
+   926→
+   927→        {/* ============== DAILY REPORTS TAB ============== */}
+   928→        <TabsContent value="daily" className="space-y-4">
+   929→          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+   930→            <Calendar className="h-3.5 w-3.5" />
+   931→            <span>
+   932→              Showing all daily reports, grouped by date. Today&apos;s reports
+   933→              appear first.
+   934→            </span>
+   935→          </div>
+   936→
+   937→          {internsMissingToday.length > 0 && (
+   938→            <div className="space-y-2">
+   939→              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+   940→                <AlertTriangle className="h-3 w-3" />
+   941→                Missing today&apos;s report ({internsMissingToday.length})
+   942→              </p>
+   943→              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+   944→                {internsMissingToday.map((m) => (
+   945→                  <MissingReportCard
+   946→                    key={m.name}
+   947→                    name={m.name}
+   948→                    title={m.title}
+   949→                  />
+   950→                ))}
+   951→              </div>
+   952→            </div>
+   953→          )}
+   954→
+   955→          {dailyByDate.length === 0 ? (
+   956→            <EmptyState
+   957→              icon={<FileText className="h-8 w-8" />}
+   958→              title="No daily reports yet"
+   959→              hint="Interns should submit a report by 6:00 PM daily."
+   960→            />
+   961→          ) : (
+   962→            <div className="max-h-[800px] space-y-5 overflow-y-auto scroll-thin pr-1">
+   963→              {dailyByDate.map((group) => {
+   964→                const isToday = isSameDay(new Date(group.date), new Date());
+   965→                return (
+   966→                  <div key={group.date} className="space-y-2">
+   967→                    <div className="flex items-center gap-2">
+   968→                      <h3 className="text-sm font-semibold">
+   969→                        {formatDate(group.date)}
+   970→                      </h3>
+   971→                      {isToday && (
+   972→                        <Badge
+   973→                          variant="outline"
+   974→                          className="border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-300"
+   975→                        >
+   976→                          TODAY
+   977→                        </Badge>
+   978→                      )}
+   979→                      <span className="text-[11px] text-muted-foreground">
+   980→                        {group.reports.length} report
+   981→                        {group.reports.length === 1 ? "" : "s"}
+   982→                      </span>
+   983→                    </div>
+   984→                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   985→                      {group.reports.map((r) => (
+   986→                        <DailyReportCard key={r.id} r={r} />
+   987→                      ))}
+   988→                    </div>
+   989→                  </div>
+   990→                );
+   991→              })}
+   992→            </div>
+   993→          )}
+   994→        </TabsContent>
+   995→
+   996→        {/* ============== WEEKLY REPORTS TAB ============== */}
+   997→        <TabsContent value="weekly" className="space-y-4">
+   998→          {data!.weeklyReports.length === 0 ? (
+   999→            <EmptyState
+  1000→              icon={<CalendarDays className="h-8 w-8" />}
+  1001→              title="No weekly reports"
+  1002→              hint="Weekly reports are submitted every Friday by interns."
+  1003→            />
+  1004→          ) : (
+  1005→            <div className="max-h-[800px] space-y-3 overflow-y-auto scroll-thin pr-1">
+  1006→              {data!.weeklyReports.map((r) => (
+  1007→                <WeeklyReportCard key={r.id} r={r} />
+  1008→              ))}
+  1009→            </div>
+  1010→          )}
+  1011→        </TabsContent>
+  1012→
+  1013→        {/* ============== TODAY'S TASKS TAB ============== */}
+  1014→        <TabsContent value="tasks" className="space-y-4">
+  1015→          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+  1016→            <ListChecks className="h-3.5 w-3.5" />
+  1017→            <span>
+  1018→              {data!.todayTasks.length} open task
+  1019→              {data!.todayTasks.length === 1 ? "" : "s"} across the team, grouped
+  1020→              by priority.
+  1021→            </span>
+  1022→          </div>
+  1023→          <TodayTasksTable tasks={data!.todayTasks} />
+  1024→        </TabsContent>
+  1025→      </Tabs>
+  1026→    </div>
+  1027→  );
+  1028→}
+  1029→

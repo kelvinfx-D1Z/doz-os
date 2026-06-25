@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   MapPin,
@@ -16,12 +16,17 @@ import {
   CircleDollarSign,
   Trophy,
   FolderKanban,
+  Plus,
+  Loader2,
+  ArrowDownCircle,
+  ArrowUpCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -30,6 +35,17 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
 import {
   StatCard,
   StatusBadge,
@@ -89,6 +105,8 @@ interface Project {
   deliverables: Deliverable[];
   _count: { tasks: number; invoices: number; expenses: number };
   expensesTotal: number;
+  received: number;
+  balance: number;
   profit: number;
   margin: number;
 }
@@ -100,13 +118,42 @@ interface ProjectsData {
     totalRevenue: number;
     totalExpenses: number;
     totalProfit: number;
+    totalReceived: number;
+    totalBalance: number;
     avgMargin: number;
   };
   projects: Project[];
 }
 
+interface AccountOption {
+  id: string;
+  name: string;
+  isStrategic?: boolean;
+}
+
 // ---------- Constants ----------
 const ACTIVE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"];
+
+// Service types selectable in the New Project form. Kept in sync with the
+// backend VALID_SERVICE_TYPES list in /api/doz/projects/route.ts.
+const SERVICE_TYPES = [
+  "EVENT_PRODUCTION",
+  "EVENT_MANAGEMENT",
+  "CONFERENCE_PRODUCTION",
+  "VIDEO_PRODUCTION",
+  "CORPORATE_VIDEO",
+  "DOCUMENTARY",
+  "TITLE_SEQUENCE",
+  "COLOR_GRADING",
+  "PHOTOGRAPHY",
+  "MOTION_GRAPHICS",
+  "LIVESTREAM",
+  "POST_PRODUCTION",
+] as const;
+
+// Statuses offered when creating a new project (post-create, IN_PROGRESS can
+// be set later). Defaults to PLANNING.
+const CREATE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"] as const;
 
 const SERVICE_ICON: Record<string, React.ReactNode> = {
   EVENT_PRODUCTION: <Clapperboard className="h-3.5 w-3.5" />,
@@ -151,32 +198,35 @@ export function ProjectsEvents() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("all");
+  const [createOpen, setCreateOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(() => {
+    // Note: we intentionally do NOT call setLoading(true) here synchronously
+    // — the initial `loading` state is `true` already and we only flip it to
+    // false once data arrives. Refreshes (after create) keep the existing
+    // data on screen and avoid a cascading-render lint warning.
     fetch("/api/doz/projects")
       .then((r) => {
         if (!r.ok) throw new Error(`Request failed (${r.status})`);
         return r.json();
       })
       .then((d: ProjectsData) => {
-        if (!cancelled) {
-          setData(d);
-          setError(null);
-        }
+        setData(d);
+        setError(null);
       })
       .catch((e) => {
-        if (!cancelled) setError(e.message || "Failed to load projects");
+        setError(e.message || "Failed to load projects");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  if (loading) return <ProjectsSkeleton />;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading && !data) return <ProjectsSkeleton />;
 
   if (error || !data) {
     return (
@@ -185,11 +235,19 @@ export function ProjectsEvents() {
           icon={<Clapperboard className="h-5 w-5" />}
           title="Projects & Event Operations"
           description="Deliver every event on time, on budget"
+          action={
+            <NewProjectButton onClick={() => setCreateOpen(true)} />
+          }
         />
         <EmptyState
           icon={<AlertTriangle className="h-8 w-8" />}
           title="Couldn't load projects"
           hint={error ?? "Unknown error"}
+        />
+        <NewProjectDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={load}
         />
       </div>
     );
@@ -213,10 +271,13 @@ export function ProjectsEvents() {
         icon={<Clapperboard className="h-5 w-5" />}
         title="Projects & Event Operations"
         description={`${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
+        action={
+          <NewProjectButton onClick={() => setCreateOpen(true)} />
+        }
       />
 
       {/* KPI ROW */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <StatCard
           label="Total Projects"
           value={stats.total}
@@ -237,6 +298,20 @@ export function ProjectsEvents() {
           sub="booked"
           icon={<CircleDollarSign className="h-4 w-4" />}
           accent="primary"
+        />
+        <StatCard
+          label="Received"
+          value={formatNGN(stats.totalReceived, true)}
+          sub="collected"
+          icon={<ArrowDownCircle className="h-4 w-4" />}
+          accent="primary"
+        />
+        <StatCard
+          label="Balance Owed"
+          value={formatNGN(stats.totalBalance, true)}
+          sub="outstanding"
+          icon={<ArrowUpCircle className="h-4 w-4" />}
+          accent={stats.totalBalance > 0 ? "warning" : "primary"}
         />
         <StatCard
           label="Profit"
@@ -281,7 +356,7 @@ export function ProjectsEvents() {
             <EmptyState
               icon={<FolderKanban className="h-8 w-8" />}
               title="No projects in this view"
-              hint="Switch tabs to see other projects."
+              hint="Switch tabs to see other projects, or create a new one."
             />
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -292,7 +367,366 @@ export function ProjectsEvents() {
           )}
         </TabsContent>
       </Tabs>
+
+      <NewProjectDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={load}
+      />
     </div>
+  );
+}
+
+// ---------- New Project Button ----------
+function NewProjectButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button onClick={onClick} size="sm" className="gap-1">
+      <Plus className="h-4 w-4" />
+      New Project
+    </Button>
+  );
+}
+
+// ---------- New Project Dialog ----------
+function NewProjectDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [serviceType, setServiceType] = useState<string>("");
+  const [status, setStatus] = useState<string>("PLANNING");
+  const [accountId, setAccountId] = useState<string>("");
+  const [eventDate, setEventDate] = useState<string>("");
+  const [venue, setVenue] = useState<string>("");
+  const [budget, setBudget] = useState<string>("");
+  const [revenue, setRevenue] = useState<string>("");
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Load accounts (from CRM endpoint) once when the dialog first opens.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setAccountsLoading(true);
+    fetch("/api/doz/crm")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const list: AccountOption[] = (d.accounts ?? []).map(
+          (a: { id: string; name: string; isStrategic?: boolean }) => ({
+            id: a.id,
+            name: a.name,
+            isStrategic: a.isStrategic,
+          })
+        );
+        setAccounts(list);
+      })
+      .catch(() => {
+        // Non-fatal — the field stays as an empty select.
+      })
+      .finally(() => {
+        if (!cancelled) setAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Reset form fields whenever the dialog closes.
+  useEffect(() => {
+    if (!open) {
+      setName("");
+      setServiceType("");
+      setStatus("PLANNING");
+      setAccountId("");
+      setEventDate("");
+      setVenue("");
+      setBudget("");
+      setRevenue("");
+    }
+  }, [open]);
+
+  const budgetNum = useMemo(() => {
+    const n = Number(budget);
+    return isNaN(n) ? 0 : n;
+  }, [budget]);
+  const revenueNum = useMemo(() => {
+    const n = Number(revenue);
+    return isNaN(n) ? 0 : n;
+  }, [revenue]);
+  const projectedProfit = revenueNum - budgetNum;
+  const projectedMargin =
+    revenueNum > 0 ? (projectedProfit / revenueNum) * 100 : 0;
+
+  const canSubmit =
+    name.trim().length > 0 &&
+    serviceType.length > 0 &&
+    budget.trim().length > 0 &&
+    Number(budget) >= 0 &&
+    revenue.trim().length > 0 &&
+    Number(revenue) >= 0 &&
+    !submitting;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        serviceType,
+        status,
+        budget: budgetNum,
+        revenue: revenueNum,
+      };
+      if (accountId) payload.accountId = accountId;
+      if (eventDate) payload.eventDate = eventDate;
+      if (venue.trim()) payload.venue = venue.trim();
+
+      const res = await fetch("/api/doz/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.project) {
+        throw new Error(json?.error || `Failed (${res.status})`);
+      }
+      toast.success("Project created", {
+        description: `${json.project.name} (${json.project.code ?? "no code"})`,
+      });
+      onOpenChange(false);
+      onCreated();
+    } catch (err) {
+      toast.error("Couldn't create project", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Plus className="h-4 w-4 text-primary" />
+            Create New Project
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Add a project with its cost, contract value, and key details.
+          </p>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit}
+          className="scroll-thin flex max-h-[calc(90vh-9rem)] flex-col"
+        >
+          <div className="space-y-4 overflow-y-auto px-5 py-4">
+            {/* Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="np-name">
+                Project Name <span className="text-rose-500">*</span>
+              </Label>
+              <Input
+                id="np-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. GTBank Annual Gala 2025"
+                required
+                autoFocus
+              />
+            </div>
+
+            {/* Service Type + Status */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="np-service">
+                  Service Type <span className="text-rose-500">*</span>
+                </Label>
+                <Select value={serviceType} onValueChange={setServiceType}>
+                  <SelectTrigger id="np-service">
+                    <SelectValue placeholder="Select service…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SERVICE_TYPES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {serviceLabel(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="np-status">Status</Label>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger id="np-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CREATE_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {serviceLabel(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Account + Event Date */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="np-account">Client / Account</Label>
+                <Select value={accountId} onValueChange={setAccountId}>
+                  <SelectTrigger id="np-account">
+                    <SelectValue
+                      placeholder={
+                        accountsLoading ? "Loading…" : "Optional — select client"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.length === 0 && !accountsLoading ? (
+                      <SelectItem value="__none__" disabled>
+                        No accounts available
+                      </SelectItem>
+                    ) : (
+                      accounts.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.isStrategic ? "★ " : ""}
+                          {a.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="np-date">Event Date</Label>
+                <Input
+                  id="np-date"
+                  type="date"
+                  value={eventDate}
+                  onChange={(e) => setEventDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Venue */}
+            <div className="space-y-1.5">
+              <Label htmlFor="np-venue">Venue</Label>
+              <Input
+                id="np-venue"
+                value={venue}
+                onChange={(e) => setVenue(e.target.value)}
+                placeholder="e.g. Eko Hotel Convention Center"
+              />
+            </div>
+
+            {/* Budget + Revenue */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="np-budget">
+                  Project Cost (Budget) <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  id="np-budget"
+                  type="number"
+                  min={0}
+                  step="1000"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="5,000,000"
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  What will this project cost us to deliver?
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="np-revenue">
+                  Total Contract Value <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  id="np-revenue"
+                  type="number"
+                  min={0}
+                  step="1000"
+                  value={revenue}
+                  onChange={(e) => setRevenue(e.target.value)}
+                  placeholder="8,000,000"
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Total amount the client will pay.
+                </p>
+              </div>
+            </div>
+
+            {/* Live profit calculation */}
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                <TrendingUp className="h-3.5 w-3.5" />
+                Projected Profit (if client pays in full)
+              </div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                <span
+                  className={`text-lg font-semibold ${
+                    projectedProfit >= 0 ? "text-emerald-500" : "text-rose-500"
+                  }`}
+                >
+                  {formatNGN(projectedProfit)}
+                </span>
+                <span
+                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                    projectedProfit >= 0
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "bg-rose-500/15 text-rose-400"
+                  }`}
+                >
+                  {revenueNum > 0 ? `${projectedMargin.toFixed(1)}% margin` : "—"}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Contract {formatNGN(revenueNum, true)} − Cost {formatNGN(budgetNum, true)}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border px-5 py-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!canSubmit} className="gap-1.5">
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Create Project
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -363,18 +797,63 @@ function ProjectCard({ project: p }: { project: Project }) {
             </div>
           )}
 
-          {/* Financial bar */}
-          <div className="mt-3 space-y-1.5 rounded-md border border-border/60 bg-muted/30 p-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Revenue</span>
-              <span className="font-semibold text-foreground">
+          {/* Financial summary strip — Earned / Received / Balance / Cost */}
+          <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <CircleDollarSign className="h-3 w-3" />
+                Earned
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-primary" title={formatNGN(p.revenue)}>
                 {formatNGN(p.revenue, true)}
-              </span>
+              </p>
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Budget</span>
-              <span className="font-medium text-foreground">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <ArrowDownCircle className="h-3 w-3" />
+                Received
+              </p>
+              <p
+                className="mt-0.5 truncate text-sm font-semibold text-emerald-500"
+                title={formatNGN(p.received)}
+              >
+                {formatNGN(p.received, true)}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <ArrowUpCircle className="h-3 w-3" />
+                Balance
+              </p>
+              <p
+                className={`mt-0.5 truncate text-sm font-semibold ${
+                  p.balance > 0 ? "text-amber-500" : "text-emerald-500"
+                }`}
+                title={formatNGN(p.balance)}
+              >
+                {formatNGN(p.balance, true)}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <Wallet className="h-3 w-3" />
+                Cost
+              </p>
+              <p
+                className="mt-0.5 truncate text-sm font-semibold text-muted-foreground"
+                title={formatNGN(p.budget)}
+              >
                 {formatNGN(p.budget, true)}
+              </p>
+            </div>
+          </div>
+
+          {/* Budget burn bar */}
+          <div className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2.5">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Budget burn</span>
+              <span>
+                Spent <span className="font-medium text-foreground">{formatNGN(p.expensesTotal, true)}</span> · {budgetUtil.toFixed(0)}% of budget
               </span>
             </div>
             <MiniBar
@@ -382,15 +861,31 @@ function ProjectCard({ project: p }: { project: Project }) {
               max={p.budget > 0 ? p.budget : p.revenue || 1}
               color={overBudgetWarn ? "bg-amber-500" : "bg-emerald-500"}
             />
+            {/* Collection progress: received / revenue */}
             <div className="flex items-center justify-between pt-0.5 text-[11px] text-muted-foreground">
-              <span>Spent {formatNGN(p.expensesTotal, true)} ({budgetUtil.toFixed(0)}% budget)</span>
-              {overBudgetWarn && (
-                <span className="inline-flex items-center gap-1 font-medium text-amber-500">
-                  <AlertTriangle className="h-3 w-3" />
-                  High burn
+              <span>Collected</span>
+              <span>
+                <span className="font-medium text-emerald-500">
+                  {formatNGN(p.received, true)}
                 </span>
-              )}
+                {" / "}
+                {formatNGN(p.revenue, true)} ·{" "}
+                <span className="font-medium text-foreground">
+                  {p.revenue > 0 ? ((p.received / p.revenue) * 100).toFixed(0) : 0}%
+                </span>
+              </span>
             </div>
+            <MiniBar
+              value={p.received}
+              max={p.revenue > 0 ? p.revenue : 1}
+              color="bg-emerald-500"
+            />
+            {overBudgetWarn && (
+              <div className="flex items-center justify-end gap-1 pt-0.5 text-[11px] font-medium text-amber-500">
+                <AlertTriangle className="h-3 w-3" />
+                High burn
+              </div>
+            )}
           </div>
 
           {/* Profit + margin */}
@@ -543,13 +1038,23 @@ function ProjectDialog({ project: p }: { project: Project }) {
 
       <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
         {/* Quick facts */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border/60 p-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Revenue</p>
-            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.revenue, true)}</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Earned (Contract)</p>
+            <p className="mt-0.5 text-sm font-semibold text-primary">{formatNGN(p.revenue, true)}</p>
           </div>
           <div className="rounded-md border border-border/60 p-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Budget</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Received</p>
+            <p className="mt-0.5 text-sm font-semibold text-emerald-500">{formatNGN(p.received, true)}</p>
+          </div>
+          <div className="rounded-md border border-border/60 p-2.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance Owed</p>
+            <p className={`mt-0.5 text-sm font-semibold ${p.balance > 0 ? "text-amber-500" : "text-emerald-500"}`}>
+              {formatNGN(p.balance, true)}
+            </p>
+          </div>
+          <div className="rounded-md border border-border/60 p-2.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Budget (Cost)</p>
             <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.budget, true)}</p>
           </div>
           <div className="rounded-md border border-border/60 p-2.5">

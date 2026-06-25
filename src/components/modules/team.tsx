@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -14,14 +14,28 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   StatCard,
   StatusBadge,
   SectionHeader,
   EmptyState,
   MiniBar,
+  PriorityDot,
 } from "@/components/doz/ui-primitives";
 import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
   Users,
   UserCog,
@@ -42,6 +56,13 @@ import {
   Lightbulb,
   Rocket,
   Inbox,
+  Plus,
+  Check,
+  Circle,
+  ListTodo,
+  UserPlus,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 
 // ============================================================
@@ -103,6 +124,22 @@ interface TodayTask {
   priority: string;
   dueDate: string | null;
   assignee: { name: string; role: string };
+}
+// Weekly task — shape returned by /api/doz/tasks?assigneeId=xxx&scope=week
+interface WeeklyTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  category: string | null;
+  isDistraction: boolean;
+  dueDate: string | null;
+  completedAt: string | null;
+  assignee: { id: string; name: string; role: string } | null;
+  creator: { id: string; name: string } | null;
+  goal: { id: string; title: string } | null;
+  project: { id: string; name: string } | null;
 }
 interface TeamData {
   stats: {
@@ -178,6 +215,33 @@ function splitLines(s: string | null): string[] {
 function utilizationPct(openTasks: number): number {
   // Heuristic indicator: more open tasks => higher util bar
   return Math.min(100, openTasks * 12);
+}
+
+// Return ISO date (YYYY-MM-DD) for the Friday of the current week
+function thisFridayISO(): string {
+  const now = new Date();
+  const day = now.getDay(); // 0 Sun ... 6 Sat
+  // Friday = 5. Shift forward (or back if Saturday)
+  const diff = day <= 5 ? 5 - day : 5 - day + 7;
+  const fri = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+  const y = fri.getFullYear();
+  const m = (fri.getMonth() + 1).toString().padStart(2, "0");
+  const d = fri.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// Check if a date string falls within the current week (Mon-Sun)
+function isThisWeek(d: string | null | undefined): boolean {
+  if (!d) return false;
+  const date = new Date(d);
+  const now = new Date();
+  const day = now.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return date >= monday && date <= sunday;
 }
 
 // ============================================================
@@ -673,6 +737,562 @@ function TodayTasksTable({ tasks }: { tasks: TodayTask[] }) {
 }
 
 // ============================================================
+// Weekly Tasks Tab — intern task assignment
+// ============================================================
+function WeeklyTasksTab({ interns }: { interns: Member[] }) {
+  const [selectedId, setSelectedId] = useState<string | null>(
+    interns[0]?.id ?? null,
+  );
+  const [tasks, setTasks] = useState<WeeklyTask[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Assign-form state
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState("MEDIUM");
+  const [dueDate, setDueDate] = useState(thisFridayISO());
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadTasks = useCallback(async () => {
+    if (!selectedId) {
+      setTasks([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/doz/tasks?assigneeId=${encodeURIComponent(selectedId)}&scope=week`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { tasks: WeeklyTask[] };
+      setTasks(json.tasks ?? []);
+    } catch {
+      setTasks([]);
+      toast.error("Couldn't load weekly tasks");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+  // ---- handlers
+  const handleToggle = useCallback(
+    async (taskId: string, currentlyDone: boolean) => {
+      if (togglingId) return;
+      setTogglingId(taskId);
+      // optimistic update
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status: currentlyDone ? "TODO" : "DONE",
+                completedAt: currentlyDone
+                  ? null
+                  : new Date().toISOString(),
+              }
+            : t,
+        ),
+      );
+      try {
+        const res = await fetch("/api/doz/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, action: "toggle" }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
+        toast.success(currentlyDone ? "Task reopened" : "Task completed", {
+          description: currentlyDone
+            ? "Marked as TODO."
+            : "Nicely done — keep the momentum.",
+        });
+      } catch (e) {
+        // revert
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  status: currentlyDone ? "DONE" : "TODO",
+                  completedAt: currentlyDone
+                    ? new Date().toISOString()
+                    : null,
+                }
+              : t,
+          ),
+        );
+        toast.error("Couldn't update task", {
+          description: e instanceof Error ? e.message : "Try again.",
+        });
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [togglingId],
+  );
+
+  const handleAssign = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!title.trim()) {
+        toast.error("Title is required");
+        return;
+      }
+      if (!selectedId) {
+        toast.error("Select an intern first");
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const res = await fetch("/api/doz/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.trim(),
+            description: description.trim() || null,
+            priority,
+            assigneeId: selectedId,
+            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
+        const intern = interns.find((i) => i.id === selectedId);
+        toast.success("Task assigned", {
+          description: intern
+            ? `"${title.trim()}" → ${intern.name}.`
+            : `"${title.trim()}" assigned.`,
+        });
+        setTitle("");
+        setDescription("");
+        setPriority("MEDIUM");
+        setDueDate(thisFridayISO());
+        loadTasks();
+      } catch (e) {
+        toast.error("Couldn't assign task", {
+          description: e instanceof Error ? e.message : "Try again.",
+        });
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [title, description, priority, dueDate, selectedId, interns, loadTasks],
+  );
+
+  // ---- derived
+  const selectedIntern = interns.find((i) => i.id === selectedId) ?? null;
+  const doneCount = tasks.filter((t) => t.status === "DONE").length;
+  const pendingCount = tasks.length - doneCount;
+  const completionPct =
+    tasks.length === 0 ? 0 : Math.round((doneCount / tasks.length) * 100);
+
+  // No interns at all
+  if (interns.length === 0) {
+    return (
+      <EmptyState
+        icon={<GraduationCap className="h-8 w-8" />}
+        title="No interns on the team"
+        hint="Add interns via the Team tab to assign weekly tasks."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+        <ListTodo className="h-3.5 w-3.5" />
+        <span>
+          Assign weekly tasks to interns. Due dates filter to{" "}
+          <strong className="text-foreground">this week (Mon–Sun)</strong>.
+        </span>
+      </div>
+
+      {/* Intern selector */}
+      <div className="flex flex-wrap gap-2">
+        {interns.map((i) => {
+          const isSelected = i.id === selectedId;
+          return (
+            <button
+              key={i.id}
+              type="button"
+              onClick={() => setSelectedId(i.id)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border p-2 pr-3 transition-all hover:bg-accent/30",
+                isSelected
+                  ? "border-primary bg-primary/5 ring-2 ring-primary/40"
+                  : "border-border",
+              )}
+              aria-pressed={isSelected}
+            >
+              <Avatar className="h-8 w-8">
+                <AvatarFallback
+                  className={cn("text-[11px] font-semibold", avatarColor(i.name))}
+                >
+                  {initials(i.name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-left leading-tight">
+                <p className="text-xs font-semibold">{i.name}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {i.title?.replace(/^Intern\s*—?\s*/, "") ?? "Intern"}
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        {/* LEFT: Selected intern's weekly tasks (3/5) */}
+        <div className="space-y-4 lg:col-span-3">
+          {selectedIntern && (
+            <Card className="p-5">
+              <SectionHeader
+                title={`${selectedIntern.name.split(" ")[0]}'s Week`}
+                description={`Tasks due this week · ${selectedIntern.title ?? "Intern"}`}
+                icon={<CalendarDays className="h-4 w-4" />}
+                action={
+                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {tasks.length} task{tasks.length === 1 ? "" : "s"}
+                  </Badge>
+                }
+              />
+
+              {/* Summary row */}
+              {!loading && tasks.length > 0 && (
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="rounded-md border border-border bg-muted/30 p-2 text-center">
+                    <p className="text-lg font-semibold">{tasks.length}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
+                  </div>
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2 text-center">
+                    <p className="text-lg font-semibold text-amber-400">{pendingCount}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pending</p>
+                  </div>
+                  <div className="rounded-md border border-primary/30 bg-primary/[0.06] p-2 text-center">
+                    <p className="text-lg font-semibold text-primary">{doneCount}</p>
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Done</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Completion MiniBar */}
+              {!loading && tasks.length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>Week completion</span>
+                    <span className="font-semibold text-primary">{completionPct}%</span>
+                  </div>
+                  <MiniBar value={doneCount} max={Math.max(1, tasks.length)} color="bg-primary" />
+                </div>
+              )}
+
+              {/* Task list */}
+              <div className="mt-4 max-h-[460px] overflow-y-auto scroll-thin space-y-2 pr-1">
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading weekly tasks…
+                  </div>
+                ) : tasks.length === 0 ? (
+                  <EmptyState
+                    icon={<CheckCircle2 className="h-6 w-6" />}
+                    title="No tasks assigned this week"
+                    hint="Use the form on the right to assign a task to this intern."
+                  />
+                ) : (
+                  tasks.map((t) => {
+                    const done = t.status === "DONE";
+                    const overdue = t.dueDate
+                      ? new Date(t.dueDate).getTime() < Date.now()
+                      : false;
+                    const isToggling = togglingId === t.id;
+                    return (
+                      <div
+                        key={t.id}
+                        className="flex items-start gap-3 rounded-md border border-border bg-card/40 p-3 transition-colors hover:bg-accent/40"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleToggle(t.id, done)}
+                          disabled={isToggling}
+                          aria-label={done ? "Reopen task" : "Complete task"}
+                          className={cn(
+                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
+                            done
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10",
+                          )}
+                        >
+                          {isToggling ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : done ? (
+                            <Check className="h-3 w-3" />
+                          ) : null}
+                        </button>
+                        <span className="mt-1.5">
+                          <PriorityDot priority={t.priority} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p
+                              className={cn(
+                                "text-sm font-medium",
+                                done && "text-muted-foreground line-through",
+                                overdue && !done && "text-red-400",
+                              )}
+                            >
+                              {t.title}
+                            </p>
+                            <StatusBadge status={t.status} />
+                            {t.priority === "URGENT" && (
+                              <Badge
+                                variant="outline"
+                                className="border-red-500/40 bg-red-500/10 text-[9px] font-bold uppercase tracking-wide text-red-400"
+                              >
+                                Urgent
+                              </Badge>
+                            )}
+                            {t.category && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+                              >
+                                {t.category.replace(/_/g, " ")}
+                              </Badge>
+                            )}
+                          </div>
+                          {t.description && (
+                            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                              {t.description}
+                            </p>
+                          )}
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                            {t.project && <span>{t.project.name}</span>}
+                            {t.dueDate && (
+                              <>
+                                {t.project && (
+                                  <span className="text-muted-foreground/40">·</span>
+                                )}
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1",
+                                    overdue && !done && "text-red-400",
+                                  )}
+                                >
+                                  <Calendar className="h-3 w-3" />
+                                  {formatDate(t.dueDate)}
+                                </span>
+                              </>
+                            )}
+                            {t.creator && (
+                              <>
+                                <span className="text-muted-foreground/40">·</span>
+                                <span>by {t.creator.name.split(" ")[0]}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* RIGHT: Assign new task form (2/5) */}
+        <div className="lg:col-span-2">
+          <Card className="p-5">
+            <SectionHeader
+              title="Assign New Task"
+              description={
+                selectedIntern
+                  ? `To ${selectedIntern.name}`
+                  : "Select an intern first"
+              }
+              icon={<UserPlus className="h-4 w-4" />}
+            />
+            <form onSubmit={handleAssign} className="mt-4 space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="wt-title">Title</Label>
+                <Input
+                  id="wt-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Edit MTN brand film v2 cut"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wt-priority">Priority</Label>
+                  <Select value={priority} onValueChange={setPriority}>
+                    <SelectTrigger id="wt-priority">
+                      <SelectValue placeholder="Priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="URGENT">Urgent</SelectItem>
+                      <SelectItem value="HIGH">High</SelectItem>
+                      <SelectItem value="MEDIUM">Medium</SelectItem>
+                      <SelectItem value="LOW">Low</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wt-due">Due date</Label>
+                  <Input
+                    id="wt-due"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wt-desc">Description (optional)</Label>
+                <Textarea
+                  id="wt-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Any context, links, or sub-steps…"
+                  rows={3}
+                />
+              </div>
+              <Button
+                type="submit"
+                disabled={submitting || !title.trim() || !selectedId}
+                className="w-full gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {submitting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UserPlus className="h-3.5 w-3.5" />
+                )}
+                Assign Task
+              </Button>
+            </form>
+          </Card>
+
+          {/* All interns quick summary */}
+          <Card className="mt-4 p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <GraduationCap className="h-3.5 w-3.5" />
+              Team weekly snapshot
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              This is the current load across all interns this week.
+            </p>
+            <div className="mt-3 space-y-2">
+              {interns.map((i) => (
+                <InternWeekSummary
+                  key={i.id}
+                  intern={i}
+                  isSelected={i.id === selectedId}
+                  onSelect={() => setSelectedId(i.id)}
+                />
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Lazy-load per-intern weekly task summary (count + MiniBar)
+function InternWeekSummary({
+  intern,
+  isSelected,
+  onSelect,
+}: {
+  intern: Member;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const [summary, setSummary] = useState<{
+    total: number;
+    done: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/doz/tasks?assigneeId=${encodeURIComponent(intern.id)}&scope=week`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as { tasks: WeeklyTask[] };
+        const tasks = json.tasks ?? [];
+        if (alive) {
+          setSummary({
+            total: tasks.length,
+            done: tasks.filter((t) => t.status === "DONE").length,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [intern.id]);
+
+  const total = summary?.total ?? 0;
+  const done = summary?.done ?? 0;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-md border p-2 text-left transition-colors hover:bg-accent/30",
+        isSelected ? "border-primary/40 bg-primary/5" : "border-border",
+      )}
+    >
+      <Avatar className="h-7 w-7 shrink-0">
+        <AvatarFallback
+          className={cn("text-[10px] font-semibold", avatarColor(intern.name))}
+        >
+          {initials(intern.name)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between">
+          <p className="truncate text-xs font-semibold">{intern.name}</p>
+          <span className="ml-2 shrink-0 text-[10px] tabular-nums text-muted-foreground">
+            {done}/{total}
+          </span>
+        </div>
+        <div className="mt-1">
+          <MiniBar
+            value={done}
+            max={Math.max(1, total)}
+            color={pct >= 80 ? "bg-primary" : pct >= 40 ? "bg-amber-500" : "bg-zinc-500"}
+          />
+        </div>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
+// ============================================================
 // Loading skeleton
 // ============================================================
 function TeamSkeleton() {
@@ -865,6 +1485,10 @@ export function Team() {
             <ListChecks className="mr-1.5 h-3.5 w-3.5" />
             Today&apos;s Tasks
           </TabsTrigger>
+          <TabsTrigger value="weekly-tasks" className="flex-1">
+            <ListTodo className="mr-1.5 h-3.5 w-3.5" />
+            Weekly Tasks
+          </TabsTrigger>
         </TabsList>
 
         {/* ============== TEAM TAB ============== */}
@@ -1021,6 +1645,13 @@ export function Team() {
             </span>
           </div>
           <TodayTasksTable tasks={data!.todayTasks} />
+        </TabsContent>
+
+        {/* ============== WEEKLY TASKS TAB ============== */}
+        <TabsContent value="weekly-tasks" className="space-y-4">
+          <WeeklyTasksTab
+            interns={data!.members.filter((m) => m.role === "INTERN")}
+          />
         </TabsContent>
       </Tabs>
     </div>

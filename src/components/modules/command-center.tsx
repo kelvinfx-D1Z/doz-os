@@ -8,6 +8,23 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   StatCard,
   StatusBadge,
   SectionHeader,
@@ -25,6 +42,8 @@ import {
   isOverdue,
 } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { toast as sonnerToast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   Target,
@@ -47,6 +66,10 @@ import {
   Megaphone,
   Zap,
   FileWarning,
+  Plus,
+  Circle,
+  Loader2,
+  XCircle,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -216,6 +239,34 @@ function severityRing(sev: string): string {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Tasks API types                                                     */
+/* ------------------------------------------------------------------ */
+interface TaskApi {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  category: string | null;
+  isDistraction: boolean;
+  dueDate: string | null;
+  completedAt: string | null;
+  assignee: { id: string; name: string; role: string } | null;
+  creator: { id: string; name: string } | null;
+  goal: { id: string; title: string } | null;
+  project: { id: string; name: string } | null;
+}
+
+function todayISODate(): string {
+  // Local-date YYYY-MM-DD for <input type="date">
+  const n = new Date();
+  const y = n.getFullYear();
+  const m = (n.getMonth() + 1).toString().padStart(2, "0");
+  const d = n.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
@@ -282,6 +333,27 @@ export function CommandCenter() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { user } = useCurrentUser();
+
+  // Task interaction state
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showMyDay, setShowMyDay] = useState(false);
+  const [myDayTasks, setMyDayTasks] = useState<TaskApi[]>([]);
+  const [myDayLoading, setMyDayLoading] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/doz/dashboard", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as DashboardData;
+      setData(json);
+      setLoading(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load dashboard");
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -304,6 +376,112 @@ export function CommandCenter() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Toggle a task's status via PATCH /api/doz/tasks
+  // Optimistically updates the priorities list, then refreshes dashboard.
+  const handleToggleTask = useCallback(
+    async (taskId: string, currentlyDone: boolean) => {
+      if (togglingId) return; // prevent double-clicks
+      setTogglingId(taskId);
+
+      // Optimistic update — flip the local priority status
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          topPriorities: prev.topPriorities.map((p) =>
+            p.id === taskId
+              ? {
+                  ...p,
+                  status: currentlyDone ? "TODO" : "DONE",
+                }
+              : p,
+          ),
+        };
+      });
+      // Also optimistic update for myDayTasks if present
+      setMyDayTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status: currentlyDone ? "TODO" : "DONE",
+                completedAt: currentlyDone ? null : new Date().toISOString(),
+              }
+            : t,
+        ),
+      );
+
+      try {
+        const res = await fetch("/api/doz/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, action: "toggle" }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `HTTP ${res.status}`);
+        }
+        sonnerToast.success(
+          currentlyDone ? "Task reopened" : "Task completed",
+          {
+            description: currentlyDone
+              ? "Marked as TODO again."
+              : "Nice work — keep the momentum.",
+          },
+        );
+        // Refresh dashboard data (non-blocking)
+        loadData();
+      } catch (e) {
+        // Revert optimistic update
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            topPriorities: prev.topPriorities.map((p) =>
+              p.id === taskId
+                ? { ...p, status: currentlyDone ? "DONE" : "TODO" }
+                : p,
+            ),
+          };
+        });
+        setMyDayTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  status: currentlyDone ? "DONE" : "TODO",
+                  completedAt: currentlyDone ? new Date().toISOString() : null,
+                }
+              : t,
+          ),
+        );
+        sonnerToast.error("Couldn't update task", {
+          description: e instanceof Error ? e.message : "Try again.",
+        });
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [togglingId, loadData],
+  );
+
+  // Open the "My Daily Tasks" dialog and fetch the user's full day's tasks
+  const openMyDay = useCallback(async () => {
+    setShowMyDay(true);
+    setMyDayLoading(true);
+    try {
+      const res = await fetch("/api/doz/tasks?scope=my-day", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { tasks: TaskApi[] };
+      setMyDayTasks(json.tasks ?? []);
+    } catch {
+      setMyDayTasks([]);
+      sonnerToast.error("Couldn't load your daily tasks");
+    } finally {
+      setMyDayLoading(false);
+    }
   }, []);
 
   const handleApproval = useCallback(
@@ -478,8 +656,13 @@ export function CommandCenter() {
               description="What needs your focus right now"
               icon={<Target className="h-4 w-4" />}
               action={
-                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-                  View all <ArrowRight className="h-3 w-3" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={openMyDay}
+                >
+                  My Daily Tasks <ArrowRight className="h-3 w-3" />
                 </Button>
               }
             />
@@ -494,30 +677,38 @@ export function CommandCenter() {
               {data.topPriorities.map((p) => {
                 const overdue = p.dueDate ? isOverdue(p.dueDate) : false;
                 const done = p.status === "DONE";
+                const isToggling = togglingId === p.id;
                 return (
                   <div
                     key={p.id}
                     className="group flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
                   >
                     <button
+                      type="button"
+                      onClick={() => handleToggleTask(p.id, done)}
+                      disabled={isToggling}
+                      aria-label={done ? "Reopen task" : "Complete task"}
                       className={cn(
-                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                        "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
                         done
                           ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground/40 hover:border-primary",
+                          : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10",
                       )}
-                      aria-label="Toggle complete"
                     >
-                      {done && <Check className="h-3 w-3" />}
+                      {isToggling ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : done ? (
+                        <Check className="h-3 w-3" />
+                      ) : null}
                     </button>
-                    <span className="mt-1">
+                    <span className="mt-1.5">
                       <PriorityDot priority={p.priority} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p
                           className={cn(
-                            "truncate text-sm font-medium",
+                            "truncate text-sm font-medium transition-all",
                             done && "text-muted-foreground line-through",
                             overdue && !done && "text-red-400",
                           )}
@@ -553,6 +744,19 @@ export function CommandCenter() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Quick add task button */}
+            <div className="mt-3 border-t border-border pt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5 border-dashed text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary"
+                onClick={() => setShowQuickAdd(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add task
+              </Button>
             </div>
           </Card>
 
@@ -1021,6 +1225,404 @@ export function CommandCenter() {
           </div>
         </Card>
       </section>
+
+      {/* ---------- Quick add task dialog ---------- */}
+      <QuickAddTaskDialog
+        open={showQuickAdd}
+        onOpenChange={setShowQuickAdd}
+        defaultAssigneeId={user?.id}
+        defaultDueDate={todayISODate()}
+        onCreated={() => {
+          setShowQuickAdd(false);
+          loadData();
+        }}
+      />
+
+      {/* ---------- My Daily Tasks dialog ---------- */}
+      <MyDayDialog
+        open={showMyDay}
+        onOpenChange={setShowMyDay}
+        tasks={myDayTasks}
+        loading={myDayLoading}
+        togglingId={togglingId}
+        onToggle={handleToggleTask}
+        onRefresh={openMyDay}
+        userName={user?.name}
+        defaultAssigneeId={user?.id}
+      />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Quick Add Task Dialog                                                */
+/* ------------------------------------------------------------------ */
+function QuickAddTaskDialog({
+  open,
+  onOpenChange,
+  defaultAssigneeId,
+  defaultDueDate,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  defaultAssigneeId?: string;
+  defaultDueDate: string;
+  onCreated?: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState("MEDIUM");
+  const [dueDate, setDueDate] = useState(defaultDueDate);
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset form whenever the dialog is opened
+  useEffect(() => {
+    if (open) {
+      setTitle("");
+      setPriority("MEDIUM");
+      setDueDate(defaultDueDate);
+      setDescription("");
+    }
+  }, [open, defaultDueDate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      sonnerToast.error("Title is required");
+      return;
+    }
+    if (!defaultAssigneeId) {
+      sonnerToast.error("You must be signed in to create a task");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || null,
+          priority,
+          assigneeId: defaultAssigneeId,
+          dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      sonnerToast.success("Task added", {
+        description: `"${title.trim()}" is on your list.`,
+      });
+      onCreated?.();
+    } catch (e) {
+      sonnerToast.error("Couldn't create task", {
+        description: e instanceof Error ? e.message : "Try again.",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Plus className="h-4 w-4 text-primary" />
+            Add a task
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="qt-title">Title</Label>
+            <Input
+              id="qt-title"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Call GTBank to confirm event date"
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="qt-priority">Priority</Label>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger id="qt-priority">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="qt-due">Due date</Label>
+              <Input
+                id="qt-due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="qt-desc">Description (optional)</Label>
+            <Textarea
+              id="qt-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Any context, links, or sub-steps..."
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={submitting || !title.trim()}
+              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              {submitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              Add task
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* My Daily Tasks Dialog — full daily task list for the current user   */
+/* ------------------------------------------------------------------ */
+function MyDayDialog({
+  open,
+  onOpenChange,
+  tasks,
+  loading,
+  togglingId,
+  onToggle,
+  onRefresh,
+  userName,
+  defaultAssigneeId,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  tasks: TaskApi[];
+  loading: boolean;
+  togglingId: string | null;
+  onToggle: (taskId: string, currentlyDone: boolean) => void;
+  onRefresh: () => void | Promise<void>;
+  userName?: string;
+  defaultAssigneeId?: string;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+  const doneCount = tasks.filter((t) => t.status === "DONE").length;
+  const pendingCount = tasks.length - doneCount;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ListTodo className="h-4 w-4 text-primary" />
+            My Daily Tasks
+            {tasks.length > 0 && (
+              <Badge variant="outline" className="ml-1 text-[10px] text-muted-foreground">
+                {doneCount}/{tasks.length} done
+              </Badge>
+            )}
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            {userName ? `Hi ${userName.split(" ")[0]}, ` : "Here's "}
+            here's everything on your plate for today.
+          </p>
+        </DialogHeader>
+
+        {/* Summary row */}
+        {!loading && tasks.length > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-border bg-muted/30 p-2 text-center">
+              <p className="text-lg font-semibold">{tasks.length}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
+            </div>
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2 text-center">
+              <p className="text-lg font-semibold text-amber-400">{pendingCount}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pending</p>
+            </div>
+            <div className="rounded-md border border-primary/30 bg-primary/[0.06] p-2 text-center">
+              <p className="text-lg font-semibold text-primary">{doneCount}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Done</p>
+            </div>
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {!loading && tasks.length > 0 && (
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Today's progress</span>
+              <span className="font-semibold text-primary">
+                {Math.round((doneCount / Math.max(1, tasks.length)) * 100)}%
+              </span>
+            </div>
+            <MiniBar
+              value={doneCount}
+              max={Math.max(1, tasks.length)}
+              color="bg-primary"
+            />
+          </div>
+        )}
+
+        {/* Task list */}
+        <div className="max-h-[400px] overflow-y-auto scroll-thin pr-1">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading your tasks…
+            </div>
+          ) : tasks.length === 0 ? (
+            <EmptyState
+              icon={<CheckCircle2 className="h-8 w-8" />}
+              title="Nothing due today or overdue"
+              hint="You're all caught up. Add a quick task if something comes up."
+            />
+          ) : (
+            <div className="space-y-1">
+              {tasks.map((t) => {
+                const done = t.status === "DONE";
+                const overdue = t.dueDate ? isOverdue(t.dueDate) : false;
+                const isToggling = togglingId === t.id;
+                return (
+                  <div
+                    key={t.id}
+                    className="flex items-start gap-3 rounded-md border border-border bg-card/40 p-2.5 transition-colors hover:bg-accent/40"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onToggle(t.id, done)}
+                      disabled={isToggling}
+                      aria-label={done ? "Reopen task" : "Complete task"}
+                      className={cn(
+                        "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
+                        done
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10",
+                      )}
+                    >
+                      {isToggling ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : done ? (
+                        <Check className="h-3 w-3" />
+                      ) : null}
+                    </button>
+                    <span className="mt-1.5">
+                      <PriorityDot priority={t.priority} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p
+                          className={cn(
+                            "truncate text-sm font-medium",
+                            done && "text-muted-foreground line-through",
+                            overdue && !done && "text-red-400",
+                          )}
+                        >
+                          {t.title}
+                        </p>
+                        {t.isDistraction && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 bg-amber-500/10 text-[9px] font-bold uppercase tracking-wide text-amber-400"
+                          >
+                            Distraction
+                          </Badge>
+                        )}
+                        {t.category && (
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+                          >
+                            {t.category.replace(/_/g, " ")}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        {t.project && <span>{t.project.name}</span>}
+                        {t.dueDate && (
+                          <>
+                            {t.project && <span className="text-muted-foreground/40">·</span>}
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1",
+                                overdue && !done && "text-red-400",
+                              )}
+                            >
+                              <Clock className="h-3 w-3" />
+                              {relativeTime(t.dueDate)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="border-t border-border pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => onRefresh()}
+            disabled={loading}
+          >
+            <Loader2 className={cn("h-3.5 w-3.5", !loading && "hidden")} />
+            Refresh
+          </Button>
+          <Button
+            size="sm"
+            className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => setShowAdd(true)}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add task
+          </Button>
+        </DialogFooter>
+
+        {/* Nested quick-add */}
+        <QuickAddTaskDialog
+          open={showAdd}
+          onOpenChange={setShowAdd}
+          defaultAssigneeId={defaultAssigneeId}
+          defaultDueDate={todayISODate()}
+          onCreated={() => {
+            setShowAdd(false);
+            onRefresh();
+          }}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

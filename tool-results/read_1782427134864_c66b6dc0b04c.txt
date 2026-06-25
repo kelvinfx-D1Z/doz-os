@@ -1,0 +1,1027 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useCallback } from "react";
+     4→import { Card } from "@/components/ui/card";
+     5→import { Skeleton } from "@/components/ui/skeleton";
+     6→import { Badge } from "@/components/ui/badge";
+     7→import { Button } from "@/components/ui/button";
+     8→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+     9→import { ScrollArea } from "@/components/ui/scroll-area";
+    10→import {
+    11→  StatCard,
+    12→  StatusBadge,
+    13→  SectionHeader,
+    14→  EmptyState,
+    15→  MiniBar,
+    16→  PriorityDot,
+    17→} from "@/components/doz/ui-primitives";
+    18→import {
+    19→  formatNGN,
+    20→  formatDate,
+    21→  relativeTime,
+    22→  avatarColor,
+    23→  initials,
+    24→  daysUntil,
+    25→  isOverdue,
+    26→} from "@/lib/format";
+    27→import { useToast } from "@/hooks/use-toast";
+    28→import { cn } from "@/lib/utils";
+    29→import {
+    30→  Target,
+    31→  AlertTriangle,
+    32→  TrendingUp,
+    33→  Wallet,
+    34→  Clock,
+    35→  CheckCircle2,
+    36→  Sparkles,
+    37→  Calendar,
+    38→  Users,
+    39→  CircleDollarSign,
+    40→  ListTodo,
+    41→  ArrowRight,
+    42→  Check,
+    43→  X,
+    44→  ClipboardList,
+    45→  Receipt,
+    46→  CalendarClock,
+    47→  Megaphone,
+    48→  Zap,
+    49→  FileWarning,
+    50→} from "lucide-react";
+    51→
+    52→/* ------------------------------------------------------------------ */
+    53→/* Types — mirror the API contract                                     */
+    54→/* ------------------------------------------------------------------ */
+    55→interface DashboardData {
+    56→  founder: { name: string; title: string; role: string } | null;
+    57→  stats: {
+    58→    pipelineValue: number;
+    59→    weightedPipeline: number;
+    60→    openOpps: number;
+    61→    wonOpps: number;
+    62→    proposalsSent: number;
+    63→    proposalsAccepted: number;
+    64→    conversionRate: number;
+    65→    totalRevenue: number;
+    66→    totalExpenses: number;
+    67→    grossProfit: number;
+    68→    marginPct: number;
+    69→    outstandingAmount: number;
+    70→    overdueAmount: number;
+    71→    overdueCount: number;
+    72→    cashPosition: number;
+    73→    pendingApprovals: number;
+    74→    pendingPaymentsValue: number;
+    75→    openTasks: number;
+    76→    overdueTasks: number;
+    77→    activeProjects: number;
+    78→    internsReporting: number;
+    79→    totalInterns: number;
+    80→    openRfqs: number;
+    81→    distractions: number;
+    82→  };
+    83→  topPriorities: Array<{
+    84→    id: string;
+    85→    title: string;
+    86→    priority: string;
+    87→    status: string;
+    88→    dueDate: string | null;
+    89→    category: string | null;
+    90→    isDistraction: boolean;
+    91→    assignee: { name: string } | null;
+    92→  }>;
+    93→  weeklyGoal: { id: string; title: string; progress: number; dueDate: string | null } | null;
+    94→  goals: Array<{ id: string; title: string; type: string; progress: number; status: string }>;
+    95→  pendingApprovals: Array<{
+    96→    id: string;
+    97→    code: string;
+    98→    amount: number;
+    99→    description: string | null;
+   100→    status: string;
+   101→    requester: { name: string } | null;
+   102→    project: { name: string } | null;
+   103→  }>;
+   104→  upcoming: Array<{ type: "TASK" | "EVENT" | "INVOICE"; title: string; due: string; id: string }>;
+   105→  openOpps: Array<{
+   106→    id: string;
+   107→    name: string;
+   108→    value: number;
+   109→    stage: string;
+   110→    probability: number;
+   111→    account: { name: string } | null;
+   112→    expectedClose: string | null;
+   113→  }>;
+   114→  outstandingInvoices: Array<{
+   115→    id: string;
+   116→    code: string;
+   117→    amount: number;
+   118→    amountPaid: number;
+   119→    status: string;
+   120→    dueDate: string | null;
+   121→    account: { name: string } | null;
+   122→  }>;
+   123→  overdueInvoices: Array<{
+   124→    id: string;
+   125→    code: string;
+   126→    amount: number;
+   127→    amountPaid: number;
+   128→    status: string;
+   129→    dueDate: string | null;
+   130→    account: { name: string } | null;
+   131→  }>;
+   132→  serviceMix: Array<{ name: string; value: number; pct: number }>;
+   133→  interns: Array<{ id: string; name: string; role: string; title: string | null }>;
+   134→  todayReports: Array<{
+   135→    id: string;
+   136→    user: { name: string; title: string | null };
+   137→    reportDate: string;
+   138→    tasksDone: string | null;
+   139→    blockers: string | null;
+   140→    hoursWorked: number;
+   141→    mood: string | null;
+   142→  }>;
+   143→  recentActivity: Array<{
+   144→    id: string;
+   145→    action: string;
+   146→    detail: string | null;
+   147→    user: { name: string } | null;
+   148→    createdAt: string;
+   149→  }>;
+   150→  aiInsights: Array<{
+   151→    id: string;
+   152→    type: string;
+   153→    severity: string;
+   154→    title: string;
+   155→    message: string;
+   156→    isRead: boolean;
+   157→  }>;
+   158→  pendingRfqs: Array<{ id: string; code: string; title: string; status: string; neededBy: string | null }>;
+   159→  followUpsDue: Array<{
+   160→    id: string;
+   161→    type: string;
+   162→    subject: string;
+   163→    dueDate: string;
+   164→    contact: { name: string } | null;
+   165→    opportunity: { account: { name: string } | null } | null;
+   166→  }>;
+   167→  lostOpps: unknown[];
+   168→  tasks: unknown[];
+   169→}
+   170→
+   171→/* ------------------------------------------------------------------ */
+   172→/* Service-mix palette (NO indigo, NO blue)                            */
+   173→/* ------------------------------------------------------------------ */
+   174→const SERVICE_COLORS = [
+   175→  "bg-emerald-500",
+   176→  "bg-amber-500",
+   177→  "bg-rose-500",
+   178→  "bg-teal-500",
+   179→  "bg-violet-500",
+   180→  "bg-fuchsia-500",
+   181→  "bg-lime-500",
+   182→  "bg-orange-500",
+   183→];
+   184→
+   185→const MOOD_EMOJI: Record<string, string> = {
+   186→  GREAT: "🟢",
+   187→  GOOD: "🙂",
+   188→  OKAY: "😐",
+   189→  STRESSED: "😟",
+   190→  BAD: "🔴",
+   191→};
+   192→
+   193→function severityColor(sev: string): string {
+   194→  switch (sev) {
+   195→    case "CRITICAL":
+   196→      return "bg-red-500";
+   197→    case "WARNING":
+   198→      return "bg-amber-500";
+   199→    case "INFO":
+   200→      return "bg-teal-500";
+   201→    default:
+   202→      return "bg-zinc-500";
+   203→  }
+   204→}
+   205→
+   206→function severityRing(sev: string): string {
+   207→  switch (sev) {
+   208→    case "CRITICAL":
+   209→      return "border-red-500/40 bg-red-500/[0.06]";
+   210→    case "WARNING":
+   211→      return "border-amber-500/40 bg-amber-500/[0.06]";
+   212→    case "INFO":
+   213→      return "border-teal-500/40 bg-teal-500/[0.06]";
+   214→    default:
+   215→      return "border-border bg-muted/40";
+   216→  }
+   217→}
+   218→
+   219→function greeting(): string {
+   220→  const h = new Date().getHours();
+   221→  if (h < 12) return "Good morning";
+   222→  if (h < 17) return "Good afternoon";
+   223→  return "Good evening";
+   224→}
+   225→
+   226→function firstName(full: string | undefined | null): string {
+   227→  if (!full) return "Founder";
+   228→  return full.split(" ")[0];
+   229→}
+   230→
+   231→function todayLong(): string {
+   232→  return new Date().toLocaleDateString("en-GB", {
+   233→    weekday: "long",
+   234→    day: "2-digit",
+   235→    month: "long",
+   236→    year: "numeric",
+   237→  });
+   238→}
+   239→
+   240→/* ------------------------------------------------------------------ */
+   241→/* Loading skeleton                                                    */
+   242→/* ------------------------------------------------------------------ */
+   243→function CommandCenterSkeleton() {
+   244→  return (
+   245→    <div className="space-y-6">
+   246→      <div className="space-y-3">
+   247→        <Skeleton className="h-10 w-72" />
+   248→        <Skeleton className="h-4 w-96 max-w-full" />
+   249→        <Skeleton className="h-14 w-full" />
+   250→      </div>
+   251→      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+   252→        {Array.from({ length: 6 }).map((_, i) => (
+   253→          <Skeleton key={i} className="h-24 w-full" />
+   254→        ))}
+   255→      </div>
+   256→      <div className="grid gap-6 lg:grid-cols-3">
+   257→        <div className="space-y-6 lg:col-span-2">
+   258→          <Skeleton className="h-72 w-full" />
+   259→          <Skeleton className="h-64 w-full" />
+   260→          <Skeleton className="h-56 w-full" />
+   261→        </div>
+   262→        <div className="space-y-6">
+   263→          <Skeleton className="h-40 w-full" />
+   264→          <Skeleton className="h-56 w-full" />
+   265→          <Skeleton className="h-48 w-full" />
+   266→          <Skeleton className="h-48 w-full" />
+   267→        </div>
+   268→      </div>
+   269→      <div className="grid gap-6 lg:grid-cols-2">
+   270→        <Skeleton className="h-80 w-full" />
+   271→        <Skeleton className="h-80 w-full" />
+   272→      </div>
+   273→    </div>
+   274→  );
+   275→}
+   276→
+   277→/* ------------------------------------------------------------------ */
+   278→/* Main component                                                      */
+   279→/* ------------------------------------------------------------------ */
+   280→export function CommandCenter() {
+   281→  const [data, setData] = useState<DashboardData | null>(null);
+   282→  const [loading, setLoading] = useState(true);
+   283→  const [error, setError] = useState<string | null>(null);
+   284→  const { toast } = useToast();
+   285→
+   286→  useEffect(() => {
+   287→    let alive = true;
+   288→    (async () => {
+   289→      try {
+   290→        const res = await fetch("/api/doz/dashboard", { cache: "no-store" });
+   291→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   292→        const json = (await res.json()) as DashboardData;
+   293→        if (alive) {
+   294→          setData(json);
+   295→          setLoading(false);
+   296→        }
+   297→      } catch (e) {
+   298→        if (alive) {
+   299→          setError(e instanceof Error ? e.message : "Failed to load dashboard");
+   300→          setLoading(false);
+   301→        }
+   302→      }
+   303→    })();
+   304→    return () => {
+   305→      alive = false;
+   306→    };
+   307→  }, []);
+   308→
+   309→  const handleApproval = useCallback(
+   310→    (action: "approve" | "reject", code: string) => {
+   311→      toast({
+   312→        title: action === "approve" ? "Approval recorded" : "Request rejected",
+   313→        description:
+   314→          action === "approve"
+   315→            ? `${code} has been queued for payment.`
+   316→            : `${code} has been returned to requester.`,
+   317→      });
+   318→    },
+   319→    [toast],
+   320→  );
+   321→
+   322→  if (loading) return <CommandCenterSkeleton />;
+   323→
+   324→  if (error || !data) {
+   325→    return (
+   326→      <div className="space-y-6">
+   327→        <EmptyState
+   328→          icon={<AlertTriangle className="h-8 w-8" />}
+   329→          title="Couldn't load your command center"
+   330→          hint={error ?? "Unknown error. Try refreshing the page."}
+   331→        />
+   332→      </div>
+   333→    );
+   334→  }
+   335→
+   336→  const { stats, founder } = data;
+   337→  const founderName = founder?.name ?? "Adaeze Okonkwo";
+   338→
+   339→  // First critical AI insight -> alert banner
+   340→  const criticalInsight =
+   341→    data.aiInsights.find((i) => i.severity === "CRITICAL") ?? data.aiInsights[0] ?? null;
+   342→
+   343→  // AI summary line for header
+   344→  const summaryParts: string[] = [];
+   345→  summaryParts.push(`${data.topPriorities.length} priorities`);
+   346→  if (stats.pendingApprovals > 0) summaryParts.push(`${stats.pendingApprovals} pending approvals`);
+   347→  if (stats.overdueCount > 0) summaryParts.push(`${formatNGN(stats.overdueAmount, true)} overdue`);
+   348→  if (stats.overdueTasks > 0) summaryParts.push(`${stats.overdueTasks} overdue tasks`);
+   349→  const aiSummary = summaryParts.join(", ");
+   350→
+   351→  return (
+   352→    <div className="space-y-6">
+   353→      {/* ---------- Greeting header ---------- */}
+   354→      <header className="space-y-3">
+   355→        <div className="flex flex-wrap items-end justify-between gap-3">
+   356→          <div>
+   357→            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+   358→              {todayLong()}
+   359→            </p>
+   360→            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+   361→              {greeting()}, <span className="text-primary">{firstName(founderName)}</span>
+   362→            </h1>
+   363→            <p className="mt-1 text-sm text-muted-foreground">
+   364→              {aiSummary ? <>You have {aiSummary}. </> : null}
+   365→              <span className="text-muted-foreground/70">
+   366→                Here&apos;s your company at a glance.
+   367→              </span>
+   368→            </p>
+   369→          </div>
+   370→          <div className="flex items-center gap-2">
+   371→            <Badge variant="outline" className="gap-1.5 border-primary/30 text-primary">
+   372→              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+   373→              Live
+   374→            </Badge>
+   375→            <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+   376→              <Zap className="h-3 w-3" />
+   377→              {stats.activeProjects} active projects
+   378→            </Badge>
+   379→          </div>
+   380→        </div>
+   381→
+   382→        {/* Critical insight banner */}
+   383→        {criticalInsight && (
+   384→          <div
+   385→            className={cn(
+   386→              "flex items-start gap-3 rounded-lg border p-3",
+   387→              severityRing(criticalInsight.severity),
+   388→            )}
+   389→          >
+   390→            <div className="mt-0.5 shrink-0">
+   391→              {criticalInsight.severity === "CRITICAL" ? (
+   392→                <AlertTriangle className="h-4 w-4 text-red-400" />
+   393→              ) : criticalInsight.severity === "WARNING" ? (
+   394→                <AlertTriangle className="h-4 w-4 text-amber-400" />
+   395→              ) : (
+   396→                <Sparkles className="h-4 w-4 text-teal-400" />
+   397→              )}
+   398→            </div>
+   399→            <div className="min-w-0 flex-1">
+   400→              <p className="text-sm font-semibold">{criticalInsight.title}</p>
+   401→              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+   402→                {criticalInsight.message}
+   403→              </p>
+   404→            </div>
+   405→            <Button
+   406→              size="sm"
+   407→              variant="ghost"
+   408→              className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+   409→            >
+   410→              Dismiss
+   411→            </Button>
+   412→          </div>
+   413→        )}
+   414→      </header>
+   415→
+   416→      {/* ---------- KPI row ---------- */}
+   417→      <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+   418→        <StatCard
+   419→          label="Pipeline Value"
+   420→          value={formatNGN(stats.pipelineValue, true)}
+   421→          sub={`${stats.openOpps} open · ${formatNGN(stats.weightedPipeline, true)} weighted`}
+   422→          accent="primary"
+   423→          icon={<TrendingUp className="h-4 w-4" />}
+   424→        />
+   425→        <StatCard
+   426→          label="Cash Position"
+   427→          value={formatNGN(stats.cashPosition, true)}
+   428→          sub={stats.cashPosition >= 0 ? "Healthy" : "Negative — review"}
+   429→          accent={stats.cashPosition >= 0 ? "primary" : "danger"}
+   430→          icon={<Wallet className="h-4 w-4" />}
+   431→        />
+   432→        <StatCard
+   433→          label="Gross Profit"
+   434→          value={formatNGN(stats.grossProfit, true)}
+   435→          sub={`${stats.marginPct.toFixed(1)}% margin`}
+   436→          accent="primary"
+   437→          icon={<CircleDollarSign className="h-4 w-4" />}
+   438→        />
+   439→        <StatCard
+   440→          label="Outstanding Invoices"
+   441→          value={formatNGN(stats.outstandingAmount, true)}
+   442→          sub={
+   443→            stats.overdueCount > 0
+   444→              ? `${stats.overdueCount} overdue · ${formatNGN(stats.overdueAmount, true)}`
+   445→              : "None overdue"
+   446→          }
+   447→          accent={stats.overdueCount > 0 ? "danger" : "default"}
+   448→          icon={<Receipt className="h-4 w-4" />}
+   449→        />
+   450→        <StatCard
+   451→          label="Pending Approvals"
+   452→          value={stats.pendingApprovals}
+   453→          sub={
+   454→            stats.pendingPaymentsValue > 0
+   455→              ? `${formatNGN(stats.pendingPaymentsValue, true)} queued`
+   456→              : "Nothing waiting"
+   457→          }
+   458→          accent={stats.pendingApprovals > 0 ? "warning" : "default"}
+   459→          icon={<ClipboardList className="h-4 w-4" />}
+   460→        />
+   461→        <StatCard
+   462→          label="Active Projects"
+   463→          value={stats.activeProjects}
+   464→          sub={`${stats.openTasks} open tasks`}
+   465→          accent="default"
+   466→          icon={<ListTodo className="h-4 w-4" />}
+   467→        />
+   468→      </section>
+   469→
+   470→      {/* ---------- Main grid ---------- */}
+   471→      <section className="grid gap-6 lg:grid-cols-3">
+   472→        {/* LEFT COLUMN */}
+   473→        <div className="space-y-6 lg:col-span-2">
+   474→          {/* Top Priorities */}
+   475→          <Card className="p-5">
+   476→            <SectionHeader
+   477→              title="Today's Top Priorities"
+   478→              description="What needs your focus right now"
+   479→              icon={<Target className="h-4 w-4" />}
+   480→              action={
+   481→                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
+   482→                  View all <ArrowRight className="h-3 w-3" />
+   483→                </Button>
+   484→              }
+   485→            />
+   486→            <div className="mt-3 space-y-1">
+   487→              {data.topPriorities.length === 0 && (
+   488→                <EmptyState
+   489→                  icon={<CheckCircle2 className="h-6 w-6" />}
+   490→                  title="Inbox zero for priorities"
+   491→                  hint="Nothing urgent due today. Use the headroom for deep work."
+   492→                />
+   493→              )}
+   494→              {data.topPriorities.map((p) => {
+   495→                const overdue = p.dueDate ? isOverdue(p.dueDate) : false;
+   496→                const done = p.status === "DONE";
+   497→                return (
+   498→                  <div
+   499→                    key={p.id}
+   500→                    className="group flex items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
+   501→                  >
+   502→                    <button
+   503→                      className={cn(
+   504→                        "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+   505→                        done
+   506→                          ? "border-primary bg-primary text-primary-foreground"
+   507→                          : "border-muted-foreground/40 hover:border-primary",
+   508→                      )}
+   509→                      aria-label="Toggle complete"
+   510→                    >
+   511→                      {done && <Check className="h-3 w-3" />}
+   512→                    </button>
+   513→                    <span className="mt-1">
+   514→                      <PriorityDot priority={p.priority} />
+   515→                    </span>
+   516→                    <div className="min-w-0 flex-1">
+   517→                      <div className="flex flex-wrap items-center gap-2">
+   518→                        <p
+   519→                          className={cn(
+   520→                            "truncate text-sm font-medium",
+   521→                            done && "text-muted-foreground line-through",
+   522→                            overdue && !done && "text-red-400",
+   523→                          )}
+   524→                        >
+   525→                          {p.title}
+   526→                        </p>
+   527→                        {p.isDistraction && (
+   528→                          <Badge
+   529→                            variant="outline"
+   530→                            className="border-amber-500/40 bg-amber-500/10 text-[9px] font-bold uppercase tracking-wide text-amber-400"
+   531→                          >
+   532→                            Distraction
+   533→                          </Badge>
+   534→                        )}
+   535→                        {p.category && (
+   536→                          <Badge variant="outline" className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+   537→                            {p.category.replace(/_/g, " ")}
+   538→                          </Badge>
+   539→                        )}
+   540→                      </div>
+   541→                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+   542→                        {p.assignee && <span>{p.assignee.name}</span>}
+   543→                        {p.dueDate && (
+   544→                          <>
+   545→                            <span className="text-muted-foreground/40">·</span>
+   546→                            <span className={cn(overdue && !done && "text-red-400")}>
+   547→                              {relativeTime(p.dueDate)}
+   548→                            </span>
+   549→                          </>
+   550→                        )}
+   551→                      </div>
+   552→                    </div>
+   553→                  </div>
+   554→                );
+   555→              })}
+   556→            </div>
+   557→          </Card>
+   558→
+   559→          {/* Pending Approvals */}
+   560→          <Card className="p-5">
+   561→            <SectionHeader
+   562→              title="Pending Approvals"
+   563→              description="Payments waiting for your sign-off"
+   564→              icon={<ClipboardList className="h-4 w-4" />}
+   565→              action={
+   566→                stats.pendingApprovals > 0 ? (
+   567→                  <Badge variant="outline" className="border-amber-500/40 text-amber-400">
+   568→                    {stats.pendingApprovals} pending
+   569→                  </Badge>
+   570→                ) : undefined
+   571→              }
+   572→            />
+   573→            <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-2 pr-1">
+   574→              {data.pendingApprovals.length === 0 && (
+   575→                <EmptyState
+   576→                  icon={<CheckCircle2 className="h-6 w-6" />}
+   577→                  title="Nothing waiting for approval"
+   578→                  hint="All payment requests have been actioned."
+   579→                />
+   580→              )}
+   581→              {data.pendingApprovals.map((a) => (
+   582→                <div
+   583→                  key={a.id}
+   584→                  className="flex items-start justify-between gap-3 rounded-md border border-border bg-card/40 p-3"
+   585→                >
+   586→                  <div className="min-w-0 flex-1">
+   587→                    <div className="flex flex-wrap items-center gap-2">
+   588→                      <span className="font-mono text-xs font-semibold text-primary">{a.code}</span>
+   589→                      <StatusBadge status={a.status} />
+   590→                      {a.project && (
+   591→                        <span className="text-[11px] text-muted-foreground">{a.project.name}</span>
+   592→                      )}
+   593→                    </div>
+   594→                    <p className="mt-1 truncate text-sm font-medium">
+   595→                      {a.description ?? "Payment request"}
+   596→                    </p>
+   597→                    <p className="mt-0.5 text-xs text-muted-foreground">
+   598→                      Requested by {a.requester?.name ?? "—"}
+   599→                    </p>
+   600→                  </div>
+   601→                  <div className="flex shrink-0 flex-col items-end gap-2">
+   602→                    <span className="text-sm font-semibold">{formatNGN(a.amount)}</span>
+   603→                    <div className="flex gap-1">
+   604→                      <Button
+   605→                        size="sm"
+   606→                        variant="default"
+   607→                        className="h-7 gap-1 bg-primary px-2 text-xs hover:bg-primary/90"
+   608→                        onClick={() => handleApproval("approve", a.code)}
+   609→                      >
+   610→                        <Check className="h-3 w-3" /> Approve
+   611→                      </Button>
+   612→                      <Button
+   613→                        size="sm"
+   614→                        variant="outline"
+   615→                        className="h-7 gap-1 border-red-500/40 px-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-400"
+   616→                        onClick={() => handleApproval("reject", a.code)}
+   617→                      >
+   618→                        <X className="h-3 w-3" /> Reject
+   619→                      </Button>
+   620→                    </div>
+   621→                  </div>
+   622→                </div>
+   623→              ))}
+   624→            </div>
+   625→          </Card>
+   626→
+   627→          {/* Revenue Pipeline / Service Mix */}
+   628→          <Card className="p-5">
+   629→            <SectionHeader
+   630→              title="Revenue by Service Line"
+   631→              description="Where your money comes from"
+   632→              icon={<CircleDollarSign className="h-4 w-4" />}
+   633→            />
+   634→            {data.serviceMix.length === 0 ? (
+   635→              <div className="mt-3">
+   636→                <EmptyState
+   637→                  icon={<CircleDollarSign className="h-6 w-6" />}
+   638→                  title="No project revenue recorded yet"
+   639→                  hint="Service mix appears once confirmed projects have revenue."
+   640→                />
+   641→              </div>
+   642→            ) : (
+   643→              <>
+   644→                {/* Stacked bar */}
+   645→                <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-muted">
+   646→                  {data.serviceMix.map((s, i) => (
+   647→                    <div
+   648→                      key={s.name}
+   649→                      className={cn("h-full", SERVICE_COLORS[i % SERVICE_COLORS.length])}
+   650→                      style={{ width: `${s.pct}%` }}
+   651→                      title={`${s.name}: ${formatNGN(s.value, true)} (${s.pct.toFixed(1)}%)`}
+   652→                    />
+   653→                  ))}
+   654→                </div>
+   655→                {/* Legend list */}
+   656→                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+   657→                  {data.serviceMix.map((s, i) => (
+   658→                    <div key={s.name} className="flex items-center gap-2">
+   659→                      <span
+   660→                        className={cn(
+   661→                          "h-2.5 w-2.5 shrink-0 rounded-sm",
+   662→                          SERVICE_COLORS[i % SERVICE_COLORS.length],
+   663→                        )}
+   664→                      />
+   665→                      <span className="truncate text-xs font-medium">{s.name}</span>
+   666→                      <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+   667→                        {formatNGN(s.value, true)}
+   668→                      </span>
+   669→                      <span className="w-10 text-right text-[11px] tabular-nums text-muted-foreground/70">
+   670→                        {s.pct.toFixed(0)}%
+   671→                      </span>
+   672→                    </div>
+   673→                  ))}
+   674→                </div>
+   675→              </>
+   676→            )}
+   677→          </Card>
+   678→        </div>
+   679→
+   680→        {/* RIGHT COLUMN */}
+   681→        <div className="space-y-6">
+   682→          {/* Weekly Objective */}
+   683→          <Card className="p-5">
+   684→            <SectionHeader
+   685→              title="Weekly Objective"
+   686→              icon={<Target className="h-4 w-4" />}
+   687→              action={
+   688→                data.weeklyGoal?.dueDate ? (
+   689→                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+   690→                    <Clock className="h-3 w-3" />
+   691→                    {relativeTime(data.weeklyGoal.dueDate)}
+   692→                  </Badge>
+   693→                ) : undefined
+   694→              }
+   695→            />
+   696→            {data.weeklyGoal ? (
+   697→              <div className="mt-4 space-y-3">
+   698→                <p className="text-sm font-medium">{data.weeklyGoal.title}</p>
+   699→                <div>
+   700→                  <div className="mb-1 flex items-center justify-between text-xs">
+   701→                    <span className="text-muted-foreground">Progress</span>
+   702→                    <span className="font-semibold text-primary">
+   703→                      {data.weeklyGoal.progress.toFixed(0)}% complete
+   704→                    </span>
+   705→                  </div>
+   706→                  <MiniBar value={data.weeklyGoal.progress} max={100} color="bg-primary" />
+   707→                </div>
+   708→                {data.weeklyGoal.dueDate && (
+   709→                  <p className="text-xs text-muted-foreground">
+   710→                    Due {formatDate(data.weeklyGoal.dueDate)}
+   711→                  </p>
+   712→                )}
+   713→              </div>
+   714→            ) : (
+   715→              <div className="mt-3">
+   716→                <EmptyState
+   717→                  icon={<Target className="h-6 w-6" />}
+   718→                  title="No weekly goal set"
+   719→                  hint="Set a single objective for this week to anchor your priorities."
+   720→                />
+   721→              </div>
+   722→            )}
+   723→          </Card>
+   724→
+   725→          {/* Upcoming Deadlines */}
+   726→          <Card className="p-5">
+   727→            <SectionHeader
+   728→              title="Upcoming Deadlines"
+   729→              description="Next 7 days"
+   730→              icon={<CalendarClock className="h-4 w-4" />}
+   731→            />
+   732→            <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-1 pr-1">
+   733→              {data.upcoming.length === 0 && (
+   734→                <EmptyState
+   735→                  icon={<Calendar className="h-6 w-6" />}
+   736→                  title="Nothing due this week"
+   737→                  hint="Your calendar is clear for the next 7 days."
+   738→                />
+   739→              )}
+   740→              {data.upcoming.map((u) => {
+   741→                const overdue = isOverdue(u.due);
+   742→                const Icon =
+   743→                  u.type === "TASK" ? ListTodo : u.type === "EVENT" ? Calendar : Receipt;
+   744→                return (
+   745→                  <div
+   746→                    key={`${u.type}-${u.id}`}
+   747→                    className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/40"
+   748→                  >
+   749→                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+   750→                      <Icon className="h-3.5 w-3.5" />
+   751→                    </div>
+   752→                    <div className="min-w-0 flex-1">
+   753→                      <p className="truncate text-sm font-medium">{u.title}</p>
+   754→                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+   755→                        {u.type}
+   756→                      </p>
+   757→                    </div>
+   758→                    <span
+   759→                      className={cn(
+   760→                        "shrink-0 text-xs font-medium",
+   761→                        overdue ? "text-red-400" : "text-muted-foreground",
+   762→                      )}
+   763→                    >
+   764→                      {relativeTime(u.due)}
+   765→                    </span>
+   766→                  </div>
+   767→                );
+   768→              })}
+   769→            </div>
+   770→          </Card>
+   771→
+   772→          {/* AI Chief of Staff preview */}
+   773→          <Card className="p-5">
+   774→            <SectionHeader
+   775→              title="AI Chief of Staff"
+   776→              description="Today's reads"
+   777→              icon={<Sparkles className="h-4 w-4" />}
+   778→              action={
+   779→                <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
+   780→                  <Sparkles className="h-3 w-3" /> AI
+   781→                </Badge>
+   782→              }
+   783→            />
+   784→            <div className="mt-3 space-y-2">
+   785→              {data.aiInsights.length === 0 && (
+   786→                <EmptyState
+   787→                  icon={<Sparkles className="h-6 w-6" />}
+   788→                  title="No insights yet"
+   789→                  hint="The AI will surface opportunities and risks as your data grows."
+   790→                />
+   791→              )}
+   792→              {data.aiInsights.slice(0, 3).map((ins) => (
+   793→                <div
+   794→                  key={ins.id}
+   795→                  className="flex items-start gap-2.5 rounded-md border border-border bg-card/40 p-2.5"
+   796→                >
+   797→                  <span
+   798→                    className={cn(
+   799→                      "mt-1 h-2 w-2 shrink-0 rounded-full",
+   800→                      severityColor(ins.severity),
+   801→                    )}
+   802→                  />
+   803→                  <div className="min-w-0">
+   804→                    <p className="text-xs font-semibold">{ins.title}</p>
+   805→                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+   806→                      {ins.message}
+   807→                    </p>
+   808→                  </div>
+   809→                </div>
+   810→              ))}
+   811→            </div>
+   812→            <Button
+   813→              variant="outline"
+   814→              size="sm"
+   815→              className="mt-3 w-full gap-1.5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+   816→            >
+   817→              <Sparkles className="h-3.5 w-3.5" />
+   818→              Open AI Chief of Staff
+   819→            </Button>
+   820→          </Card>
+   821→
+   822→          {/* Intern Reports Today */}
+   823→          <Card className="p-5">
+   824→            <SectionHeader
+   825→              title="Intern Reports Today"
+   826→              icon={<Users className="h-4 w-4" />}
+   827→              action={
+   828→                <Badge variant="outline" className="text-xs text-muted-foreground">
+   829→                  {stats.internsReporting}/{stats.totalInterns} reported
+   830→                </Badge>
+   831→              }
+   832→            />
+   833→            {stats.totalInterns > 0 && stats.internsReporting < stats.totalInterns && (
+   834→              <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2.5">
+   835→                <FileWarning className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+   836→                <p className="text-xs text-amber-300/90">
+   837→                  {stats.totalInterns - stats.internsReporting} of {stats.totalInterns} interns
+   838→                  haven&apos;t submitted today&apos;s report.
+   839→                </p>
+   840→              </div>
+   841→            )}
+   842→            <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-2 pr-1">
+   843→              {data.todayReports.length === 0 && (
+   844→                <EmptyState
+   845→                  icon={<Users className="h-6 w-6" />}
+   846→                  title="No reports submitted today"
+   847→                  hint="Reports will appear here as interns submit them."
+   848→                />
+   849→              )}
+   850→              {data.todayReports.map((r) => (
+   851→                <div
+   852→                  key={r.id}
+   853→                  className="flex items-start gap-3 rounded-md border border-border bg-card/40 p-2.5"
+   854→                >
+   855→                  <Avatar className="h-7 w-7 border border-border">
+   856→                    <AvatarFallback
+   857→                      className={cn("text-[10px] font-semibold", avatarColor(r.user.name))}
+   858→                    >
+   859→                      {initials(r.user.name)}
+   860→                    </AvatarFallback>
+   861→                  </Avatar>
+   862→                  <div className="min-w-0 flex-1">
+   863→                    <div className="flex items-center gap-1.5">
+   864→                      <p className="truncate text-sm font-medium">{r.user.name}</p>
+   865→                      <span className="text-xs">{MOOD_EMOJI[r.mood ?? ""] ?? "·"}</span>
+   866→                    </div>
+   867→                    <p className="truncate text-xs text-muted-foreground">
+   868→                      {r.tasksDone?.split("\n")[0] ?? "No tasks logged"}
+   869→                    </p>
+   870→                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+   871→                      <span className="inline-flex items-center gap-1">
+   872→                        <Clock className="h-3 w-3" />
+   873→                        {r.hoursWorked.toFixed(1)}h
+   874→                      </span>
+   875→                      {r.blockers && (
+   876→                        <span className="inline-flex items-center gap-1 text-amber-400">
+   877→                          <AlertTriangle className="h-3 w-3" />
+   878→                          blocker
+   879→                        </span>
+   880→                      )}
+   881→                    </div>
+   882→                  </div>
+   883→                  <Button
+   884→                    variant="ghost"
+   885→                    size="sm"
+   886→                    className="h-7 shrink-0 text-xs text-primary hover:bg-primary/10"
+   887→                  >
+   888→                    View
+   889→                  </Button>
+   890→                </div>
+   891→              ))}
+   892→            </div>
+   893→          </Card>
+   894→        </div>
+   895→      </section>
+   896→
+   897→      {/* ---------- Bottom row ---------- */}
+   898→      <section className="grid gap-6 lg:grid-cols-2">
+   899→        {/* Open Opportunities */}
+   900→        <Card className="p-5">
+   901→          <SectionHeader
+   902→            title="Open Opportunities"
+   903→            description={`${stats.openOpps} active · ${formatNGN(stats.pipelineValue, true)} pipeline`}
+   904→            icon={<TrendingUp className="h-4 w-4" />}
+   905→            action={
+   906→              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
+   907→                Pipeline <ArrowRight className="h-3 w-3" />
+   908→              </Button>
+   909→            }
+   910→          />
+   911→          <div className="mt-3 -mx-1 overflow-x-auto">
+   912→            <table className="w-full min-w-[420px] text-sm">
+   913→              <thead>
+   914→                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+   915→                  <th className="px-2 py-2 font-medium">Account</th>
+   916→                  <th className="px-2 py-2 font-medium">Stage</th>
+   917→                  <th className="px-2 py-2 text-right font-medium">Value</th>
+   918→                  <th className="px-2 py-2 text-right font-medium">Prob.</th>
+   919→                </tr>
+   920→              </thead>
+   921→              <tbody>
+   922→                {data.openOpps.length === 0 && (
+   923→                  <tr>
+   924→                    <td colSpan={4} className="px-2 py-6">
+   925→                      <EmptyState
+   926→                        icon={<TrendingUp className="h-6 w-6" />}
+   927→                        title="No open opportunities"
+   928→                        hint="Add leads and opportunities to build your pipeline."
+   929→                      />
+   930→                    </td>
+   931→                  </tr>
+   932→                )}
+   933→                {data.openOpps.map((o) => (
+   934→                  <tr
+   935→                    key={o.id}
+   936→                    className="cursor-pointer border-b border-border/50 transition-colors hover:bg-accent/40"
+   937→                  >
+   938→                    <td className="px-2 py-2.5">
+   939→                      <p className="truncate font-medium">{o.name}</p>
+   940→                      <p className="truncate text-xs text-muted-foreground">
+   941→                        {o.account?.name ?? "—"}
+   942→                      </p>
+   943→                    </td>
+   944→                    <td className="px-2 py-2.5">
+   945→                      <StatusBadge status={o.stage} />
+   946→                    </td>
+   947→                    <td className="px-2 py-2.5 text-right font-semibold tabular-nums">
+   948→                      {formatNGN(o.value, true)}
+   949→                    </td>
+   950→                    <td className="px-2 py-2.5 text-right">
+   951→                      <div className="ml-auto flex w-14 items-center gap-1.5">
+   952→                        <MiniBar
+   953→                          value={o.probability}
+   954→                          max={100}
+   955→                          color={
+   956→                            o.probability >= 70
+   957→                              ? "bg-primary"
+   958→                              : o.probability >= 40
+   959→                                ? "bg-amber-500"
+   960→                                : "bg-zinc-500"
+   961→                          }
+   962→                        />
+   963→                        <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">
+   964→                          {o.probability}%
+   965→                        </span>
+   966→                      </div>
+   967→                    </td>
+   968→                  </tr>
+   969→                ))}
+   970→              </tbody>
+   971→            </table>
+   972→          </div>
+   973→        </Card>
+   974→
+   975→        {/* Recent Activity */}
+   976→        <Card className="p-5">
+   977→          <SectionHeader
+   978→            title="Recent Activity"
+   979→            description="Last actions across DOZ OS"
+   980→            icon={<Megaphone className="h-4 w-4" />}
+   981→          />
+   982→          <div className="mt-3 max-h-96 overflow-y-auto scroll-thin pr-1">
+   983→            <ScrollArea className="h-[360px]">
+   984→              {data.recentActivity.length === 0 && (
+   985→                <EmptyState
+   986→                  icon={<Megaphone className="h-6 w-6" />}
+   987→                  title="No activity yet"
+   988→                  hint="Actions taken across the platform will show up here."
+   989→                />
+   990→              )}
+   991→              <ol className="relative space-y-3">
+   992→                {data.recentActivity.map((a, idx) => (
+   993→                  <li key={a.id} className="relative flex items-start gap-3 pl-1">
+   994→                    {/* timeline line */}
+   995→                    {idx < data.recentActivity.length - 1 && (
+   996→                      <span className="absolute left-[15px] top-9 h-[calc(100%+0px)] w-px bg-border" />
+   997→                    )}
+   998→                    <Avatar className="h-8 w-8 border border-border">
+   999→                      <AvatarFallback
+  1000→                        className={cn("text-[10px] font-semibold", avatarColor(a.user?.name ?? "??"))}
+  1001→                      >
+  1002→                        {initials(a.user?.name ?? "??")}
+  1003→                      </AvatarFallback>
+  1004→                    </Avatar>
+  1005→                    <div className="min-w-0 flex-1 pt-0.5">
+  1006→                      <p className="text-sm leading-snug">
+  1007→                        <span className="font-semibold">{a.user?.name ?? "System"}</span>{" "}
+  1008→                        <span className="text-muted-foreground">{a.action.toLowerCase()}</span>
+  1009→                      </p>
+  1010→                      {a.detail && (
+  1011→                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{a.detail}</p>
+  1012→                      )}
+  1013→                      <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+  1014→                        {relativeTime(a.createdAt)}
+  1015→                      </p>
+  1016→                    </div>
+  1017→                  </li>
+  1018→                ))}
+  1019→              </ol>
+  1020→            </ScrollArea>
+  1021→          </div>
+  1022→        </Card>
+  1023→      </section>
+  1024→    </div>
+  1025→  );
+  1026→}
+  1027→

@@ -1,0 +1,237 @@
+   450→---
+   451→Task ID: P2-A + P2-B
+   452→Agent: Main (orchestrator)
+   453→Task: Phase 2 foundation — NextAuth, schema additions, role-based access, sign-in, user menu
+   454→
+   455→Work Log:
+   456→- Added to Prisma schema: User.password (sha256-hashed, demo pw "doz2025"), Expense.receiptUrl, new VendorApplication model (companyName, category, contact, CAC, bank, references, status PENDING/APPROVED/REJECTED, vendorId on approval)
+   457→- Updated seed.ts: all users now get password=hash("doz2025"); added 2 sample vendor applications (CrystalVisuals NG equipment, PowerSource Generators)
+   458→- Added NEXTAUTH_SECRET + NEXTAUTH_URL to .env
+   459→- Created src/lib/auth.ts: NextAuth CredentialsProvider backed by User table, JWT strategy, callbacks inject id+role+title into token/session, hashPassword() helper (sha256), getSessionUser() helper
+   460→- Created src/types/next-auth.d.ts: Session/JWT type augmentation (user.id, user.role, user.title)
+   461→- Created src/app/api/auth/[...nextauth]/route.ts: NextAuth route handler (GET+POST)
+   462→- Created src/components/doz/auth-provider.tsx: client SessionProvider wrapper
+   463→- Created src/components/doz/sign-in.tsx: sign-in card overlay with email/password + 5 quick persona buttons (Founder/Ops/Finance/Intern/Freelancer), demo password hint
+   464→- Created src/hooks/use-current-user.ts: useCurrentUser() hook returning {user, status}
+   465→- Updated src/app/layout.tsx: wraps children in AuthProvider (inside ThemeProvider)
+   466→- Updated src/lib/store.ts: added "field" to ModuleId union
+   467→- Rewrote src/components/doz/app-shell.tsx: auth gate (loading spinner → SignIn if unauthenticated → shell), ROLE_MODULES map (FOUNDER=all+AI, STAFF=all except AI, INTERN=command/field/team/sop, FREELANCER=command/field/projects/team), role-filtered nav + command palette, user menu dropdown (avatar, role badge, title, sign-out), added Field Mode nav item (Smartphone icon, "App" badge)
+   468→- Reset DB, re-seeded: all users have passwords, 2 vendor applications present
+   469→- Verified auth end-to-end via curl: /api/auth/providers → credentials provider; csrf token; POST /api/auth/callback/credentials → 302 (success); /api/auth/session → {user:{name,email,id,role,title}}
+   470→- All 9 doz APIs still return 200; page returns 200; zero compile errors
+   471→
+   472→Stage Summary:
+   473→- Auth is LIVE: sign-in required to see DOZ OS; roles gate which modules appear
+   474→- Demo password for ALL accounts: "doz2025"
+   475→- Quick sign-in personas: founder@digitonezero.com, ops@digitonezero.com, finance@digitonezero.com, chioma@digitonezero.com (intern), bola@freelance.ng (freelancer)
+   476→- Schema additions ready for subagents: VendorApplication model + Expense.receiptUrl
+   477→- Current user available to modules via useCurrentUser() hook from @/hooks/use-current-user
+   478→- Field Mode nav item exists; FieldMode component is a stub — a subagent will build it
+   479→
+   480→---
+   481→Task ID: P2-C
+   482→Agent: Vendor Onboarding builder
+   483→Task: Phase 2 — Vendor Onboarding (public apply form + staff review panel + Procurement integration)
+   484→
+   485→Work Log:
+   486→- READ worklog.md (Tasks 1, 4, 6, 7, 8, 9, 10, 11, P2-A+B): confirmed foundation conventions (emerald theme, db at @/lib/db, format helpers at @/lib/format, shared primitives at @/components/doz/ui-primitives, API pattern at src/app/api/doz/<module>/route.ts, "use client" modules fetch own data, sonner toast). Confirmed VendorApplication model already exists in prisma/schema.prisma (Task P2-A added it) with companyName/category/contactName/phone/email/cacNumber/bankName/bankAccount/references/notes/status(PENDING|APPROVED|REJECTED)/vendorId/createdAt. Seed has 2 sample applications (CrystalVisuals NG EQUIPMENT + PowerSource Generators OTHER).
+   487→- READ src/components/modules/procurement.tsx (1151 lines, Task 8): 4 existing tabs (Approvals/RFQs/Purchase Orders/Vendors), ControlBanner, 6 StatCards KPI row, SectionHeader without action prop. Understood structure to extend without breaking.
+   488→- Created src/app/api/doz/vendors/route.ts:
+   489→  * GET — db.vendorApplication.findMany + db.vendor.findMany in parallel; returns {applications:[{id,companyName,category,contactName,phone,email,cacNumber,bankName,bankAccount,references,notes,status,vendorId,createdAt}], vendors:[{id,name,category,contactName,phone,email,rating,totalSpent,isActive,createdAt}], stats:{pending,approved,rejected,totalVendors}}.
+   490→  * POST — public submit; validates companyName + category (against 10-value enum: EQUIPMENT/CATERING/DECOR/PRINTING/TRANSPORT/SOUND/LIGHTING/LED_SCREEN/STAGE/OTHER) + contactName + phone (required); creates VendorApplication with status PENDING; returns 201 with full application.
+   491→  * PATCH — staff approve/reject; body {applicationId, action:"APPROVE"|"REJECT"}; 404 if not found, 409 if already decided. REJECT: simple update to REJECTED. APPROVE: db.$transaction creates new Vendor (name=companyName, category, contactName, phone, email, bankAccount=`${bankName} — ${bankAccount}`, isActive=true) + updates application to APPROVED with vendorId linked. Returns {vendor:{...}, application:{id,status,vendorId}}.
+   492→- Created src/components/doz/vendor-apply.tsx (public full-screen apply form):
+   493→  * Fixed overlay (`fixed inset-0 z-50 bg-background overflow-y-auto`) with onClose prop.
+   494→  * Sticky header: "10" mono badge (DOZ OS logo) + "Vendor Partnership Application" + "Digit One Zero Ltd" + close X button.
+   495→  * Intro: emerald "Vendor Network" pill with Truck icon, "Join our vendor network" headline, intro paragraph.
+   496→  * Form sections in Cards (p-5): Company Information (companyName*, category* Select with 10 options, cacNumber), Contact Person (contactName*, phone* with Phone icon, email with Mail icon), Bank Details (bankName, bankAccount), References & Capabilities (references Textarea "one per line", notes Textarea).
+   497→  * Submit row: required-fields hint + Cancel + Submit Application (Send icon, Loader2 spinner while submitting).
+   498→  * Footer consent note.
+   499→  * Success state: emerald ringed Card with CheckCircle2, "Application received!" + 48-hour response promise + "Submit another" + "Close" buttons.
+   500→  * Controlled inputs (useState form object), client validation with toast.error, POST to /api/doz/vendors, sonner toast.success. Mobile-friendly single column max-w-2xl.
+   501→- Created src/components/doz/vendor-applications.tsx (staff/founder review panel):
+   502→  * Fetches /api/doz/vendors with cancelled-safe useEffect + useCallback load(); loading state = full skeleton grid; error state = EmptyState + Retry button.
+   503→  * Stats row: 4 StatCards — Pending (warning/amber), Approved (primary/emerald), Rejected (danger/rose), Total Vendors (sub: active count).
+   504→  * Filter pills: All / Pending / Approved / Rejected with live counts in Badge.
+   505→  * Application cards (grid xl:grid-cols-2): each card shows companyName + category badge + StatusBadge + submitted relativeTime + formatDate; pending ring amber, approved ring emerald, rejected opacity-80. Two-column body: Contact box (Users icon, contactName, phone mono, email) + Business box (Building2 icon, CAC mono, bank details). References as flex-wrap pills. Notes in muted box. PENDING cards: Reject (rose outline) + Approve & Create Vendor (emerald, Loader2 while acting) buttons. APPROVED cards: emerald "VENDOR CREATED" banner with vendorId suffix + "See Vendors tab" hint. REJECTED cards: rose "REJECTED" pill.
+   506→  * Existing vendors table below: name+contactName, category badge, Stars rating, totalSpent (compact NGN) + MiniBar relative to max, ACTIVE/INACTIVE badge, joined date. EmptyState if no vendors.
+   507→  * Footer hint pointing to "Vendor Apply Form" button in procurement header.
+   508→  * Toast feedback for approve ("${company} approved — Vendor created and linked") + reject ("${company} rejected"); auto-refresh via load() after action.
+   509→- EDITED src/components/modules/procurement.tsx (additive only — no existing functionality touched):
+   510→  * Added imports: Plus icon, VendorApplications from @/components/doz/vendor-applications, VendorApply from @/components/doz/vendor-apply.
+   511→  * Added `const [showApply, setShowApply] = useState(false)` to Procurement component state.
+   512→  * Added `action` prop to top SectionHeader: emerald "Vendor Apply Form" button (Plus icon) that sets showApply=true.
+   513→  * Added new TabsTrigger "onboarding" (Plus icon, "Onboarding" label) after "vendors" trigger — TabsList already has overflow-x-auto so it scrolls on mobile.
+   514→  * Added new TabsContent "onboarding" rendering <VendorApplications />.
+   515→  * Added conditional `{showApply && <VendorApply onClose={() => setShowApply(false)} />}` after the closing </Tabs>.
+   516→- Verified dev server (restarted Next.js 16 Turbopack on port 3000):
+   517→  * GET /api/doz/vendors → 200, returns 3 seeded applications + 8 seeded vendors + stats {pending:3, approved:0, rejected:0, totalVendors:8}.
+   518→  * POST /api/doz/vendors with Acme Audio NG payload → 201, creates PENDING application.
+   519→  * PATCH /api/doz/vendors {action:APPROVE} → 200, transactional: creates Vendor (bankAccount="Zenith Bank — 1122334455", isActive=true), links vendorId, returns {vendor, application}. GET after: stats {pending:3, approved:1, totalVendors:9}, Acme Audio NG present in vendors list.
+   520→  * PATCH /api/doz/vendors {action:REJECT} on a pending app → 200, returns {application:{id,status:REJECTED,vendorId:null}}. Final stats {pending:2, approved:1, rejected:1, totalVendors:9}.
+   521→  * GET / → 200 (page compiles with new procurement imports, 29.6KB). GET /api/doz/procurement → 200 (existing module unaffected).
+   522→  * `bun run lint` → exit 0, zero errors/warnings.
+   523→
+   524→Stage Summary:
+   525→- Vendor onboarding is LIVE end-to-end: public apply form → PENDING application → staff review panel → APPROVE creates real Vendor record (transactional) linked back to application, or REJECT marks it declined.
+   526→- Files created: src/app/api/doz/vendors/route.ts (GET/POST/PATCH with db.$transaction on approve), src/components/doz/vendor-apply.tsx (full-screen public form), src/components/doz/vendor-applications.tsx (review panel with stats + filter + cards + vendors table).
+   527→- File edited: src/components/modules/procurement.tsx — added "Onboarding" tab + "Vendor Apply Form" header button + state-gated <VendorApply /> overlay. All existing procurement tabs (Approvals/RFQs/POs/Vendors) and 3-way segregation logic untouched.
+   528→- Schema unchanged (used existing VendorApplication model from Task P2-A).
+   529→- Color palette: emerald primary, amber warning, rose danger — no indigo/blue. All shadcn/ui + shared primitives reused. Mobile-first responsive (single column → 2-col grids at sm/xl breakpoints).
+   530→- The VendorApply overlay pattern: `fixed inset-0 z-50 bg-background overflow-y-auto` with onClose prop — reusable from any module, currently triggered from Procurement header.
+   531→
+   532→---
+   533→Task ID: P2-D
+   534→Agent: Receipt Upload Builder
+   535→Task: Phase 2 — Receipt upload for expenses (file upload API + UI integration into Financial module's Expenses tab)
+   536→
+   537→Work Log:
+   538→- READ worklog.md (Tasks 1, 4-13, P2-A+B complete): reused conventions — db at @/lib/db, emerald/amber/rose palette (NO indigo/blue), shared primitives, sonner toast, formatNGN/formatDate helpers, API pattern at src/app/api/doz/<module>/route.ts.
+   539→- READ prisma/schema.prisma — confirmed Expense model has `receiptUrl String?` (added in P2-A) + `isVerified Boolean @default(false)`. Did NOT modify the schema.
+   540→- READ src/app/api/doz/finance/route.ts — found that the `expensesOut` mapping explicitly listed fields and was missing `receiptUrl` (isVerified was already there).
+   541→- READ src/components/modules/financial.tsx (1013 lines) — ExpensesTable function at line 837 renders the expenses table with Description/Category/Project+Vendor/Amount/Date/Verified columns. Existing fetch logic: useEffect with cancelled-flag guard.
+   542→
+   543→Files created / edited:
+   544→1. **src/app/api/doz/expenses/route.ts** (NEW, ~210 lines):
+   545→   - GET handler: fetches all expenses with project + vendor relations, returns `{ expenses: [...], stats: { total, verified, unverified, withReceipt } }`. Includes receiptUrl + isVerified on each row.
+   546→   - POST handler (multipart/form-data): parses `file` (File) + `expenseId` (string) from formData. Validates: required fields, file size ≤10MB, MIME type ∈ {image/jpeg, image/png, image/gif, image/webp, image/bmp, image/tiff, application/pdf} (with fallback extension recovery from filename for browsers reporting generic octet-stream). Verifies expense exists (404 if not). Ensures `/home/z/my-project/public/upload/` exists (mkdir recursive). Saves file as `receipt-<safeId>-<timestamp>.<ext>` via `await file.arrayBuffer()` → `Buffer.from(bytes)` → `writeFile`. Updates Expense: `receiptUrl = "/upload/<filename>"`, `isVerified = true`. Returns `{ success: true, expense: {...}, receiptUrl, filename }`. Error handling: 400/404/500 with helpful messages.
+   547→2. **src/components/doz/receipt-upload.tsx** (NEW, ~200 lines, "use client"):
+   548→   - Props: `{ expenseId, currentReceiptUrl?, isVerified, onUploaded? }`.
+   549→   - If currentReceiptUrl: shows "View" link (opens new tab) + emerald CheckCircle2 (if isVerified) + small "Replace" Button (size sm, variant outline, RefreshCw icon).
+   550→   - If no receipt but isVerified: shows emerald CheckCircle2 + "Upload" Button.
+   551→   - If no receipt and not verified: shows "Upload" Button with Upload icon.
+   552→   - Hidden `<input type="file" accept="image/*,application/pdf">` opened via ref.click().
+   553→   - On file select: client-side type + size validation, fetch POST multipart to /api/doz/expenses, Loader2 spinner while uploading, sonner toast on success/failure, calls onUploaded() to refresh parent. Resets input value after each upload so the same file can be re-selected.
+   554→   - Uses shadcn Button (size sm, variant outline, gap-1), lucide-react icons (Upload, FileText, CheckCircle2, Loader2, Eye, RefreshCw), sonner toast.
+   555→3. **src/app/api/doz/finance/route.ts** (EDITED, 1 line added):
+   556→   - Added `receiptUrl: e.receiptUrl,` to the expensesOut mapping so financial.tsx's existing fetch includes receipt URLs.
+   557→4. **src/components/modules/financial.tsx** (EDITED):
+   558→   - Added `receiptUrl?: string | null` to Expense interface.
+   559→   - Imported ReceiptUpload from `@/components/doz/receipt-upload`, Paperclip from lucide-react, useCallback from react.
+   560→   - Added `loadData` useCallback wrapping the fetch logic, passed as `onRefresh` to ExpensesTable.
+   561→   - ExpensesTable: accepts new `onRefresh?: () => void` prop. Added summary line under SectionHeader ("X/N with receipt · Y/N verified" with Paperclip + emerald CheckCircle2 icons). Added "Receipt" column header + ReceiptUpload cell per row (passes `onUploaded={onRefresh}`).
+   562→   - Existing finance functionality (cashflow chart, P&L tables, invoices, budgets) all intact — only the expenses table enhanced.
+   563→5. **public/upload/** directory created (was missing).
+   564→
+   565→Testing:
+   566→- Restarted dev server (port 3000, Ready in 581ms — system auto-restarts).
+   567→- `curl GET /api/doz/expenses` → HTTP 200, 17 expenses, stats {total:17, verified:12, unverified:5, withReceipt:0}. All required fields present (id, category, description, amount, expenseDate, isVerified, receiptUrl, project.name, vendor.name).
+   568→- `curl POST /api/doz/expenses -F "file=@/tmp/test-receipt.txt;type=application/pdf" -F "expenseId=<id>"` → HTTP 200, success:true, expense.isVerified=true, expense.receiptUrl="/upload/receipt-<id>-<ts>.pdf", filename returned.
+   569→- File saved to disk: `/home/z/my-project/public/upload/receipt-cmqu1escu006prhx8l5iu0imu-1782425337849.pdf` (42 bytes, content matches input).
+   570→- Static serving verified: `curl -I http://localhost:3000/upload/receipt-...pdf` → HTTP 200, Content-Type: application/pdf, Content-Length: 42.
+   571→- Re-fetch confirms DB updated: expense now isVerified=true, receiptUrl populated. Stats updated to {verified:13, unverified:4, withReceipt:1}.
+   572→- Also tested image/png upload → success, file saved with .png extension.
+   573→- Error path tests (all returned correct status + message):
+   574→  - Missing expenseId → 400 "Missing required field: expenseId"
+   575→  - Missing file → 400 "Missing required field: file (must be a File)"
+   576→  - Invalid expenseId → 404 "Expense not found for id=nonexistent_id"
+   577→  - Wrong type (text/plain) → 400 "Unsupported file type: text/plain. Only images (image/*) or PDF (application/pdf) are allowed."
+   578→- `curl /` → HTTP 200, 29614 bytes. Page compiles cleanly with new Receipt column.
+   579→- `curl /api/doz/finance` → HTTP 200, expenses now include receiptUrl field.
+   580→- dev.log shows: `GET /api/doz/expenses 200 in 9ms`, `POST /api/doz/expenses 200 in 11ms` (successful upload), `POST /api/doz/expenses 400/404` (error paths), `GET / 200 in 5.8s`, `GET /api/doz/finance 200 in 136ms`.
+   581→- `bun run lint` → EXIT 0, zero errors, zero warnings.
+   582→
+   583→Stage Summary:
+   584→- Receipt upload feature is fully implemented and verified end-to-end.
+   585→- Files: src/app/api/doz/expenses/route.ts (new), src/components/doz/receipt-upload.tsx (new), src/components/modules/financial.tsx (edited — Receipt column + summary + refetch wiring), src/app/api/doz/finance/route.ts (1-line edit to surface receiptUrl).
+   586→- API: GET /api/doz/expenses (list + stats) + POST /api/doz/expenses (multipart upload, saves to public/upload/, marks verified).
+   587→- UI: per-row ReceiptUpload component in the Expenses tab — "Upload" button when no receipt, "View" link + verified checkmark + "Replace" button when receipt exists.
+   588→- Receipts are statically served at /upload/<filename> via Next.js public dir.
+   589→- Schema NOT modified (Expense.receiptUrl was already added in P2-A).
+   590→- Existing finance functionality fully preserved — only the expenses table was enhanced.
+   591→- Work record saved to /home/z/my-project/agent-ctx/P2-D-receipt-upload.md.
+   592→
+   593→---
+   594→Task ID: P4-A
+   595→Agent: Field Mode Builder (Phase 4)
+   596→Task: Build Field Mode module — mobile-first on-site experience (quick daily report filing + offline-capable event run-sheet)
+   597→
+   598→Work Log:
+   599→- READ worklog.md — Phase 2 auth (NextAuth Credentials, getSessionUser from @/lib/auth, useCurrentUser hook, demo password "doz2025") and prior modules' patterns confirmed. Reused shared primitives (MiniBar, EmptyState), format helpers (formatDate, relativeTime), Promise.all batching + cancelled-flag useEffect pattern, emerald/amber/rose palette (NO indigo/blue).
+   600→- READ prisma schema — DailyReport (userId, reportDate, tasksDone, tasksPlanned, blockers, hoursWorked, mood GREAT/OK/STRESSED), Milestone (projectId, status PENDING/IN_PROGRESS/DONE/OVERDUE, completedAt), CrewAssignment (projectId, userId, role, status, dayRate), Project (managerId, eventDate, venue, status PLANNING/CONFIRMED/IN_PROGRESS/COMPLETED/ON_HOLD/CANCELLED).
+   601→
+   602→API — src/app/api/doz/field/route.ts (NEW, ~270 lines):
+   603→- GET: getSessionUser() gate (401 if not authed). Single Promise.all of 4 Prisma queries: tasks assigned to user (not DONE) + project name, crewAssignments + project.milestones, projects where user is manager + milestones, today's report. myProjects dedupes via Map (crew role wins over MANAGER when both apply; only "active" project statuses included). Returns {user, myTasks, myProjects, todayReport, crewAssignments} per spec.
+   604→- POST: getSessionUser() gate.
+   605→  - submit_report: validates tasksDone (non-empty) + mood (GREAT/OK/STRESSED if provided). $transaction: findFirst today's report for user → UPDATE if exists else CREATE. Returns {ok, report}. Prevents duplicate daily reports.
+   606→  - toggle_milestone: $transaction: fetch milestone → verify user is crew OR manager on its project (else 403 not_authorized_for_milestone) → set status DONE/PENDING + completedAt (new Date() when DONE, null when reverting). Returns {ok, milestone}. 404 milestone_not_found for invalid id, 400 for missing done/milestoneId.
+   607→  - Unknown action → 400. All errors wrapped in try/catch with structured {error, detail?}.
+   608→- Tested via authenticated curl (csrf → callback/credentials → session cookie):
+   609→  - GET as Chioma (intern): 200, 2 tasks, 0 projects, todayReport null.
+   610→  - GET as Adaeze (founder): 200, 9 tasks, 3 projects she manages (MANAGER role) with full milestone arrays.
+   611→  - GET as Bola (freelancer): 200, 0 tasks, 2 projects where she's crew as PRODUCTION_MANAGER (confirms crew→myProjects merge with crew role precedence over MANAGER).
+   612→  - POST submit_report: first call 200 (new report id), second call 200 SAME id (upsert, no duplicate), GET reflects updated fields.
+   613→  - POST toggle_milestone: PENDING→DONE 200 (completedAt set), DONE→PENDING 200 (revert, completedAt null). Chioma (not crew) → 403. Bola (crew PRODUCTION_MANAGER) → 200. Invalid id → 404. Missing done → 400.
+   614→  - Edge cases: unknown_action 400, invalid_mood 400, empty tasksDone 400, missing done 400, missing milestoneId 400.
+   615→
+   616→UI — src/components/modules/field-mode.tsx (OVERWROTE 1-line stub → ~750 lines, "use client", export function FieldMode()):
+   617→- Mobile-first: max-w-md mx-auto, min-h-12 touch targets, Cards p-4/p-5, generous spacing.
+   618→- State machine: view "home" | "report" | "projects" | "runsheet" + selectedProject + online boolean.
+   619→- Online/offline detection: navigator.onLine initial + window online/offline listeners. Toasts on transitions.
+   620→- Header: Smartphone icon (emerald tile) + "Field Mode" + subtitle. User banner: avatar initials + name + title + OnlineBadge (Wifi emerald / WifiOff amber).
+   621→- HomeView: 3 QuickStats (Projects, Tasks, Report filed status), 2 big feature Cards (File Daily Report with Clock icon + "Filed ✓" badge if already filed; Event Run-Sheet with ClipboardCheck icon + "X active events · works offline"). Open tasks preview list (max-h-72 scroll-thin).
+   622→- ReportView: existing-report banner (emerald) if filed today. Form: Textarea for tasksDone (min-h-24, autofocus), Textarea for tasksPlanned (optional), Textarea for blockers (optional), big −/+ steppers (size-12 buttons) + Slider for hoursWorked (0-12 step 0.5), 3 big emoji mood buttons (text-3xl in grid-cols-3 with ring-2 ring-primary selected state). Big "Submit Report" button (min-h-12 primary). Confirmation Card on success with emerald CheckCircle2 + summary rows + "File another"/"Done".
+   623→- ProjectsView: tappable project Cards (name, code, role, status Badge, eventDate/venue, milestone MiniBar). EmptyState if none.
+   624→- RunSheetView: BackBar + project header Card (OnlineBadge + progress MiniBar "X of Y complete" + pct). If queue length > 0: amber "Sync now" button with count Badge. Milestones section (Card divide-y list, min-h-12 rows: CheckCircle2 emerald / Circle muted / Loader2 busy + title strikethrough + "Due X · done Y" sub). Event-Day Checklist section (11 hardcoded template items: Crew call confirmed, Equipment loaded & verified, Venue access confirmed, Power/generator confirmed, Sound check complete, Lighting check complete, Camera positions locked, Client briefing done, Livestream test (if applicable), Doors open, Event wrap & handover — stored ONLY in localStorage key doz-run-sheet-<projectId>, auto-initializes on first access).
+   625→- Offline behavior: toggling milestone while offline → optimistic UI update + push {milestoneId, done, timestamp} to queue (localStorage key doz-run-sheet-queue-<projectId>, replaces existing queued toggle for same milestone). Toast "Saved offline — will sync". Auto-flush when online event fires OR queue length > 0 + online: POSTs each queued toggle, removes successful from queue, retains failed. Toasts "Synced X updates ✓" / "X updates failed".
+   626→- Shared sub-components: OnlineBadge, QuickStat, Field (label/hint/required), SummaryRow, BackBar, FieldHeaderSkeleton.
+   627→- Loading: Skeleton header + 2 skeleton cards. Error: EmptyState with AlertTriangle + "Try again".
+   628→
+   629→Testing:
+   630→- Dev server clean (Ready in 587ms, no compile errors).
+   631→- All curl tests above pass. Home page renders 200 (compiles 5.8s first hit, 38ms cached). No errors in dev.log.
+   632→- bun run lint (eslint .) → EXIT 0, zero errors/warnings across the whole repo.
+   633→
+   634→Stage Summary:
+   635→- Field Mode module is fully implemented and verified end-to-end via authenticated curl.
+   636→- API: GET /api/doz/field (user-scoped context) + POST /api/doz/field (submit_report with upsert semantics, toggle_milestone with crew/manager authorization). All auth via getSessionUser(). Prisma transactions used for both POST actions.
+   637→- UI: mobile-first 4-view flow (home/projects/report/runsheet), big emoji mood buttons with ring-2 selected state, slider+stepper hours input, optimistic milestone toggling, localStorage-backed event-day checklist (11 template items) + offline toggle queue, auto-sync on `online` event, OnlineBadge (Wifi/WifiOff), progress MiniBars, sonner toasts. Touch targets min-h-12 throughout.
+   638→- Color discipline: emerald primary, amber warning/offline, rose danger — NO indigo/blue.
+   639→- Files: src/app/api/doz/field/route.ts (new, ~270 lines), src/components/modules/field-mode.tsx (overwrote 1-line stub → ~750 lines).
+   640→- Work record saved to /home/z/my-project/agent-ctx/P4-A-field-mode.md.
+   641→
+   642→---
+   643→Task ID: VERIFY (P2 + P4)
+   644→Agent: Main (orchestrator)
+   645→Task: Final verification of Phase 2 + Phase 4 features
+   646→
+   647→Work Log:
+   648→- `bun run lint` → EXIT 0, zero errors/warnings across all files
+   649→- All 12 doz API endpoints return 200 (field returns 401 when unauthenticated — correct auth gating)
+   650→- All 3 NextAuth endpoints work: /api/auth/providers (200), /api/auth/csrf (200), /api/auth/session (200)
+   651→- Auth flow verified via curl: POST /api/auth/callback/credentials → 302 (success); session returns {user:{name,email,id,role,title}}
+   652→- Role scoping verified: intern login (chioma@digitonezero.com) → session role:INTERN; field API returns intern's scoped tasks
+   653→- Vendor onboarding verified end-to-end: GET /api/doz/vendors → 200 (lists applications+vendors); POST apply → 201 (creates PENDING application); PATCH approve → 200 (transactional: creates real Vendor, links application.vendorId)
+   654→- Receipt upload verified: POST /api/doz/expenses multipart → validation rejects .txt (400), accepts PDF/image, saves to /home/z/my-project/public/upload/, sets expense.isVerified=true + receiptUrl
+   655→- Field mode verified: GET /api/doz/field → 200 (scoped to current user: myTasks, myProjects, todayReport, crewAssignments); POST submit_report → 200 (creates/updates daily report, idempotent); POST toggle_milestone → 200 (toggles DONE/PENDING, 403 for non-crew)
+   656→- Agent Browser: sign-in screen renders with 5 persona quick-buttons; founder login → Command Center with "Good evening, Adaeze" + 10 modules visible (including new Field Mode with "APP" badge); zero console errors
+   657→- Fixed sign-in/sign-out to use router.refresh() instead of window.location.reload() (gentler on the dev server)
+   658→
+   659→Stage Summary:
+   660→- PHASE 2 COMPLETE: NextAuth credentials auth, 4 role-based module access (FOUNDER=all, STAFF=all-except-AI, INTERN=command/field/team/sop, FREELANCER=command/field/projects/team), vendor onboarding (public apply form + review panel + approve→Vendor), receipt upload (multipart, file validation, verified badge)
+   661→- PHASE 4 COMPLETE: Field Mode mobile-first module — quick daily report filing (emoji mood, hours stepper, idempotent submit) + offline event run-sheet (localStorage-persisted checklist, online/offline indicator, milestone sync queue)
+   662→- Demo password for ALL accounts: "doz2025"
+   663→- Quick sign-in personas on the sign-in screen: Founder, Ops Lead, Finance, Intern, Freelancer
+   664→- All features browser-verified where the environment permitted; all APIs curl-verified (reliable)
+   665→- DOZ OS is now v2.0 with auth + role-based access + vendor onboarding + receipt upload + mobile field mode
+   666→
+   667→---
+   668→Task ID: C1 + C2
+   669→Agent: Main (orchestrator)
+   670→Task: Corrections — vendor login fix (PM inputs directly) + schema for routines
+   671→
+   672→Work Log:
+   673→- Added Routine + RoutineLog models to Prisma schema (Routine: name, description, frequency DAILY/WEEKLY/EVENT_DAY/MONTHLY, steps JSON, icon, color; RoutineLog: routineId, userId, status, stepsDone JSON, timestamps)
+   674→- Added routineLogs relation to User model
+   675→- Seeded 6 routine templates: Morning Briefing, End of Day Wrap, Weekly Business Review, Event Day Run-Sheet, Monthly Close, Sales Pipeline Review
+   676→- Fixed vendor onboarding: vendors do NOT have login accounts (never did — they're in Vendor model not User). Converted the public "Vendor Partnership Application" form into an internal "Add Vendor" form used by Production Manager/staff. The form now creates a Vendor record DIRECTLY (no application queue) via POST /api/doz/vendors with action:"create_vendor".
+   677→- Updated vendors API POST handler to support two modes: action:"create_vendor" (direct creation by staff) and default (application intake queue, kept for optional future use)
+   678→- Updated procurement.tsx: "Vendor Apply Form" button → "Add Vendor" button, imports AddVendorForm, passes onSaved={load} to refresh after creation
+   679→- Verified: POST create_vendor → 201, creates Vendor directly with name/category/contact/bankAccount/rating/notes
+   680→- Lint clean, page 200, vendors API 200
+   681→
+   682→Stage Summary:
+   683→- Vendors cannot and never could log in (no User account). The PM (staff role) logs in and adds vendors via the internal "Add Vendor" form. This is now the primary vendor onboarding flow.
+   684→- Routine + RoutineLog models ready for the Routines module subagent
+   685→- Next: dispatching 3 parallel subagents for (1) project create form + financials, (2) daily tasks + weekly intern tasks, (3) routines module
+   686→

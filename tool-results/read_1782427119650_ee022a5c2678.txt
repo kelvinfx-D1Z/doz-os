@@ -1,0 +1,252 @@
+   200→- Created `/src/components/modules/procurement.tsx` ("use client", `export function Procurement()`):
+   201→  - **Control banner** at top: prominent card explaining "Requester ≠ Approver ≠ Payer" policy with Shield icon; green checkmark when violations==0, red AlertTriangle when >0; shows violations count and 3-stage flow legend.
+   202→  - **6 StatCards** (Pending Approvals w/ ₦ sub, Open RFQs, Active Vendors, Total Vendor Spend compact, Overdue Payments, Avg Vendor Rating).
+   203→  - **4 Tabs**: Approvals (default) | RFQs & Quotes | Purchase Orders | Vendors.
+   204→  - **Approvals tab**: WorkflowFlow visualization (3 cards: Request → Approve → Pay with counts and connecting arrows); payment requests grouped by status (PENDING → APPROVED → PAID → REJECTED); each card shows code, ₦ amount (formatNGN), description, project, and a 3-circle segregation indicator (filled emerald when step done, amber/muted when pending) showing requester/approver/payer first name + role badge. PENDING cards show Approve (emerald) + Reject (rose outline) buttons; APPROVED cards show "Mark Paid" button. Buttons POST to /api/doz/procurement with sonner toast feedback + auto-refresh.
+   205→  - **RFQs tab**: Collapsible cards (auto-open if QUOTES_RECEIVED); quote comparison table sorted by amount ascending; lowest quote row highlighted with bg-primary/5 + "LOWEST" badge; "RECOMMENDED" amber badge on isRecommended quotes; budget vs lowest variance banner showing +under/-OVER budget and recommended vendor.
+   206→  - **Purchase Orders tab**: Table with code, vendor, project, description, amount, StatusBadge, issued date.
+   207→  - **Vendors tab**: Sortable cards (Total Spend / Rating / Name); each card shows name, category badge, ACTIVE/INACTIVE, star rating, contact info, totalSpent (formatNGN compact), MiniBar relative to max spend, quotes count, POs count.
+   208→  - Loading: SkeletonGrid (banner + 6 stat skeletons + tab list + 4 card skeletons).
+   209→  - All styling uses emerald primary / amber warning / rose danger; NO indigo/blue. Cards p-4/p-5. Uses formatNGN/formatDate/relativeTime, StatCard/StatusBadge/SectionHeader/EmptyState/MiniBar primitives, lucide-react icons (Shield, CheckCircle2, XCircle, Truck, FileText, Star, AlertTriangle, ArrowRight, Banknote, Users2, Clock, Wallet, TrendingUp, ChevronDown).
+   210→- TESTING:
+   211→  - Restarted dev server (pkill + setsid). Port 3000 listening.
+   212→  - `curl -s http://localhost:3000/api/doz/procurement -m 20` → HTTP 200, ~7.4KB JSON.
+   213→  - Verified stats: pendingApprovals=2, pendingPaymentsValue=₦950K, openRfqs=2, totalVendorSpend=₦28.6M, activeVendors=8, overduePayments=0, segregationViolations=0, avgVendorRating=4.0.
+   214→  - Verified shape: 8 vendors, 3 RFQs (with 3/1/0 quotes), 4 POs, 4 paymentRequests (2 PENDING, 1 APPROVED, 1 PAID), 2 approvals.
+   215→  - POST approve with valid approverId → HTTP 200, status flipped to APPROVED, new Approval record created, paymentRequests refreshed.
+   216→  - POST approve with requesterId → HTTP 403 "Segregation violation: requester cannot approve their own request" (rule enforced server-side).
+   217→  - `bun run lint` → exit 0, no errors.
+   218→  - dev.log shows clean compilation + 200/200/403/200 sequence for the API calls.
+   219→
+   220→Stage Summary:
+   221→- Module 5 (Procurement & Vendor Management) is fully implemented and is the most control-critical module in DOZ OS.
+   222→- API: GET /api/doz/procurement (full procurement view) + POST /api/doz/procurement (approve/reject/pay with server-enforced segregation of duties).
+   223→- UI: prominent control banner + 6 KPIs + 4 tabs (Approvals default), with 3-step segregation visualizer, workflow flow, sortable vendor cards, expandable RFQ quote comparison.
+   224→- All financial-control guarantees (Requester ≠ Approver ≠ Payer) are enforced BOTH in the schema (Task 1), the API (Task 8 POST), AND surfaced visually in the UI (Task 8 banner + per-card indicator).
+   225→- Color discipline: emerald primary, amber warning, rose danger — zero indigo/blue.
+   226→- Files: src/app/api/doz/procurement/route.ts, src/components/modules/procurement.tsx (overwrote stub).
+   227→
+   228→---
+   229→Task ID: 11
+   230→Agent: SOP & Knowledge Base Builder
+   231→Task: Build Module 8 (SOP & Knowledge Base) — API route + UI component
+   232→
+   233→Work Log:
+   234→- READ worklog.md (Task 1 foundation): emerald theme, db at @/lib/db, format helpers at @/lib/format, shared primitives (StatCard/SectionHeader/EmptyState/MiniBar) at @/components/doz/ui-primitives, API pattern at src/app/api/doz/<module>/route.ts.
+   235→- Reviewed prisma/schema.prisma Sop model: id/title/category/content/tags/authorId/author/version/createdAt/updatedAt.
+   236→- Reviewed prisma/seed.ts: 7 SOPs across 6 categories (EVENT_CHECKLIST:1, PROPOSAL_TEMPLATE:1, PROCUREMENT_POLICY:1, VENDOR_SOP:1, TRAINING:1, PROCESS:2). Author = Adaeze Okonkwo (founder).
+   237→
+   238→API — src/app/api/doz/sop/route.ts (GET):
+   239→- `import { db } from "@/lib/db"`. `db.sop.findMany` with `include: { author: { select: { name: true } } }`, ordered by updatedAt desc then title asc.
+   240→- CATEGORY_META constant: 6 categories each with icon name + display name (Calendar/Event Checklists, FileText/Proposal Templates, Shield/Procurement Policies, Truck/Vendor SOPs, GraduationCap/Training Materials, Settings/Company Processes).
+   241→- Computes byCategory counts, derived categories list (name + display + icon + count), lastUpdated = newest updatedAt ISO.
+   242→- Returns exactly: `{ stats: { totalSops, byCategory, lastUpdated }, sops: [{ id, title, category, content, tags, author:{name}, version, createdAt, updatedAt }], categories: [{ name, display, icon, count }] }`.
+   243→- try/catch → console.error + 500 fallback. Verified: HTTP 200, ~5.9KB JSON, 7 sops, 6 categories.
+   244→
+   245→UI — src/components/modules/sop-knowledge.tsx (overwrote stub, "use client", `export function SopKnowledge()`):
+   246→- CATEGORY_CONFIG record maps each category to { display, icon, badgeClass, dotClass } with spec'd colors: EVENT_CHECKLIST emerald, PROPOSAL_TEMPLATE amber, PROCUREMENT_POLICY rose, VENDOR_SOP teal, TRAINING violet, PROCESS muted. NO indigo/blue.
+   247→- Fetches /api/doz/sop in useEffect with cancelled-flag guard. Loading state: full SkeletonGrid (4 KPIs + sidebar + search + 6 cards). Error state: EmptyState with BookOpen icon.
+   248→- Top KPI row (4 StatCards): Total SOPs (primary accent, BookOpen icon), Categories (Hash icon), Proposal Templates (warning accent, FileText icon), Last Updated (relativeTime value + formatDate sub, Clock icon).
+   249→- Main layout grid lg:grid-cols-4 gap-6:
+   250→  * Sidebar (lg:col-span-1): Card with "Categories" header + ScrollArea (max-h-[60vh]). "All SOPs" button (BookOpen icon + total count badge) + one button per category (icon + display name + count badge). Active item: bg-primary text-primary-foreground.
+   251→  * Right content (lg:col-span-3): Search Input (Search icon pl-9), result count + Clear filters link, then grid sm:grid-cols-2 gap-4 of SopCards.
+   252→- SopCard: colored category badge with icon + display, version mono badge (top-right), title (font-semibold line-clamp-2), content preview (~150 chars plain-text-stripped), tags as Tag-icon badges, footer (author name + relativeTime), "Open" outline button.
+   253→- Dialog (sm:max-w-3xl) opened with selected SOP state: header has category badge + version + updated relativeTime + tags + author + created/updated dates; body uses ScrollArea max-h-[60vh] with MarkdownContent.
+   254→- MarkdownContent uses react-markdown with manual component overrides (NO @tailwindcss/typography): h1 text-xl font-bold border-b, h2 text-base font-bold, h3 text-sm font-semibold uppercase, ul list-disc pl-5, ol list-decimal pl-5, code bg-muted font-mono, pre bordered block, blockquote border-l-2 border-primary/50 pl-3 italic, table wrapped in overflow-x-auto border with th bg-muted/60 + td border-b.
+   255→- All cards p-4/p-5. Color discipline: emerald primary, amber warning, rose danger, teal/violet for categories. NO indigo/blue.
+   256→- Imports: Card, Input, Dialog/DialogContent/DialogHeader/DialogTitle, Skeleton, Badge, Button, ScrollArea from @/components/ui/*; StatCard/SectionHeader/EmptyState from @/components/doz/ui-primitives; formatDate/relativeTime from @/lib/format; ReactMarkdown from "react-markdown"; icons (BookOpen, FileText, Calendar, Shield, Truck, GraduationCap, Settings, Search, ExternalLink, Tag, RefreshCw, Hash, Clock, User) from lucide-react.
+   257→
+   258→Testing:
+   259→- Restarted dev server cleanly (EADDRINUSE conflict resolved by killing all next processes). Ready in 615ms on port 3000.
+   260→- `curl http://127.0.0.1:3000/api/doz/sop -m 30` → HTTP 200, ~5.9KB JSON. Verified stats (totalSops=7), byCategory (1/1/1/1/1/2), lastUpdated ISO present, 7 SOP records with all required fields, 6 categories with correct icon names.
+   261→- `curl http://127.0.0.1:3000/ -m 30` → HTTP 200, page compiles cleanly (2.7s compile, no errors).
+   262→- `npx eslint src/components/modules/sop-knowledge.tsx src/app/api/doz/sop/route.ts --max-warnings=0` → exit 0 (clean).
+   263→- Note: `bun run lint` shows a pre-existing parse error in `src/app/api/doz/team/route.ts:68` (different module — not in scope for Task 11).
+   264→- Worklog + agent-ctx file written: /home/z/my-project/agent-ctx/11-sop-knowledge.md.
+   265→
+   266→Stage Summary:
+   267→- Module 8 (SOP & Knowledge Base) is fully implemented.
+   268→- API: GET /api/doz/sop — single Prisma query with author include, derived byCategory counts + categories list with icons, lastUpdated ISO.
+   269→- UI: 4 StatCards + sidebar category filter (All + 6 categories) + search + 2-col SOP card grid + Markdown-rendered Dialog. Uses react-markdown with manual typography styling.
+   270→- Files: src/app/api/doz/sop/route.ts (new), src/components/modules/sop-knowledge.tsx (overwrote stub, ~480 lines).
+   271→
+   272→---
+   273→Task ID: 5
+   274→Agent: Strategic Planning builder
+   275→Task: Build Strategic Planning module — API route + UI component (Annual→Quarterly→Monthly→Weekly cascade + active distraction detection)
+   276→
+   277→Work Log:
+   278→- READ /home/z/my-project/worklog.md to learn conventions (Task 1: foundation — emerald theme, shared primitives at @/components/doz/ui-primitives, format helpers at @/lib/format, db client at @/lib/db, API pattern at src/app/api/doz/<module>/route.ts, "use client" modules fetch their own data, visual-only toggles + sonner toast for "keep simple" interactions).
+   279→- Reviewed prisma/schema.prisma for Goal (type ANNUAL/QUARTERLY/MONTHLY/WEEKLY, status ACTIVE/ACHIEVED/MISSED/ON_HOLD, progress, parentId cascade, owner, quarter, startDate, dueDate, children relation) and Task (priority, category STRATEGIC/OPERATIONAL/ADMIN/DISTRACTION, isDistraction flag, goalId link, assigneeId, completedAt).
+   280→- Confirmed seed data: 1 ANNUAL → 1 QUARTERLY (Q3-2025) → 1 MONTHLY → 1 WEEKLY cascade; 15 tasks including 1 distraction ("Reply 14 unread WhatsApp messages"), 4 due today, 0 overdue, 0 done.
+   281→
+   282→- CREATED src/app/api/doz/planning/route.ts (GET):
+   283→  - Single Promise.all of db.goal.findMany (include owner + 1-level children) and db.task.findMany (include assignee {name,role}, goal {title,type}, project {name}).
+   284→  - Builds tree in JS: topLevelGoals = goals with no parentId, sorted by TYPE_ORDER (ANNUAL=0, QUARTERLY=1, MONTHLY=2, WEEKLY=3) then dueDate; each carries nested children sorted by type.
+   285→  - goalsByType: flat lists per type with {id, title, status, progress, dueDate, quarter?, owner, parentId}.
+   286→  - tasksOut: flattened task shape per spec with assignee/goal/project nested objects (null-safe).
+   287→  - Stats (9 fields): activeGoals (ACTIVE+ON_HOLD), achievedGoals, missedGoals, overdueTasks (not DONE && dueDate < todayStart), dueToday (dueDate within today's window), distractions (isDistraction && not DONE), completedThisWeek (completedAt in next-7d window), completionRate (round(done/total*100)), avgGoalProgress (rounded mean).
+   288→  - Verified with curl: HTTP 200, ~7.6KB JSON. stats={activeGoals:4, achievedGoals:0, missedGoals:0, overdueTasks:0, dueToday:4, distractions:1, completedThisWeek:0, completionRate:0, avgGoalProgress:49}.
+   289→
+   290→- OVERWROTE src/components/modules/strategic-planning.tsx — full "use client" component (~1100 lines):
+   291→  - Fetches /api/doz/planning in useEffect (async IIFE with cancelled-flag guard — passes lint clean).
+   292→  - Visual toggle: doneOverrides state map; clicking the circle on a task flips its DONE state visually + fires sonner toast ("Task marked done" / "Task reopened"). No POST API per spec.
+   293→  - TOP KPI ROW — 6 StatCards in responsive grid (2 / 3 / 6 cols): Active Goals (primary accent, "X achieved · Y missed" sub), Avg Goal Progress %, Due Today, Overdue Tasks (danger accent), Distractions (warning accent), Completion Rate % (primary accent, "X done this week" sub).
+   294→  - LEFT COLUMN (lg:col-span-2, space-y-6):
+   295→    * Goal Cascade card — flattens goalsByType into ordered list (ANNUAL level 0, QUARTERLY level 1, MONTHLY level 2, WEEKLY level 3). Each row: level icon (Target/Flag/Calendar/CircleDot), level label + quarter, StatusBadge, title (line-clamp-2), Progress MiniBar with % + owner first name, relativeTime due date (rose if overdue, primary if achieved). Indentation increases per level: level 0 = full-width ring-primary/30, level 1 = border-l-2 pl-4 ml-0, level 2 = ml-4, level 3 = ml-8 — visually shows the parent→child cascade.
+   296→    * Tasks card with Tabs (Today | This Week | All | Distractions, each with count Badge):
+   297→      - Today tab: tasks grouped by priority (URGENT → HIGH → MEDIUM → LOW) with PriorityDot + label + count sub-header per group.
+   298→      - This Week / All tabs: flat lists sorted by priority then dueDate.
+   299→      - Distractions tab: tasks where isDistraction && not done.
+   300→      - Each TaskRow: circle toggle button (Circle when not done → CheckCircle2 text-primary when done), PriorityDot, title (strikethrough if done), inline DISTRACTION amber outline Badge + OVERDUE red outline Badge when applicable, CategoryBadge (STRATEGIC=emerald, OPERATIONAL=teal, ADMIN=muted, DISTRACTION=amber), ChevronRight + goal title link, project name, assignee Avatar (avatarColor + initials + first name), due date (rose if overdue), StatusBadge (md+ only). Distraction rows get border-amber-500/40 bg-amber-500/5. Completed rows get opacity-60.
+   301→      - All task lists use max-h-96 overflow-y-auto scroll-thin.
+   302→  - RIGHT COLUMN (space-y-6):
+   303→    * Distraction Detector card — amber-bordered (border-amber-500/40 bg-amber-500/5), AlertTriangle in amber-tinted icon box, count badge, list of distraction tasks (first 4 + "+N more"), and a recommendation box: "Batch these into a single 30-min block at 4 PM. Don't let them fracture deep work." When 0 distractions, shows a positive "Stay on the cascade" message instead.
+   304→    * Weekly Focus card — first WEEKLY goal with Progress bar, "Days remaining" countdown box (rose if overdue, amber if ≤1 day, normal otherwise), and a checklist of this week's key tasks (tasks where goal.type==='WEEKLY' && not done, first 5). Each checklist item is tappable to toggle done.
+   305→    * Goal Health card — pure-SVG donut chart (achieved=primary, active=teal, missed=destructive) with total in center, plus a legend with counts; below is a 3-stat grid (Achieved/Active/Missed).
+   306→  - Loading: SkeletonGrid mirrors the real layout (6 KPI skeletons + 2 left + 3 right skeletons).
+   307→  - Error: EmptyState with AlertTriangle icon and the error message.
+   308→  - Color discipline: emerald primary, amber for distractions, rose/red for overdue — zero indigo/blue.
+   309→  - Imports use exactly the spec'd paths (Card, Tabs, Skeleton, Badge, Avatar, Progress, StatCard/StatusBadge/SectionHeader/EmptyState/MiniBar/PriorityDot, formatDate/relativeTime/daysUntil/avatarColor/initials, toast from sonner, lucide-react icons: Target, Flag, AlertTriangle, CheckCircle2, Clock, TrendingUp, Calendar, ChevronRight, Circle, CircleDot).
+   310→
+   311→Testing:
+   312→- Restarted dev server (pkill -9 + setsid bun run dev). Port 3000, Ready in 599ms.
+   313→- curl /api/doz/planning → HTTP 200, ~7.6KB JSON, all 4 top-level keys present, correct nested shape.
+   314→- curl / → HTTP 200, compiles in ~2.3s, no errors in dev.log.
+   315→- bun run lint (eslint .): EXIT=0, zero errors and zero warnings repo-wide.
+   316→
+   317→Stage Summary:
+   318→- Module 2 (Strategic Planning) is fully implemented.
+   319→- API: GET /api/doz/planning returns { stats, goals (nested tree), tasks (flattened with assignee/goal/project), goalsByType (flat per-type lists) }.
+   320→- UI: 6 KPI cards + Goal Cascade visualization (increasing-indent levels with vertical connectors) + Task list with 4 tabs (Today grouped by priority, This Week, All, Distractions) + Distraction Detector (amber-bordered with batch recommendation) + Weekly Focus (countdown + checklist) + Goal Health (SVG donut).
+   321→- The "tasks must connect to larger goals" requirement is made visual via the cascade + per-task goal link, and the "system should actively identify distractions" requirement is delivered via the dedicated Distraction Detector card, Distractions tab, and amber styling on distraction rows.
+   322→- Files: src/app/api/doz/planning/route.ts (new), src/components/modules/strategic-planning.tsx (overwrote stub).
+   323→- Work record saved to /home/z/my-project/agent-ctx/5-strategic-planning.md.
+   324→
+   325→---
+   326→Task ID: 12
+   327→Agent: AI Chief of Staff Builder
+   328→Task: Build Module 9 (AI Chief of Staff) — API route + UI component (Operations Director for Digit One Zero Ltd)
+   329→
+   330→Work Log:
+   331→- READ worklog.md (Tasks 1, 4, 6, 7, 8, 9, 11 complete) — reused conventions: db at @/lib/db, formatNGN/relativeTime from @/lib/format, StatCard/SectionHeader/EmptyState from @/components/doz/ui-primitives, API pattern at src/app/api/doz/<module>/route.ts, emerald/amber/rose palette (no indigo/blue).
+   332→- READ prisma/schema.prisma — confirmed AIInsight model exists (type, severity, title, message, isRead, entityType, entityId, createdAt). Confirmed Opportunity has value, account.name, serviceType.
+   333→- READ dashboard/route.ts for contextSummary query patterns (lighter version reused).
+   334→- Verified z-ai-web-dev-sdk v0.0.18 installed. READ dist/index.d.ts to confirm exact API: `ZAI.create()` → `zai.chat.completions.create({ messages, thinking })` → `completion.choices[0].message.content`. Matches the spec exactly.
+   335→
+   336→API — src/app/api/doz/ai/route.ts (GET + POST):
+   337→- buildContextSummary() — single Promise.all of 6 lean Prisma queries (opportunities+account, invoices, expenses, tasks, projects, paymentRequests). Computes: pipelineValue (open opps), outstandingAmount (SENT/PARTIAL/OVERDUE), overdueAmount (OVERDUE only), cashPosition (revenue−expenses), pendingApprovals, openTasks, overdueTasks, activeProjects, distractions, topPriorities (top 5 due-soon tasks by priority), upcomingDeadlines (tasks + project eventDates + unpaid invoice dueDates within ±1d to +7d).
+   338→- GET returns `{ insights: [{id,type,severity,title,message,isRead,createdAt,entityType,entityId}], stats: {critical,warnings,info,unread}, contextSummary }`. try/catch — never 5xx (returns 200 with empty arrays on error).
+   339→- POST accepts `{ action: "daily_plan" | "risk_check" | "proposal_draft" | "chat", message?, opportunityName? }`:
+   340→  * daily_plan — injects contextSummary as text + asks AI for markdown with Top 3 Priorities / Delegate / Defer / Risk to Watch.
+   341→  * risk_check — injects contextSummary + asks for top 5 risks with severity + recommended action.
+   342→  * proposal_draft — if opportunityName matches an Opportunity (case-insensitive contains), fetches it (name, value, accountName, serviceType) and asks for client-ready proposal outline (Overview / Scope / Deliverables / Timeline / Investment tiers / Terms). Falls back to generic template.
+   343→  * chat — uses message field + system prompt + context summary.
+   344→- System prompt verbatim per spec (Operations Director for Digit One Zero Ltd, founder Adaeze Okonkwo, Naira, direct + concise).
+   345→- SDK call wrapped in try/catch: on failure returns `{ response: "AI service temporarily unavailable. Here's a cached recommendation: ...", error: true }` with HTTP 200 so the UI never crashes. cachedFallback() provides per-action fallback text.
+   346→
+   347→UI — src/components/modules/ai-chief-of-staff.tsx (overwrote stub, "use client", `export function AiChiefOfStaff()`):
+   348→- Fetches /api/doz/ai once in useEffect with cancelled-flag guard. Loading state = full SkeletonGrid. Error state = EmptyState with AlertTriangle icon.
+   349→- Hero banner: gradient bg-gradient-to-br from-primary/10 via-primary/5 to-transparent, border-primary/20. Sparkles icon in rounded tile, "AI Chief of Staff" title, "Your digital Operations Director" subtitle, animated emerald Online status badge (ping dot). Small mono badge ops-director · v1 on the right.
+   350→- Top KPI row (4 StatCards): Critical Alerts (danger), Warnings (warning), Open Tasks (primary + overdue sub), Unread Insights.
+   351→- Main layout lg:grid-cols-3 gap-6:
+   352→  * Left col (lg:col-span-2):
+   353→    - AI Console card: SectionHeader + 4 action buttons in grid grid-cols-2 sm:grid-cols-4 gap-2 (Daily Plan/Target, Risk Check/AlertTriangle, Draft Proposal/FileText, Ask Question/MessageSquare). When "Ask Question" toggled, shows Input + Send Button (form submit). Response area: ThinkingIndicator (pulsing Sparkles + animated ping ring + 3 bouncing dots) while busy, OR markdown response in primary-tinted card with MarkdownRender, OR placeholder dashed card. Recent exchanges list (last 6 messages reversed) in a ScrollArea.
+   354→    - Active Insights card: list with severity dot (red CRITICAL, amber WARNING, teal INFO), left border highlight (border-l-4), title, message, relativeTime, type badge (OVERDUE/BUDGET_OVERRUN/RISK/DISTRACTION/OPPORTUNITY with custom colors), "New" pill for unread. max-h-28rem + scroll-thin.
+   355→  * Right col:
+   356→    - Live Context card: 8 ContextRows (pipeline, outstanding, overdue, cash position, pending approvals, open tasks, active projects, distractions) with tone colors (primary/warning/danger). Plus Top priorities list and Upcoming deadlines list (CornerDownRight bullets).
+   357→    - Quick Prompts card: 4 clickable chips ("What should I delegate today?", "Which project is at risk of going over budget?", "Draft a follow-up to GTBank", "Summarize this week's wins") that auto-fire as chat messages.
+   358→- MarkdownRender: custom component wrapping react-markdown with manual prose-like styling (h1/h2/h3, p, ul/ol with custom bullet ::before, strong, em, code/pre, blockquote, hr, a, table). No typography plugin needed.
+   359→- State: `busy` tracks which action is in-flight (disables buttons), `history` keeps last few exchanges, `chatMode` toggles chat input, `lastResponse` shows current response. sonner toast for errors and warning when AI falls back to cached.
+   360→- SDK is imported ONLY in the API route (server-side). UI calls /api/doz/ai via fetch. NEVER imports the SDK.
+   361→
+   362→Testing:
+   363→- Dev server clean on port 3000 (Ready in 599ms). No compile errors.
+   364→- curl GET /api/doz/ai → HTTP 200, 6 insights, stats {critical:1, warnings:3, info:2, unread:6}, contextSummary with pipelineValue=₦113.8M, outstandingAmount=₦9.9M, overdueAmount=₦4.5M, cashPosition=₦9.52M, pendingApprovals=1, openTasks=15, overdueTasks=4, activeProjects=5, distractions=1, topPriorities=[3 items], upcomingDeadlines=[3 items].
+   365→- curl POST daily_plan → HTTP 200 in ~3.2s. Response: full markdown with Top 3 Priorities (Approve MTN video edit PO, Finalize GTBank proposal, Approve vendor payment), Delegate/Defer sections, Risk to Watch (₦4.5M overdue invoices). Real numbers + project names from injected context.
+   366→- curl POST risk_check → HTTP 200 in ~4.4s. 5 risks with severity + recommended action (CRITICAL overdue invoices 47% of cash position, CRITICAL GTBank proposal deadline, WARNING MTN PO approval, WARNING cash flow gap, INFO distractions).
+   367→- curl POST proposal_draft (Shell opportunity) → HTTP 200. Full client-ready proposal outline for Shell ₦32M EVENT_PRODUCTION: Project Overview / Scope / Deliverables / Timeline (5 weeks phased) / 3 investment tiers (Standard ₦28M / Professional ₦32M / Premium ₦38M) / Terms (40-30-30 payment, cancellation, IP, force majeure covering Lagos power outages).
+   368→- curl GET / → HTTP 200, page renders cleanly.
+   369→- bun run lint → EXIT 0, zero errors/warnings.
+   370→
+   371→Stage Summary:
+   372→- Module 9 (AI Chief of Staff) is fully implemented — the AI layer that ties together operating data from all other modules (CRM, Projects, Finance, Procurement, Tasks).
+   373→- API: GET /api/doz/ai (insights + stats + contextSummary) + POST /api/doz/ai (daily_plan | risk_check | proposal_draft | chat). z-ai-web-dev-sdk invoked server-side only, wrapped in try/catch with graceful cached fallback (HTTP 200, error: true flag) so the UI never crashes.
+   374→- UI: hero banner + 4 KPI StatCards + AI Console (4 action buttons + chat input + markdown response area + history) + Active Insights list + Live Context panel (8 metrics + top priorities + upcoming deadlines) + Quick Prompts chips. Uses react-markdown with manual prose-like styling (no typography plugin). Animated ThinkingIndicator with pulsing Sparkles + bouncing dots.
+   375→- Color discipline: emerald primary, amber warning, rose/red danger, teal info — NO indigo/blue.
+   376→- Files: src/app/api/doz/ai/route.ts (new, ~280 lines), src/components/modules/ai-chief-of-staff.tsx (overwrote 1-line stub → ~570 lines).
+   377→- Work record saved to /home/z/my-project/agent-ctx/12-ai-chief-of-staff.md.
+   378→
+   379→---
+   380→Task ID: 10
+   381→Agent: Team Management builder
+   382→Task: Build Team Management module (API route + UI component) — interns, freelancers, daily/weekly reports, accountability
+   383→
+   384→Work Log:
+   385→- READ worklog.md (Tasks 1,4,6,7,8,9): foundation + dashboard + CRM + Projects + Procurement + Finance modules already complete. Confirmed shared primitives at @/components/doz/ui-primitives (StatCard, StatusBadge, SectionHeader, EmptyState, MiniBar, PriorityDot), format helpers at @/lib/format (formatDate, relativeTime, avatarColor, initials), DB client at @/lib/db.
+   386→- Reviewed prisma schema: User (role FOUNDER/STAFF/INTERN/FREELANCER, capacity hrs/week, isActive), DailyReport (reportDate, tasksDone newline-sep, tasksPlanned, blockers, hoursWorked, mood GREAT/OK/STRESSED), WeeklyReport (weekStart, weekEnd, achievements, challenges, learnings, nextWeekPlan), Task (assigneeId, status TODO/IN_PROGRESS/DONE/BLOCKED, priority URGENT/HIGH/MEDIUM/LOW, dueDate, completedAt), CrewAssignment.
+   387→- Seed data confirmed: 1 founder + 2 staff + 3 interns (Chioma, Emeka, Fatima) + 7 freelancers; 6 daily reports (2 per intern, today + yesterday); 3 weekly reports.
+   388→
+   389→- CREATED src/app/api/doz/team/route.ts (GET):
+   390→  - Single Promise.all of 4 Prisma queries: users (with _count of tasksAssigned/dailyReports/weeklyReports/crewAssignments), dailyReports (include user, sorted desc by reportDate), weeklyReports (include user, sorted desc), tasks (include assignee).
+   391→  - Computes: openTasksByMember Map (tasks where status != DONE, keyed by assigneeId); completedTodayByMember Map; lastReportByUser Map (first row per userId since sorted desc); reportingToday (interns whose latest report.reportDate == today); reportingRate = round(internsReportingToday/totalInterns*100); avgHours = mean hoursWorked across today's reports.
+   392→  - Returns exactly { stats, members, dailyReports, weeklyReports, todayTasks } per spec. todayTasks = open tasks sorted by priority (URGENT→LOW) then dueDate asc.
+   393→  - Fixed SWC parse error: `new Map<string, (typeof dailyReports)[number]>()` had `>>` token issue; extracted to `type DailyReportRow = (typeof dailyReports)[number];`.
+   394→  - Verified with curl: HTTP 200, ~11.5KB JSON. stats = {totalMembers:13, interns:3, freelancers:7, staff:2, founder:1, reportingToday:3, reportingRate:100, openTasks:15, completedToday:0, avgHours:7}.
+   395→
+   396→- OVERWROTE src/components/modules/team.tsx — full "use client" component (export function Team()):
+   397→  - Fetches /api/doz/team in useEffect with cancelled-flag guard (lint-clean: no setState in effect body).
+   398→  - Loading: skeleton grid (6 KPIs + filter row + 6 member cards). Error: EmptyState with AlertTriangle.
+   399→  - TOP KPI ROW — 6 StatCards: Team Members, Interns (sub "X reporting today", primary accent), Freelancers, Reporting Rate % (danger accent if <80% else primary), Open Tasks (warning accent if ≥10), Avg Hours/Day.
+   400→  - TABS (default=team) — Team | Daily Reports | Weekly Reports | Today's Tasks.
+   401→  * Team tab: Filter pills (All/Founder/Staff/Interns/Freelancers — custom FilterPill with active=emerald border + count badge). Member cards grid sm:grid-cols-2 lg:grid-cols-3 gap-4. Each card: Avatar (initials+avatarColor) + name + role badge (FOUNDER=emerald/UserCog, STAFF=teal/Users, INTERN=amber/GraduationCap, FREELANCER=violet/Briefcase); email+phone small with Mail/Phone icons; Capacity "X hrs/week" + MiniBar (rose if ≥6 open, amber if ≥3, primary otherwise); 3 mini-stat boxes (Open / Reports=daily+weekly / Crew); last-report indicator (green dot "Reported today" OR amber dot "No report today") + mood emoji (😄/😐/😟) + hours.
+   402→  * Daily Reports tab: note banner; "Missing today's report" amber section at top with one MissingReportCard per non-reporting intern ("⚠ [Name] — No daily report submitted"); reports grouped by date desc, each group header shows formatDate + TODAY emerald badge if today + count; report cards: header (avatar, name, title, mood emoji, hours Clock badge, formatDate), Done section (split tasksDone by newline into list with emerald CheckCircle2 icons), Planned section (Target icon, bullets), Blockers section (amber-tinted box with AlertTriangle icon, only shown if blockers != "None"). max-h-[800px] overflow-y-auto scroll-thin.
+   403→  * Weekly Reports tab: card per report — header (avatar, name, title, week range "formatDate(weekStart) → formatDate(weekEnd)" in CalendarDays pill); 4 sections in 2-col grid: Achievements (emerald, Sparkles icon), Challenges (amber, AlertTriangle), Learnings (teal, Lightbulb), Next Week Plan (primary, Rocket). Each splits text by newline into bullets, "—" if empty.
+   404→  * Today's Tasks tab: note banner with count; grouped by priority (URGENT→HIGH→MEDIUM→LOW), each group has colored dot + label + count + Card containing Table (Task title, Assignee avatar+name+role, Status StatusBadge, Due relativeTime). EmptyState with Inbox icon if no tasks.
+   405→  - All MANDATORY styling rules honored: Cards p-4, shared primitives, format helpers, emerald/amber/rose/teal/violet palette (NO indigo/blue), role badge colors exact, mood emojis exact, Skeleton loading, scroll-thin for long lists.
+   406→
+   407→Testing:
+   408→- Restarted dev server (port 3000, Ready in 599ms).
+   409→- curl /api/doz/team → HTTP 200, ~11.5KB JSON, all 5 keys present with correct nested shapes.
+   410→- curl / → HTTP 200, page compiles in 2.6s, no errors in dev.log.
+   411→- dev.log shows GET /api/doz/team 200 in 70ms (compile: 52ms, render: 18ms) then 9ms cached.
+   412→- bun run lint (eslint .) → EXIT=0, zero errors/warnings.
+   413→
+   414→Stage Summary:
+   415→- Module 7 (Team Management) fully implemented and verified.
+   416→- Files: src/app/api/doz/team/route.ts (new GET endpoint), src/components/modules/team.tsx (overwrote 1-line stub with ~720-line "use client" component).
+   417→- API verified: 13 members, 3 interns (all 3 reported today = 100% rate), 7 freelancers, 2 staff, 1 founder, 15 open tasks (URGENT→LOW distribution), 6 daily reports (3 today + 3 yesterday), 3 weekly reports.
+   418→- UI: 6 StatCards + 4 tabs (Team default with filter pills + member cards, Daily Reports with date grouping + missing-report flags, Weekly Reports with 4 colored sections, Today's Tasks grouped by priority in tables).
+   419→- Reusable: api + UI follow exact patterns established in prior tasks (cancelled-flag useEffect, Promise.all batching, JS-side aggregation, shared primitives, format helpers).
+   420→- Work record saved to /home/z/my-project/agent-ctx/10-team-builder.md.
+   421→
+   422→---
+   423→Task ID: 13
+   424→Agent: Main (orchestrator)
+   425→Task: Final verification — Agent Browser end-to-end testing
+   426→
+   427→Work Log:
+   428→- Ran `bun run lint` → EXIT 0, zero errors/warnings across all 9 modules + APIs
+   429→- All 9 API endpoints return HTTP 200: /api/doz/{dashboard,crm,projects,procurement,finance,team,sop,ai,planning}
+   430→- Agent Browser verification (all modules rendered, zero console errors):
+   431→  - CEO Command Center: greeting, critical alert banner, 6 KPI StatCards, Top Priorities (with DISTRACTION badges), Pending Approvals (Approve/Reject buttons), Revenue by Service bar, Weekly Objective, Upcoming Deadlines, AI preview, Intern Reports, Open Opportunities table, Recent Activity feed
+   432→  - Strategic Planning: goal cascade (Annual→Quarterly→Monthly→Weekly), task tabs, Distraction Detector, Weekly Focus, Goal Health donut
+   433→  - CRM & Sales: 6 KPIs, Pipeline kanban (5 stages), Accounts/Proposals/Follow-ups/Referrals tabs
+   434→  - Projects & Events: 6 KPIs, project cards with P&L, crew avatar stacks, milestone tracking, detail dialogs
+   435→  - Procurement: segregation control banner (0 violations), 3-step workflow viz, RFQ quote comparison, vendors
+   436→  - Financial Intelligence: cash flow chart (recharts), Project/Client/Service P&L tables, invoices, expenses, budgets with utilization bars
+   437→  - Team Management: member cards with role badges + mood emojis, daily/weekly reports, today's tasks
+   438→  - SOP & Knowledge: category sidebar, SOP cards, markdown-rendered content dialogs
+   439→  - AI Chief of Staff: 4 action buttons, Daily Plan generated real markdown (Top 3 Priorities, Delegate, Defer, Risk to Watch) referencing actual ₦ values and tasks — verified end-to-end via browser click
+   440→- Sticky footer verified: "DOZ OS · Founder Operating System v1.0 · Live · Digit One Zero Ltd · Lagos, Nigeria"
+   441→- Color discipline: emerald primary, amber warning, rose danger — zero indigo/blue
+   442→
+   443→Stage Summary:
+   444→- DOZ OS is FULLY OPERATIONAL. All 9 modules render and interact without errors.
+   445→- AI Chief of Staff produces contextualized, actionable output using z-ai-web-dev-sdk (server-side only).
+   446→- Procurement enforces Requester ≠ Approver ≠ Payer (server-side validation in POST handler).
+   447→- Database seeded with realistic Nigerian event-company data.
+   448→- The system is a complete, working Founder Operating System.
+   449→
+
+[showing lines 200-449 of 686; use offset=450 with limit to continue reading]

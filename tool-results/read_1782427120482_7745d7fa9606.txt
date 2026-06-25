@@ -1,0 +1,754 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState } from "react";
+     4→import {
+     5→  Calendar,
+     6→  MapPin,
+     7→  Users,
+     8→  Film,
+     9→  CheckCircle2,
+    10→  Clock,
+    11→  AlertTriangle,
+    12→  Star,
+    13→  Clapperboard,
+    14→  TrendingUp,
+    15→  Wallet,
+    16→  CircleDollarSign,
+    17→  Trophy,
+    18→  FolderKanban,
+    19→} from "lucide-react";
+    20→import { Card } from "@/components/ui/card";
+    21→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    22→import {
+    23→  Dialog,
+    24→  DialogContent,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→  DialogTrigger,
+    28→} from "@/components/ui/dialog";
+    29→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    30→import { Skeleton } from "@/components/ui/skeleton";
+    31→import { Badge } from "@/components/ui/badge";
+    32→import { Progress } from "@/components/ui/progress";
+    33→import {
+    34→  StatCard,
+    35→  StatusBadge,
+    36→  SectionHeader,
+    37→  EmptyState,
+    38→  MiniBar,
+    39→} from "@/components/doz/ui-primitives";
+    40→import {
+    41→  formatNGN,
+    42→  formatDate,
+    43→  relativeTime,
+    44→  avatarColor,
+    45→  initials,
+    46→} from "@/lib/format";
+    47→
+    48→// ---------- Types ----------
+    49→interface CrewMember {
+    50→  id: string;
+    51→  role: string;
+    52→  status: string;
+    53→  dayRate: number;
+    54→  user: { name: string };
+    55→}
+    56→interface Milestone {
+    57→  id: string;
+    58→  title: string;
+    59→  dueDate: string;
+    60→  status: string;
+    61→  completedAt: string | null;
+    62→}
+    63→interface Deliverable {
+    64→  id: string;
+    65→  title: string;
+    66→  type: string | null;
+    67→  status: string;
+    68→  dueDate: string | null;
+    69→  clientApproved: boolean;
+    70→  deliveredAt: string | null;
+    71→}
+    72→interface Project {
+    73→  id: string;
+    74→  name: string;
+    75→  code: string | null;
+    76→  serviceType: string;
+    77→  status: string;
+    78→  eventDate: string | null;
+    79→  venue: string | null;
+    80→  budget: number;
+    81→  revenue: number;
+    82→  progress: number;
+    83→  startDate: string | null;
+    84→  endDate: string | null;
+    85→  account: { name: string; isStrategic: boolean } | null;
+    86→  manager: { name: string } | null;
+    87→  crew: CrewMember[];
+    88→  milestones: Milestone[];
+    89→  deliverables: Deliverable[];
+    90→  _count: { tasks: number; invoices: number; expenses: number };
+    91→  expensesTotal: number;
+    92→  profit: number;
+    93→  margin: number;
+    94→}
+    95→interface ProjectsData {
+    96→  stats: {
+    97→    total: number;
+    98→    active: number;
+    99→    completed: number;
+   100→    totalRevenue: number;
+   101→    totalExpenses: number;
+   102→    totalProfit: number;
+   103→    avgMargin: number;
+   104→  };
+   105→  projects: Project[];
+   106→}
+   107→
+   108→// ---------- Constants ----------
+   109→const ACTIVE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"];
+   110→
+   111→const SERVICE_ICON: Record<string, React.ReactNode> = {
+   112→  EVENT_PRODUCTION: <Clapperboard className="h-3.5 w-3.5" />,
+   113→  EVENT_MANAGEMENT: <Clapperboard className="h-3.5 w-3.5" />,
+   114→  VIDEO_PRODUCTION: <Film className="h-3.5 w-3.5" />,
+   115→  CONFERENCE_PRODUCTION: <Users className="h-3.5 w-3.5" />,
+   116→  TITLE_SEQUENCE: <Film className="h-3.5 w-3.5" />,
+   117→  COLOR_GRADING: <Film className="h-3.5 w-3.5" />,
+   118→};
+   119→
+   120→function serviceLabel(s: string): string {
+   121→  return s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+   122→}
+   123→
+   124→function deliverableStatusKey(s: string): string {
+   125→  return s.toLowerCase();
+   126→}
+   127→
+   128→function deliverableSummary(deliverables: Deliverable[]): string {
+   129→  if (deliverables.length === 0) return "No deliverables";
+   130→  const counts: Record<string, number> = {};
+   131→  for (const d of deliverables) {
+   132→    const k = deliverableStatusKey(d.status);
+   133→    counts[k] = (counts[k] ?? 0) + 1;
+   134→  }
+   135→  const order = ["pending", "in_progress", "review", "delivered"];
+   136→  const labels: Record<string, string> = {
+   137→    pending: "pending",
+   138→    in_progress: "in progress",
+   139→    review: "in review",
+   140→    delivered: "delivered",
+   141→  };
+   142→  return order
+   143→    .filter((k) => counts[k])
+   144→    .map((k) => `${counts[k]} ${labels[k]}`)
+   145→    .join(", ");
+   146→}
+   147→
+   148→// ---------- Main ----------
+   149→export function ProjectsEvents() {
+   150→  const [data, setData] = useState<ProjectsData | null>(null);
+   151→  const [loading, setLoading] = useState(true);
+   152→  const [error, setError] = useState<string | null>(null);
+   153→  const [tab, setTab] = useState("all");
+   154→
+   155→  useEffect(() => {
+   156→    let cancelled = false;
+   157→    fetch("/api/doz/projects")
+   158→      .then((r) => {
+   159→        if (!r.ok) throw new Error(`Request failed (${r.status})`);
+   160→        return r.json();
+   161→      })
+   162→      .then((d: ProjectsData) => {
+   163→        if (!cancelled) {
+   164→          setData(d);
+   165→          setError(null);
+   166→        }
+   167→      })
+   168→      .catch((e) => {
+   169→        if (!cancelled) setError(e.message || "Failed to load projects");
+   170→      })
+   171→      .finally(() => {
+   172→        if (!cancelled) setLoading(false);
+   173→      });
+   174→    return () => {
+   175→      cancelled = true;
+   176→    };
+   177→  }, []);
+   178→
+   179→  if (loading) return <ProjectsSkeleton />;
+   180→
+   181→  if (error || !data) {
+   182→    return (
+   183→      <div className="space-y-6">
+   184→        <SectionHeader
+   185→          icon={<Clapperboard className="h-5 w-5" />}
+   186→          title="Projects & Event Operations"
+   187→          description="Deliver every event on time, on budget"
+   188→        />
+   189→        <EmptyState
+   190→          icon={<AlertTriangle className="h-8 w-8" />}
+   191→          title="Couldn't load projects"
+   192→          hint={error ?? "Unknown error"}
+   193→        />
+   194→      </div>
+   195→    );
+   196→  }
+   197→
+   198→  const { stats, projects } = data;
+   199→
+   200→  // Filter by tab
+   201→  const filtered = projects.filter((p) => {
+   202→    if (tab === "all") return true;
+   203→    if (tab === "active") return ACTIVE_STATUSES.includes(p.status);
+   204→    if (tab === "planning") return p.status === "PLANNING";
+   205→    if (tab === "in_progress") return p.status === "IN_PROGRESS";
+   206→    if (tab === "completed") return p.status === "COMPLETED";
+   207→    return true;
+   208→  });
+   209→
+   210→  return (
+   211→    <div className="space-y-6">
+   212→      <SectionHeader
+   213→        icon={<Clapperboard className="h-5 w-5" />}
+   214→        title="Projects & Event Operations"
+   215→        description={`${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
+   216→      />
+   217→
+   218→      {/* KPI ROW */}
+   219→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+   220→        <StatCard
+   221→          label="Total Projects"
+   222→          value={stats.total}
+   223→          sub={`${stats.active} active`}
+   224→          icon={<FolderKanban className="h-4 w-4" />}
+   225→          accent="default"
+   226→        />
+   227→        <StatCard
+   228→          label="Active"
+   229→          value={stats.active}
+   230→          sub="in progress"
+   231→          icon={<Clapperboard className="h-4 w-4" />}
+   232→          accent="primary"
+   233→        />
+   234→        <StatCard
+   235→          label="Revenue"
+   236→          value={formatNGN(stats.totalRevenue, true)}
+   237→          sub="booked"
+   238→          icon={<CircleDollarSign className="h-4 w-4" />}
+   239→          accent="primary"
+   240→        />
+   241→        <StatCard
+   242→          label="Profit"
+   243→          value={formatNGN(stats.totalProfit, true)}
+   244→          sub={`exp ${formatNGN(stats.totalExpenses, true)}`}
+   245→          icon={<TrendingUp className="h-4 w-4" />}
+   246→          accent={stats.totalProfit >= 0 ? "primary" : "danger"}
+   247→        />
+   248→        <StatCard
+   249→          label="Avg Margin"
+   250→          value={`${stats.avgMargin.toFixed(1)}%`}
+   251→          sub="per project"
+   252→          icon={<Wallet className="h-4 w-4" />}
+   253→          accent={stats.avgMargin >= 30 ? "primary" : stats.avgMargin >= 15 ? "warning" : "danger"}
+   254→        />
+   255→        <StatCard
+   256→          label="Completed"
+   257→          value={stats.completed}
+   258→          sub="delivered"
+   259→          icon={<Trophy className="h-4 w-4" />}
+   260→          accent="default"
+   261→        />
+   262→      </div>
+   263→
+   264→      {/* PROJECT LIST WITH TABS */}
+   265→      <Tabs value={tab} onValueChange={setTab} className="w-full">
+   266→        <div className="flex flex-wrap items-center justify-between gap-2">
+   267→          <TabsList className="h-9">
+   268→            <TabsTrigger value="all" className="text-xs">All ({projects.length})</TabsTrigger>
+   269→            <TabsTrigger value="active" className="text-xs">Active ({projects.filter((p) => ACTIVE_STATUSES.includes(p.status)).length})</TabsTrigger>
+   270→            <TabsTrigger value="planning" className="text-xs">Planning ({projects.filter((p) => p.status === "PLANNING").length})</TabsTrigger>
+   271→            <TabsTrigger value="in_progress" className="text-xs">In Progress ({projects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
+   272→            <TabsTrigger value="completed" className="text-xs">Completed ({projects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
+   273→          </TabsList>
+   274→          <p className="text-xs text-muted-foreground">
+   275→            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {projects.length}
+   276→          </p>
+   277→        </div>
+   278→
+   279→        <TabsContent value={tab} className="mt-4">
+   280→          {filtered.length === 0 ? (
+   281→            <EmptyState
+   282→              icon={<FolderKanban className="h-8 w-8" />}
+   283→              title="No projects in this view"
+   284→              hint="Switch tabs to see other projects."
+   285→            />
+   286→          ) : (
+   287→            <div className="grid gap-4 lg:grid-cols-2">
+   288→              {filtered.map((p) => (
+   289→                <ProjectCard key={p.id} project={p} />
+   290→              ))}
+   291→            </div>
+   292→          )}
+   293→        </TabsContent>
+   294→      </Tabs>
+   295→    </div>
+   296→  );
+   297→}
+   298→
+   299→// ---------- Project Card ----------
+   300→function ProjectCard({ project: p }: { project: Project }) {
+   301→  const overBudgetWarn =
+   302→    p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
+   303→  const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
+   304→
+   305→  // Next 2 upcoming milestones: not DONE, sorted by dueDate asc
+   306→  const upcomingMilestones = p.milestones
+   307→    .filter((m) => m.status !== "DONE")
+   308→    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+   309→    .slice(0, 2);
+   310→
+   311→  const positiveProfit = p.profit >= 0;
+   312→
+   313→  return (
+   314→    <Dialog>
+   315→      <DialogTrigger asChild>
+   316→        <Card className="group cursor-pointer p-4 transition-all hover:border-primary/40 hover:bg-accent/20 lg:p-5">
+   317→          {/* Header: code + name + status */}
+   318→          <div className="flex items-start justify-between gap-2">
+   319→            <div className="min-w-0 flex-1">
+   320→              <div className="flex items-center gap-2">
+   321→                {p.code && (
+   322→                  <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   323→                    {p.code}
+   324→                  </span>
+   325→                )}
+   326→              </div>
+   327→              <h3 className="mt-0.5 truncate text-sm font-semibold leading-tight">
+   328→                {p.name}
+   329→              </h3>
+   330→            </div>
+   331→            <StatusBadge status={p.status} />
+   332→          </div>
+   333→
+   334→          {/* Service type + account */}
+   335→          <div className="mt-2 flex flex-wrap items-center gap-2">
+   336→            <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
+   337→              {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+   338→              {serviceLabel(p.serviceType)}
+   339→            </Badge>
+   340→            {p.account && (
+   341→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   342→                {p.account.isStrategic && (
+   343→                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+   344→                )}
+   345→                {p.account.name}
+   346→              </span>
+   347→            )}
+   348→          </div>
+   349→
+   350→          {/* Event date + venue */}
+   351→          {p.eventDate && (
+   352→            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+   353→              <span className="inline-flex items-center gap-1">
+   354→                <Calendar className="h-3.5 w-3.5" />
+   355→                {formatDate(p.eventDate)}
+   356→              </span>
+   357→              {p.venue && (
+   358→                <span className="inline-flex items-center gap-1">
+   359→                  <MapPin className="h-3.5 w-3.5" />
+   360→                  {p.venue}
+   361→                </span>
+   362→              )}
+   363→            </div>
+   364→          )}
+   365→
+   366→          {/* Financial bar */}
+   367→          <div className="mt-3 space-y-1.5 rounded-md border border-border/60 bg-muted/30 p-2.5">
+   368→            <div className="flex items-center justify-between text-xs">
+   369→              <span className="text-muted-foreground">Revenue</span>
+   370→              <span className="font-semibold text-foreground">
+   371→                {formatNGN(p.revenue, true)}
+   372→              </span>
+   373→            </div>
+   374→            <div className="flex items-center justify-between text-xs">
+   375→              <span className="text-muted-foreground">Budget</span>
+   376→              <span className="font-medium text-foreground">
+   377→                {formatNGN(p.budget, true)}
+   378→              </span>
+   379→            </div>
+   380→            <MiniBar
+   381→              value={p.expensesTotal}
+   382→              max={p.budget > 0 ? p.budget : p.revenue || 1}
+   383→              color={overBudgetWarn ? "bg-amber-500" : "bg-emerald-500"}
+   384→            />
+   385→            <div className="flex items-center justify-between pt-0.5 text-[11px] text-muted-foreground">
+   386→              <span>Spent {formatNGN(p.expensesTotal, true)} ({budgetUtil.toFixed(0)}% budget)</span>
+   387→              {overBudgetWarn && (
+   388→                <span className="inline-flex items-center gap-1 font-medium text-amber-500">
+   389→                  <AlertTriangle className="h-3 w-3" />
+   390→                  High burn
+   391→                </span>
+   392→              )}
+   393→            </div>
+   394→          </div>
+   395→
+   396→          {/* Profit + margin */}
+   397→          <div className="mt-2.5 flex items-center justify-between">
+   398→            <div className="flex items-center gap-2">
+   399→              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Profit</span>
+   400→              <span
+   401→                className={`text-sm font-semibold ${
+   402→                  positiveProfit ? "text-emerald-500" : "text-rose-500"
+   403→                }`}
+   404→              >
+   405→                {formatNGN(p.profit, true)}
+   406→              </span>
+   407→            </div>
+   408→            <span
+   409→              className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+   410→                positiveProfit
+   411→                  ? "bg-emerald-500/15 text-emerald-400"
+   412→                  : "bg-rose-500/15 text-rose-400"
+   413→              }`}
+   414→            >
+   415→              {p.margin.toFixed(1)}% margin
+   416→            </span>
+   417→          </div>
+   418→
+   419→          {/* Progress bar */}
+   420→          <div className="mt-3">
+   421→            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   422→              <span>Project progress</span>
+   423→              <span className="font-medium text-foreground">{p.progress}%</span>
+   424→            </div>
+   425→            <Progress value={p.progress} className="mt-1 h-1.5" />
+   426→          </div>
+   427→
+   428→          {/* Crew summary with avatar stack */}
+   429→          <div className="mt-3 flex items-center justify-between">
+   430→            <div className="flex items-center gap-2">
+   431→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   432→                <Users className="h-3.5 w-3.5" />
+   433→                {p.crew.length} crew assigned
+   434→              </span>
+   435→            </div>
+   436→            {p.crew.length > 0 && (
+   437→              <div className="flex -space-x-2">
+   438→                {p.crew.slice(0, 3).map((c) => (
+   439→                  <Avatar
+   440→                    key={c.id}
+   441→                    className="h-6 w-6 border-2 border-background ring-0"
+   442→                  >
+   443→                    <AvatarFallback
+   444→                      className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+   445→                    >
+   446→                      {initials(c.user.name)}
+   447→                    </AvatarFallback>
+   448→                  </Avatar>
+   449→                ))}
+   450→                {p.crew.length > 3 && (
+   451→                  <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-semibold text-muted-foreground">
+   452→                    +{p.crew.length - 3}
+   453→                  </div>
+   454→                )}
+   455→              </div>
+   456→            )}
+   457→          </div>
+   458→
+   459→          {/* Upcoming milestones */}
+   460→          {upcomingMilestones.length > 0 && (
+   461→            <div className="mt-3 border-t border-border/60 pt-2.5">
+   462→              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   463→                Upcoming milestones
+   464→              </p>
+   465→              <div className="space-y-1">
+   466→                {upcomingMilestones.map((m) => (
+   467→                  <div key={m.id} className="flex items-center justify-between gap-2 text-xs">
+   468→                    <span className="inline-flex min-w-0 items-center gap-1.5">
+   469→                      <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+   470→                      <span className="truncate">{m.title}</span>
+   471→                    </span>
+   472→                    <span className="shrink-0 text-[11px] text-muted-foreground">
+   473→                      {relativeTime(m.dueDate)}
+   474→                    </span>
+   475→                  </div>
+   476→                ))}
+   477→              </div>
+   478→            </div>
+   479→          )}
+   480→
+   481→          {/* Deliverables summary */}
+   482→          {p.deliverables.length > 0 && (
+   483→            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+   484→              <CheckCircle2 className="h-3.5 w-3.5" />
+   485→              <span>{deliverableSummary(p.deliverables)}</span>
+   486→            </div>
+   487→          )}
+   488→
+   489→          {/* Footer hint */}
+   490→          <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+   491→            <span>{p._count.tasks} tasks · {p._count.invoices} invoices · {p._count.expenses} expenses</span>
+   492→            <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+   493→              View details →
+   494→            </span>
+   495→          </div>
+   496→        </Card>
+   497→      </DialogTrigger>
+   498→
+   499→      <ProjectDialog project={p} />
+   500→    </Dialog>
+   501→  );
+   502→}
+   503→
+   504→// ---------- Project Detail Dialog ----------
+   505→function ProjectDialog({ project: p }: { project: Project }) {
+   506→  const milestones = [...p.milestones].sort(
+   507→    (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+   508→  );
+   509→  const deliverables = [...p.deliverables].sort((a, b) => {
+   510→    const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+   511→    const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+   512→    return da - db;
+   513→  });
+   514→
+   515→  return (
+   516→    <DialogContent className="max-h-[88vh] max-w-2xl overflow-hidden p-0">
+   517→      <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+   518→        <div className="flex items-center gap-2">
+   519→          {p.code && (
+   520→            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+   521→              {p.code}
+   522→            </span>
+   523→          )}
+   524→          <StatusBadge status={p.status} />
+   525→        </div>
+   526→        <DialogTitle className="text-base">{p.name}</DialogTitle>
+   527→        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+   528→          <span className="inline-flex items-center gap-1">
+   529→            {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+   530→            {serviceLabel(p.serviceType)}
+   531→          </span>
+   532→          {p.account && (
+   533→            <span className="inline-flex items-center gap-1">
+   534→              {p.account.isStrategic && (
+   535→                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+   536→              )}
+   537→              {p.account.name}
+   538→            </span>
+   539→          )}
+   540→          {p.manager && <span>· PM: {p.manager.name}</span>}
+   541→        </div>
+   542→      </DialogHeader>
+   543→
+   544→      <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
+   545→        {/* Quick facts */}
+   546→        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   547→          <div className="rounded-md border border-border/60 p-2.5">
+   548→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Revenue</p>
+   549→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.revenue, true)}</p>
+   550→          </div>
+   551→          <div className="rounded-md border border-border/60 p-2.5">
+   552→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Budget</p>
+   553→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.budget, true)}</p>
+   554→          </div>
+   555→          <div className="rounded-md border border-border/60 p-2.5">
+   556→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Expenses</p>
+   557→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.expensesTotal, true)}</p>
+   558→          </div>
+   559→          <div className="rounded-md border border-border/60 p-2.5">
+   560→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Profit / Margin</p>
+   561→            <p className={`mt-0.5 text-sm font-semibold ${p.profit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+   562→              {formatNGN(p.profit, true)} · {p.margin.toFixed(1)}%
+   563→            </p>
+   564→          </div>
+   565→        </div>
+   566→
+   567→        {/* Event + dates */}
+   568→        <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+   569→          {p.eventDate && (
+   570→            <div className="flex items-center gap-2">
+   571→              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+   572→              <span className="text-muted-foreground">Event:</span>
+   573→              <span className="font-medium">{formatDate(p.eventDate)}</span>
+   574→            </div>
+   575→          )}
+   576→          {p.venue && (
+   577→            <div className="flex items-center gap-2">
+   578→              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+   579→              <span className="text-muted-foreground">Venue:</span>
+   580→              <span className="font-medium">{p.venue}</span>
+   581→            </div>
+   582→          )}
+   583→          {p.startDate && (
+   584→            <div className="flex items-center gap-2">
+   585→              <span className="text-muted-foreground">Start:</span>
+   586→              <span className="font-medium">{formatDate(p.startDate)}</span>
+   587→            </div>
+   588→          )}
+   589→          {p.endDate && (
+   590→            <div className="flex items-center gap-2">
+   591→              <span className="text-muted-foreground">End:</span>
+   592→              <span className="font-medium">{formatDate(p.endDate)}</span>
+   593→            </div>
+   594→          )}
+   595→        </div>
+   596→
+   597→        {/* Progress */}
+   598→        <div className="mt-4">
+   599→          <div className="flex items-center justify-between text-xs">
+   600→            <span className="font-medium">Progress</span>
+   601→            <span className="font-semibold text-primary">{p.progress}%</span>
+   602→          </div>
+   603→          <Progress value={p.progress} className="mt-1.5 h-2" />
+   604→        </div>
+   605→
+   606→        {/* Crew */}
+   607→        <div className="mt-5">
+   608→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   609→            <Users className="h-3.5 w-3.5" />
+   610→            Crew ({p.crew.length})
+   611→          </h4>
+   612→          {p.crew.length === 0 ? (
+   613→            <p className="text-xs text-muted-foreground">No crew assigned yet.</p>
+   614→          ) : (
+   615→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+   616→              {p.crew.map((c) => (
+   617→                <div
+   618→                  key={c.id}
+   619→                  className="flex items-center justify-between rounded-md border border-border/60 px-2.5 py-1.5"
+   620→                >
+   621→                  <div className="flex min-w-0 items-center gap-2">
+   622→                    <Avatar className="h-6 w-6">
+   623→                      <AvatarFallback
+   624→                        className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+   625→                      >
+   626→                        {initials(c.user.name)}
+   627→                      </AvatarFallback>
+   628→                    </Avatar>
+   629→                    <div className="min-w-0">
+   630→                      <p className="truncate text-xs font-medium">{c.user.name}</p>
+   631→                      <p className="truncate text-[10px] text-muted-foreground">
+   632→                        {c.role.replace(/_/g, " ").toLowerCase()}
+   633→                      </p>
+   634→                    </div>
+   635→                  </div>
+   636→                  <div className="flex items-center gap-2">
+   637→                    <span className="text-[11px] text-muted-foreground">
+   638→                      {formatNGN(c.dayRate, true)}/day
+   639→                    </span>
+   640→                    <StatusBadge status={c.status} />
+   641→                  </div>
+   642→                </div>
+   643→              ))}
+   644→            </div>
+   645→          )}
+   646→        </div>
+   647→
+   648→        {/* Milestones */}
+   649→        <div className="mt-5">
+   650→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   651→            <Clock className="h-3.5 w-3.5" />
+   652→            Milestones ({milestones.length})
+   653→          </h4>
+   654→          {milestones.length === 0 ? (
+   655→            <p className="text-xs text-muted-foreground">No milestones defined.</p>
+   656→          ) : (
+   657→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+   658→              {milestones.map((m) => (
+   659→                <div
+   660→                  key={m.id}
+   661→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+   662→                >
+   663→                  <div className="flex min-w-0 items-center gap-2">
+   664→                    <CheckCircle2
+   665→                      className={`h-3.5 w-3.5 shrink-0 ${
+   666→                        m.status === "DONE" ? "text-emerald-500" : "text-muted-foreground"
+   667→                      }`}
+   668→                    />
+   669→                    <div className="min-w-0">
+   670→                      <p className={`truncate text-xs ${m.status === "DONE" ? "line-through text-muted-foreground" : "font-medium"}`}>
+   671→                        {m.title}
+   672→                      </p>
+   673→                      <p className="text-[10px] text-muted-foreground">
+   674→                        Due {formatDate(m.dueDate)} · {relativeTime(m.dueDate)}
+   675→                      </p>
+   676→                    </div>
+   677→                  </div>
+   678→                  <StatusBadge status={m.status} />
+   679→                </div>
+   680→              ))}
+   681→            </div>
+   682→          )}
+   683→        </div>
+   684→
+   685→        {/* Deliverables */}
+   686→        <div className="mt-5">
+   687→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+   688→            <Film className="h-3.5 w-3.5" />
+   689→            Deliverables ({deliverables.length})
+   690→          </h4>
+   691→          {deliverables.length === 0 ? (
+   692→            <p className="text-xs text-muted-foreground">No deliverables defined.</p>
+   693→          ) : (
+   694→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+   695→              {deliverables.map((d) => (
+   696→                <div
+   697→                  key={d.id}
+   698→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+   699→                >
+   700→                  <div className="flex min-w-0 items-center gap-2">
+   701→                    <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+   702→                    <div className="min-w-0">
+   703→                      <p className="truncate text-xs font-medium">{d.title}</p>
+   704→                      <p className="text-[10px] text-muted-foreground">
+   705→                        {d.type ? d.type.replace(/_/g, " ").toLowerCase() : "deliverable"}
+   706→                        {d.dueDate && ` · due ${formatDate(d.dueDate)}`}
+   707→                        {d.clientApproved && " · approved"}
+   708→                      </p>
+   709→                    </div>
+   710→                  </div>
+   711→                  <StatusBadge status={d.status} />
+   712→                </div>
+   713→              ))}
+   714→            </div>
+   715→          )}
+   716→        </div>
+   717→
+   718→        {/* Footer counts */}
+   719→        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
+   720→          <span>{p._count.tasks} tasks</span>
+   721→          <span>·</span>
+   722→          <span>{p._count.invoices} invoices</span>
+   723→          <span>·</span>
+   724→          <span>{p._count.expenses} expenses</span>
+   725→        </div>
+   726→      </div>
+   727→    </DialogContent>
+   728→  );
+   729→}
+   730→
+   731→// ---------- Skeleton ----------
+   732→function ProjectsSkeleton() {
+   733→  return (
+   734→    <div className="space-y-6">
+   735→      <SectionHeader
+   736→        icon={<Clapperboard className="h-5 w-5" />}
+   737→        title="Projects & Event Operations"
+   738→        description="Loading projects…"
+   739→      />
+   740→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+   741→        {Array.from({ length: 6 }).map((_, i) => (
+   742→          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+   743→        ))}
+   744→      </div>
+   745→      <Skeleton className="h-9 w-full max-w-md rounded-lg" />
+   746→      <div className="grid gap-4 lg:grid-cols-2">
+   747→        {Array.from({ length: 4 }).map((_, i) => (
+   748→          <Skeleton key={i} className="h-64 w-full rounded-lg" />
+   749→        ))}
+   750→      </div>
+   751→    </div>
+   752→  );
+   753→}
+   754→

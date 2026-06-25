@@ -20,6 +20,7 @@ import {
   LogOut,
   Loader2,
   ShieldCheck,
+  Repeat,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -31,6 +32,7 @@ import { Team } from "@/components/modules/team";
 import { SopKnowledge } from "@/components/modules/sop-knowledge";
 import { AiChiefOfStaff } from "@/components/modules/ai-chief-of-staff";
 import { FieldMode } from "@/components/modules/field-mode";
+import { Routines } from "@/components/modules/routines";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +55,6 @@ import {
 import { useEffect } from "react";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { signOut } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { SignIn } from "@/components/doz/sign-in";
 import { initials, avatarColor } from "@/lib/format";
 import { toast } from "sonner";
@@ -69,6 +70,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, group: "Operate" },
   { id: "planning", label: "Strategic Planning", icon: <Target className="h-4 w-4" />, group: "Operate" },
+  { id: "routines", label: "Routines", icon: <Repeat className="h-4 w-4" />, group: "Operate" },
   { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, group: "Operate", hint: "AI" },
   { id: "field", label: "Field Mode", icon: <Smartphone className="h-4 w-4" />, group: "Operate", hint: "Mobile" },
   { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, group: "Grow" },
@@ -81,8 +83,8 @@ const NAV: NavItem[] = [
 
 // Role-based module access (Phase 2)
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "ai", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
-  STAFF: ["command", "planning", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
   INTERN: ["command", "field", "team", "sop"],
   FREELANCER: ["command", "field", "projects", "team"],
 };
@@ -98,6 +100,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   sop: <SopKnowledge />,
   ai: <AiChiefOfStaff />,
   field: <FieldMode />,
+  routines: <Routines />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -111,6 +114,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   sop: { title: "SOP & Knowledge Base", subtitle: "Process is the product" },
   ai: { title: "AI Chief of Staff", subtitle: "Your digital Operations Director" },
   field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
+  routines: { title: "Routines", subtitle: "Your business rhythm — run the same playbook every time" },
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -130,7 +134,6 @@ const ROLE_BADGE_COLOR: Record<string, string> = {
 export function AppShell() {
   const { activeModule, setModule, commandOpen, setCommandOpen } = useAppStore();
   const { user, status } = useCurrentUser();
-  const router = useRouter();
 
   // keyboard shortcut cmd+k
   useEffect(() => {
@@ -182,7 +185,7 @@ export function AppShell() {
   async function handleSignOut() {
     await signOut({ redirect: false });
     toast.success("Signed out");
-    router.refresh();
+    window.location.assign("/");
   }
 
   return (

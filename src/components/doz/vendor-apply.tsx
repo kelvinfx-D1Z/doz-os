@@ -3,14 +3,13 @@
 import { useState } from "react";
 import {
   X,
-  Send,
+  Plus,
   Building2,
   User,
   Phone,
   Mail,
-  FileText,
+  Star,
   Banknote,
-  Users,
   StickyNote,
   CheckCircle2,
   Truck,
@@ -32,8 +31,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // ============================================================
-// VendorApply — public full-screen vendor application form
-// Renders as a fixed overlay; parent controls open/close via `onClose`
+// AddVendorForm — INTERNAL form for Production Manager / staff
+// to add a vendor directly to the database.
+// Vendors do NOT have login accounts. Staff input everything.
 // ============================================================
 
 const CATEGORIES: { value: string; label: string }[] = [
@@ -50,32 +50,28 @@ const CATEGORIES: { value: string; label: string }[] = [
 ];
 
 interface FormState {
-  companyName: string;
+  name: string;
   category: string;
   contactName: string;
   phone: string;
   email: string;
-  cacNumber: string;
-  bankName: string;
   bankAccount: string;
-  references: string;
+  rating: string;
   notes: string;
 }
 
 const EMPTY_FORM: FormState = {
-  companyName: "",
+  name: "",
   category: "",
   contactName: "",
   phone: "",
   email: "",
-  cacNumber: "",
-  bankName: "",
   bankAccount: "",
-  references: "",
+  rating: "0",
   notes: "",
 };
 
-export function VendorApply({ onClose }: { onClose: () => void }) {
+export function AddVendorForm({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -85,7 +81,7 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
   }
 
   function validate(): string | null {
-    if (!form.companyName.trim()) return "Company name is required";
+    if (!form.name.trim()) return "Vendor name is required";
     if (!form.category) return "Please select a category";
     if (!form.contactName.trim()) return "Contact name is required";
     if (!form.phone.trim()) return "Phone number is required";
@@ -105,29 +101,29 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyName: form.companyName.trim(),
+          action: "create_vendor",
+          name: form.name.trim(),
           category: form.category,
           contactName: form.contactName.trim(),
           phone: form.phone.trim() || undefined,
           email: form.email.trim() || undefined,
-          cacNumber: form.cacNumber.trim() || undefined,
-          bankName: form.bankName.trim() || undefined,
           bankAccount: form.bankAccount.trim() || undefined,
-          references: form.references.trim() || undefined,
+          rating: parseInt(form.rating) || 0,
           notes: form.notes.trim() || undefined,
         }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? "Failed to submit application");
+        toast.error(data.error ?? "Failed to add vendor");
         return;
       }
 
-      toast.success("Application submitted", {
-        description: "Our procurement team will review and respond within 48 hours.",
+      toast.success("Vendor added", {
+        description: `${form.name} is now in the vendor database.`,
       });
       setSuccess(true);
+      onSaved?.();
     } catch {
       toast.error("Network error — please try again");
     } finally {
@@ -150,30 +146,26 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
               <CheckCircle2 className="h-9 w-9" />
             </div>
             <h2 className="mt-5 text-2xl font-semibold tracking-tight">
-              Application received!
+              Vendor added successfully
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Thank you for your interest in joining the Digit One Zero vendor
-              network. Our team will review your application and respond within{" "}
-              <span className="font-semibold text-foreground">48 hours</span>.
+              <span className="font-semibold text-foreground">{form.name}</span> has been
+              added to the vendor database. You can now issue RFQs and purchase orders
+              to this vendor.
             </p>
-            <div className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground">
-              <Send className="h-3.5 w-3.5" />
-              Reference: {form.companyName || "Application"}
-            </div>
             <div className="mt-7 flex flex-col items-center justify-center gap-2 sm:flex-row">
               <Button
                 onClick={handleReset}
                 variant="outline"
                 className="w-full sm:w-auto"
               >
-                Submit another
+                <Plus className="mr-1 h-4 w-4" /> Add another
               </Button>
               <Button
                 onClick={onClose}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
               >
-                Close
+                Done
               </Button>
             </div>
           </Card>
@@ -194,10 +186,10 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold tracking-tight">
-                Vendor Partnership Application
+                Add New Vendor
               </p>
               <p className="truncate text-[11px] text-muted-foreground">
-                Digit One Zero Ltd
+                Internal — Procurement team only
               </p>
             </div>
           </div>
@@ -206,7 +198,7 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
             size="icon"
             onClick={onClose}
             className="h-8 w-8 shrink-0"
-            aria-label="Close application form"
+            aria-label="Close form"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -219,15 +211,15 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
         <div className="mb-6">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary">
             <Truck className="h-3.5 w-3.5" />
-            Vendor Network
+            Vendor Database
           </div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Join our vendor network
+            Add a vendor
           </h1>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-            We partner with trusted suppliers across events, AV, staging, and
-            production. Fill in the form below and our procurement team will
-            review and respond within 48 hours.
+            Enter the vendor's details below to add them directly to the database.
+            Once added, you can issue RFQs, compare quotes, and create purchase orders
+            for this vendor.
           </p>
         </div>
 
@@ -236,59 +228,65 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
           <Card className="p-5">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
               <Building2 className="h-4 w-4 text-primary" />
-              Company Information
+              Vendor Information
             </div>
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="companyName" className="text-xs">
-                  Company Name <span className="text-rose-400">*</span>
+                <Label htmlFor="name" className="text-xs">
+                  Vendor / Company Name <span className="text-rose-400">*</span>
                 </Label>
                 <Input
-                  id="companyName"
-                  value={form.companyName}
-                  onChange={(e) => update("companyName", e.target.value)}
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => update("name", e.target.value)}
                   placeholder="e.g. Crystal Visuals NG"
                   required
                   maxLength={120}
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="category" className="text-xs">
-                  Category <span className="text-rose-400">*</span>
-                </Label>
-                <Select
-                  value={form.category}
-                  onValueChange={(v) => update("category", v)}
-                >
-                  <SelectTrigger id="category" className="w-full">
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIES.map((c) => (
-                      <SelectItem key={c.value} value={c.value}>
-                        {c.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="cacNumber" className="text-xs">
-                  CAC Registration Number
-                </Label>
-                <Input
-                  id="cacNumber"
-                  value={form.cacNumber}
-                  onChange={(e) => update("cacNumber", e.target.value)}
-                  placeholder="e.g. RC-1234567 or BN-9876543"
-                  maxLength={40}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Corporate Affairs Commission registration (optional but
-                  preferred).
-                </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="category" className="text-xs">
+                    Category <span className="text-rose-400">*</span>
+                  </Label>
+                  <Select
+                    value={form.category}
+                    onValueChange={(v) => update("category", v)}
+                  >
+                    <SelectTrigger id="category" className="w-full">
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="rating" className="text-xs">
+                    Initial Rating
+                  </Label>
+                  <Select
+                    value={form.rating}
+                    onValueChange={(v) => update("rating", v)}
+                  >
+                    <SelectTrigger id="rating" className="w-full">
+                      <SelectValue placeholder="Rate this vendor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Not rated yet</SelectItem>
+                      <SelectItem value="1">1 — Poor</SelectItem>
+                      <SelectItem value="2">2 — Fair</SelectItem>
+                      <SelectItem value="3">3 — Good</SelectItem>
+                      <SelectItem value="4">4 — Very Good</SelectItem>
+                      <SelectItem value="5">5 — Excellent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </Card>
@@ -356,80 +354,47 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
               <Banknote className="h-4 w-4 text-primary" />
               Bank Details
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="bankName" className="text-xs">
-                  Bank Name
-                </Label>
-                <Input
-                  id="bankName"
-                  value={form.bankName}
-                  onChange={(e) => update("bankName", e.target.value)}
-                  placeholder="e.g. GTBank"
-                  maxLength={60}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="bankAccount" className="text-xs">
-                  Bank Account Number
-                </Label>
-                <Input
-                  id="bankAccount"
-                  value={form.bankAccount}
-                  onChange={(e) => update("bankAccount", e.target.value)}
-                  placeholder="10-digit NUBAN"
-                  maxLength={20}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bankAccount" className="text-xs">
+                Bank Account (Bank — Number)
+              </Label>
+              <Input
+                id="bankAccount"
+                value={form.bankAccount}
+                onChange={(e) => update("bankAccount", e.target.value)}
+                placeholder="e.g. GTBank — 0123456789"
+                maxLength={80}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Used for payment processing when issuing purchase orders.
+              </p>
             </div>
-            <p className="mt-3 text-[10px] text-muted-foreground">
-              Used only for payment processing once your application is approved.
-            </p>
           </Card>
 
-          {/* References + Notes */}
+          {/* Notes */}
           <Card className="p-5">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Users className="h-4 w-4 text-primary" />
-              References &amp; Capabilities
+              <StickyNote className="h-4 w-4 text-primary" />
+              Notes / Capabilities
             </div>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="references" className="text-xs">
-                  Past Clients / References
-                </Label>
-                <Textarea
-                  id="references"
-                  value={form.references}
-                  onChange={(e) => update("references", e.target.value)}
-                  placeholder={"One per line, e.g.\nStandard Chartered Gala 2024\nLagos Fashion Week 2024"}
-                  rows={4}
-                  maxLength={1000}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  One reference per line.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="notes" className="text-xs">
-                  Notes / Capabilities
-                </Label>
-                <Textarea
-                  id="notes"
-                  value={form.notes}
-                  onChange={(e) => update("notes", e.target.value)}
-                  placeholder="What can you supply? Any specialisations, equipment, capacity, lead times…"
-                  rows={4}
-                  maxLength={1500}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notes" className="text-xs">
+                What can this vendor supply? Specialisations, capacity, lead times…
+              </Label>
+              <Textarea
+                id="notes"
+                value={form.notes}
+                onChange={(e) => update("notes", e.target.value)}
+                placeholder="e.g. Specializes in 4K cinema cameras + stabilizers. Can supply 2x FX6 + 1x Ronin. 24h notice for equipment rental."
+                rows={4}
+                maxLength={1500}
+              />
             </div>
           </Card>
 
           {/* Submit */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[11px] text-muted-foreground">
-              <FileText className="mr-1 inline h-3 w-3" />
               Fields marked <span className="text-rose-400">*</span> are required.
             </p>
             <div className="flex items-center gap-2">
@@ -453,26 +418,16 @@ export function VendorApply({ onClose }: { onClose: () => void }) {
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Submitting…
+                    Adding…
                   </>
                 ) : (
                   <>
-                    <Send className="h-4 w-4" />
-                    Submit Application
+                    <Plus className="h-4 w-4" />
+                    Add Vendor
                   </>
                 )}
               </Button>
             </div>
-          </div>
-
-          {/* Footer note */}
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-3 text-[11px] text-muted-foreground">
-            <StickyNote className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              By submitting, you confirm the information provided is accurate.
-              Digit One Zero Ltd will use this information solely for vendor
-              onboarding and procurement decisions.
-            </span>
           </div>
         </form>
       </main>

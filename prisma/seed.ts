@@ -436,6 +436,110 @@ async function main() {
     },
   });
 
+  // ---------- ROUTINES (business rhythm) ----------
+  const routines = [
+    {
+      name: "Morning Briefing",
+      description: "Start every day with focus. 5 minutes to align before the chaos begins.",
+      frequency: "DAILY",
+      steps: JSON.stringify([
+        "Review today's top 3 priorities",
+        "Check pending approvals & payment requests",
+        "Scan overdue invoices and tasks",
+        "Review intern daily reports from yesterday",
+        "Confirm today's event schedule / crew call times",
+        "Set phone to Do Not Disturb for deep work block",
+      ]),
+      icon: "Sunrise",
+      color: "amber",
+    },
+    {
+      name: "End of Day Wrap",
+      description: "Close out the day so nothing falls through the cracks.",
+      frequency: "DAILY",
+      steps: JSON.stringify([
+        "Update task statuses (done / carried over)",
+        "Log any new expenses or receipts",
+        "Confirm intern EOD reports submitted",
+        "Note tomorrow's #1 priority",
+        "Clear inbox to under 10 unread",
+      ]),
+      icon: "Moon",
+      color: "violet",
+    },
+    {
+      name: "Weekly Business Review",
+      description: "Every Monday morning. Review the business, not just the tasks.",
+      frequency: "WEEKLY",
+      steps: JSON.stringify([
+        "Review cash position vs 30-day obligations",
+        "Check overdue invoices — escalate any >14 days",
+        "Review pipeline: which opportunities need follow-up?",
+        "Review project profitability — flag any <20% margin",
+        "Review intern performance & assign weekly tasks",
+        "Update weekly objective progress",
+        "Plan top 3 outcomes for the week",
+      ]),
+      icon: "CalendarDays",
+      color: "emerald",
+    },
+    {
+      name: "Event Day Run-Sheet",
+      description: "Execute every event with the same discipline.",
+      frequency: "EVENT_DAY",
+      steps: JSON.stringify([
+        "06:00 Crew call — confirm everyone on site",
+        "07:00 Load-in & equipment verification",
+        "08:00 Power / generator confirmed",
+        "09:00 Sound check complete",
+        "09:30 Lighting check complete",
+        "09:45 Camera positions locked",
+        "10:00 Client briefing & walk-through",
+        "10:15 Livestream test (if applicable)",
+        "10:30 Doors open",
+        "Post-event: handover assets receipt signed",
+        "Post-event: crew debrief (15 min)",
+      ]),
+      icon: "Clapperboard",
+      color: "teal",
+    },
+    {
+      name: "Monthly Close",
+      description: "Close the books and review the month. Last Friday of every month.",
+      frequency: "MONTHLY",
+      steps: JSON.stringify([
+        "Reconcile all expenses with receipts",
+        "Verify all invoices sent for the month",
+        "Calculate monthly P&L (revenue - expenses)",
+        "Review project P&L — identify profit & loss projects",
+        "Review vendor performance — rate & cull",
+        "Update annual goal progress",
+        "Review team capacity & workload",
+        "Plan next month's top 3 priorities",
+      ]),
+      icon: "Wallet",
+      color: "rose",
+    },
+    {
+      name: "Sales Pipeline Review",
+      description: "Keep the pipeline healthy. Twice a week (Tue & Fri).",
+      frequency: "WEEKLY",
+      steps: JSON.stringify([
+        "Review all open opportunities — which need action?",
+        "Follow up on proposals sent >3 days ago",
+        "Check proposals near expiry — extend or re-engage",
+        "Identify 3 new leads to pursue",
+        "Update probability & expected close dates",
+        "Nurture top 3 referral sources",
+      ]),
+      icon: "TrendingUp",
+      color: "amber",
+    },
+  ];
+  for (const r of routines) {
+    await db.routine.create({ data: r });
+  }
+
   console.log("Seed complete.");
   console.log({ founder: founder.id, interns: interns.length, freelancers: freelancers.length, accounts: accounts.length });
 }

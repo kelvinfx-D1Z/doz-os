@@ -21,7 +21,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VendorApplications } from "@/components/doz/vendor-applications";
-import { VendorApply } from "@/components/doz/vendor-apply";
+import { AddVendorForm } from "@/components/doz/vendor-apply";
 import {
   Table,
   TableBody,
@@ -1064,7 +1064,7 @@ export function Procurement() {
             className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" />
-            Vendor Apply Form
+            Add Vendor
           </Button>
         }
       />
@@ -1168,7 +1168,7 @@ export function Procurement() {
         </TabsContent>
       </Tabs>
 
-      {showApply && <VendorApply onClose={() => setShowApply(false)} />}
+      {showApply && <AddVendorForm onClose={() => setShowApply(false)} onSaved={load} />}
     </div>
   );
 }

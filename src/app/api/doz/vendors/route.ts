@@ -89,7 +89,9 @@ export async function GET() {
 }
 
 // ------------------------------------------------------------
-// POST — submit a new vendor application (public)
+// POST — two modes:
+//   1) action: "create_vendor"  → staff directly add a Vendor (PM inputs everything)
+//   2) (default)                → submit a vendor application (intake queue)
 // ------------------------------------------------------------
 export async function POST(req: Request) {
   try {
@@ -98,6 +100,68 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
+    // ---- Mode 1: Direct vendor creation (staff / PM) ----
+    if (body.action === "create_vendor") {
+      const name = String(body.name ?? "").trim();
+      const category = String(body.category ?? "").trim();
+      const contactName = String(body.contactName ?? "").trim();
+      const phone = body.phone ? String(body.phone).trim() : null;
+      const email = body.email ? String(body.email).trim() : null;
+      const bankAccount = body.bankAccount ? String(body.bankAccount).trim() : null;
+      const rating = typeof body.rating === "number" ? body.rating : 0;
+      const notes = body.notes ? String(body.notes).trim() : null;
+
+      if (!name) {
+        return NextResponse.json({ error: "Vendor name is required" }, { status: 400 });
+      }
+      if (!category || !isValidCategory(category)) {
+        return NextResponse.json(
+          { error: `Category is required and must be one of: ${VALID_CATEGORIES.join(", ")}` },
+          { status: 400 }
+        );
+      }
+      if (!contactName) {
+        return NextResponse.json({ error: "Contact name is required" }, { status: 400 });
+      }
+      if (!phone) {
+        return NextResponse.json({ error: "Phone number is required" }, { status: 400 });
+      }
+
+      const created = await db.vendor.create({
+        data: {
+          name,
+          category,
+          contactName,
+          phone,
+          email,
+          bankAccount,
+          rating,
+          notes,
+          isActive: true,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          vendor: {
+            id: created.id,
+            name: created.name,
+            category: created.category,
+            contactName: created.contactName,
+            phone: created.phone,
+            email: created.email,
+            bankAccount: created.bankAccount,
+            rating: created.rating,
+            totalSpent: created.totalSpent,
+            isActive: created.isActive,
+            createdAt: created.createdAt,
+          },
+        },
+        { status: 201 }
+      );
+    }
+
+    // ---- Mode 2: Application submission (intake queue) ----
     const companyName = String(body.companyName ?? "").trim();
     const category = String(body.category ?? "").trim();
     const contactName = String(body.contactName ?? "").trim();
@@ -164,7 +228,7 @@ export async function POST(req: Request) {
   } catch (e) {
     console.error("[POST /api/doz/vendors]", e);
     return NextResponse.json(
-      { error: "Failed to submit vendor application" },
+      { error: "Failed to process vendor request" },
       { status: 500 }
     );
   }

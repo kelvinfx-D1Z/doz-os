@@ -42,6 +42,7 @@ model User {
   paymentsPaid     PaymentRequest[] @relation("PaymentPayer")
   activityLogs     ActivityLog[]
   sopAuthors       Sop[]
+  routineLogs      RoutineLog[]
 }
 
 // ============================================================
@@ -570,4 +571,36 @@ model VendorApplication {
   vendorId      String?  // created Vendor id on approval
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// ============================================================
+// ROUTINES (business rhythm templates)
+// ============================================================
+
+model Routine {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  frequency   String   // DAILY, WEEKLY, EVENT_DAY, MONTHLY
+  steps       String   // JSON array of step strings
+  icon        String?  // lucide icon name
+  color       String?  // tailwind color token
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  logs RoutineLog[]
+}
+
+model RoutineLog {
+  id          String   @id @default(cuid())
+  routineId   String
+  routine     Routine  @relation(fields: [routineId], references: [id])
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  status      String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, ABANDONED
+  stepsDone   String   @default("[]") // JSON array of completed step indices
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
 }

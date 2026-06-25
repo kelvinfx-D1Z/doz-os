@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +20,6 @@ export function SignIn() {
   const [email, setEmail] = useState("founder@digitonezero.com");
   const [password, setPassword] = useState("doz2025");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSignIn(e?: React.FormEvent, emailOverride?: string) {
     e?.preventDefault();
@@ -36,8 +34,8 @@ export function SignIn() {
       toast.error("Invalid credentials. Try the demo password: doz2025");
     } else {
       toast.success("Welcome back to DOZ OS");
-      // gentle client-side refresh so the session is picked up by useSession
-      router.refresh();
+      // Navigate to root — useSession will pick up the new cookie
+      window.location.assign("/");
     }
   }
 
