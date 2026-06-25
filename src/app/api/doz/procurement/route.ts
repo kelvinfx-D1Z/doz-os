@@ -1,0 +1,272 @@
+import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
+
+// ============================================================
+// Procurement & Vendor Management API
+// Enforces 3-way segregation: Requester ≠ Approver ≠ Payer
+// ============================================================
+
+export async function GET() {
+  const now = new Date();
+
+  const [vendors, rfqs, purchaseOrders, paymentRequests, approvals] = await Promise.all([
+    db.vendor.findMany({
+      include: {
+        _count: { select: { quotes: true, pos: true } },
+      },
+      orderBy: { totalSpent: "desc" },
+    }),
+    db.rfq.findMany({
+      include: {
+        project: { select: { name: true } },
+        quotes: {
+          include: { vendor: { select: { name: true, rating: true } } },
+          orderBy: { amount: "asc" },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.purchaseOrder.findMany({
+      include: {
+        vendor: { select: { name: true } },
+        project: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.paymentRequest.findMany({
+      include: {
+        requester: { select: { name: true, role: true } },
+        approver: { select: { name: true, role: true } },
+        payer: { select: { name: true, role: true } },
+        project: { select: { name: true } },
+        purchaseOrder: { select: { code: true } },
+      },
+      orderBy: { requestedAt: "desc" },
+    }),
+    db.approval.findMany({
+      include: { approver: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+    }),
+  ]);
+
+  // ---------- Stats ----------
+  const pendingApprovals = paymentRequests.filter((p) => p.status === "PENDING");
+  const pendingPaymentsValue = pendingApprovals.reduce((s, p) => s + p.amount, 0);
+  const openRfqs = rfqs.filter((r) => r.status === "OPEN");
+  const totalVendorSpend = vendors.reduce((s, v) => s + v.totalSpent, 0);
+  const activeVendors = vendors.filter((v) => v.isActive).length;
+  const ratedVendors = vendors.filter((v) => v.rating > 0);
+  const avgVendorRating =
+    ratedVendors.length > 0
+      ? ratedVendors.reduce((s, v) => s + v.rating, 0) / ratedVendors.length
+      : 0;
+
+  // Overdue payments = APPROVED but not paid for > 3 days, OR PENDING > 7 days
+  const overduePayments = paymentRequests.filter((p) => {
+    if (p.status === "PAID" || p.status === "REJECTED") return false;
+    const age = (now.getTime() - new Date(p.requestedAt).getTime()) / 86400000;
+    if (p.status === "PENDING") return age > 7;
+    if (p.status === "APPROVED") return age > 3;
+    return false;
+  });
+
+  // Segregation-of-duties violations
+  const segregationViolations = paymentRequests.filter((p) => {
+    if (p.status === "PENDING" || p.status === "REJECTED") {
+      // not yet routed — only meaningful if approver/payer already assigned
+      return p.approverId && p.approverId === p.requesterId;
+    }
+    const r = p.requesterId;
+    const a = p.approverId;
+    const y = p.payerId;
+    if (a && a === r) return true;
+    if (y && y === r) return true;
+    if (a && y && a === y) return true;
+    return false;
+  }).length;
+
+  // ---------- Shape response ----------
+  return NextResponse.json({
+    stats: {
+      pendingApprovals: pendingApprovals.length,
+      pendingPaymentsValue,
+      openRfqs: openRfqs.length,
+      totalVendorSpend,
+      activeVendors,
+      overduePayments: overduePayments.length,
+      segregationViolations,
+      avgVendorRating: Number(avgVendorRating.toFixed(2)),
+    },
+    vendors: vendors.map((v) => ({
+      id: v.id,
+      name: v.name,
+      category: v.category,
+      contactName: v.contactName,
+      phone: v.phone,
+      email: v.email,
+      rating: v.rating,
+      totalSpent: v.totalSpent,
+      isActive: v.isActive,
+      _count: { quotes: v._count.quotes, pos: v._count.pos },
+    })),
+    rfqs: rfqs.map((r) => ({
+      id: r.id,
+      code: r.code,
+      title: r.title,
+      description: r.description,
+      category: r.category,
+      budget: r.budget,
+      status: r.status,
+      neededBy: r.neededBy,
+      project: r.project ? { name: r.project.name } : null,
+      quotes: r.quotes.map((q) => ({
+        id: q.id,
+        amount: q.amount,
+        deliveryDays: q.deliveryDays,
+        notes: q.notes,
+        isRecommended: q.isRecommended,
+        isApproved: q.isApproved,
+        vendor: { name: q.vendor.name, rating: q.vendor.rating },
+      })),
+    })),
+    purchaseOrders: purchaseOrders.map((p) => ({
+      id: p.id,
+      code: p.code,
+      vendor: { name: p.vendor.name },
+      project: p.project ? { name: p.project.name } : null,
+      amount: p.amount,
+      description: p.description,
+      status: p.status,
+      issuedAt: p.issuedAt,
+    })),
+    paymentRequests: paymentRequests.map((p) => ({
+      id: p.id,
+      code: p.code,
+      amount: p.amount,
+      description: p.description,
+      status: p.status,
+      requesterId: p.requesterId,
+      approverId: p.approverId,
+      payerId: p.payerId,
+      requester: { name: p.requester.name, role: p.requester.role },
+      approver: p.approver ? { name: p.approver.name, role: p.approver.role } : null,
+      payer: p.payer ? { name: p.payer.name, role: p.payer.role } : null,
+      project: p.project ? { name: p.project.name } : null,
+      purchaseOrder: p.purchaseOrder ? { code: p.purchaseOrder.code } : null,
+      requestedAt: p.requestedAt,
+      approvedAt: p.approvedAt,
+      paidAt: p.paidAt,
+    })),
+    approvals: approvals.map((a) => ({
+      id: a.id,
+      entityType: a.entityType,
+      entityId: a.entityId,
+      decision: a.decision,
+      comment: a.comment,
+      approver: { name: a.approver.name },
+      createdAt: a.createdAt,
+    })),
+  });
+}
+
+// ============================================================
+// POST — Approve / Reject / Pay a payment request
+// Maintains the segregation-of-duties rules.
+// Body: { id: string, action: "APPROVE" | "REJECT" | "PAY", approverId?: string, payerId?: string, comment?: string }
+// For demo simplicity we route the acting user via the body; in production this
+// comes from the authenticated session. We hard-verify that the acting user
+// is NOT the requester (and, for PAY, NOT the approver).
+// ============================================================
+export async function POST(req: Request) {
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { id, action, approverId, payerId, comment } = body as {
+    id?: string;
+    action?: "APPROVE" | "REJECT" | "PAY";
+    approverId?: string;
+    payerId?: string;
+    comment?: string;
+  };
+
+  if (!id || !action) {
+    return NextResponse.json({ error: "id and action are required" }, { status: 400 });
+  }
+
+  const pr = await db.paymentRequest.findUnique({ where: { id } });
+  if (!pr) {
+    return NextResponse.json({ error: "Payment request not found" }, { status: 404 });
+  }
+
+  if (action === "APPROVE" || action === "REJECT") {
+    if (!approverId) {
+      return NextResponse.json({ error: "approverId required for APPROVE/REJECT" }, { status: 400 });
+    }
+    if (approverId === pr.requesterId) {
+      return NextResponse.json(
+        { error: "Segregation violation: requester cannot approve their own request" },
+        { status: 403 }
+      );
+    }
+    const newStatus = action === "APPROVE" ? "APPROVED" : "REJECTED";
+    const updated = await db.paymentRequest.update({
+      where: { id },
+      data: {
+        status: newStatus,
+        approverId,
+        approvedAt: new Date(),
+      },
+    });
+    await db.approval.create({
+      data: {
+        entityType: "PAYMENT_REQUEST",
+        entityId: id,
+        paymentRequestId: id,
+        approverId,
+        decision: newStatus,
+        comment: comment ?? null,
+      },
+    });
+    return NextResponse.json({ ok: true, paymentRequest: updated });
+  }
+
+  if (action === "PAY") {
+    if (!payerId) {
+      return NextResponse.json({ error: "payerId required for PAY" }, { status: 400 });
+    }
+    if (payerId === pr.requesterId) {
+      return NextResponse.json(
+        { error: "Segregation violation: requester cannot pay their own request" },
+        { status: 403 }
+      );
+    }
+    if (pr.approverId && payerId === pr.approverId) {
+      return NextResponse.json(
+        { error: "Segregation violation: approver cannot pay the request they approved" },
+        { status: 403 }
+      );
+    }
+    if (pr.status !== "APPROVED") {
+      return NextResponse.json(
+        { error: "Payment request must be APPROVED before paying" },
+        { status: 400 }
+      );
+    }
+    const updated = await db.paymentRequest.update({
+      where: { id },
+      data: {
+        status: "PAID",
+        payerId,
+        paidAt: new Date(),
+      },
+    });
+    return NextResponse.json({ ok: true, paymentRequest: updated });
+  }
+
+  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+}

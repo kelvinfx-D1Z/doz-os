@@ -1,0 +1,549 @@
+// DOZ OS — Digit One Zero Operating System
+// Prisma schema (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USERS & TEAM
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("FOUNDER") // FOUNDER, STAFF, INTERN, FREELANCER
+  title     String?
+  phone     String?
+  avatar    String?
+  capacity  Int      @default(40) // available hours/week
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  tasksAssigned    Task[]      @relation("TaskAssignee")
+  tasksCreated     Task[]      @relation("TaskCreator")
+  goalsOwner       Goal[]      @relation("GoalOwner")
+  projectsManaged  Project[]   @relation("ProjectManager")
+  crewAssignments  CrewAssignment[]
+  dailyReports     DailyReport[]
+  weeklyReports    WeeklyReport[]
+  approvalsGiven   Approval[]  @relation("ApprovalApprover")
+  paymentsRequested PaymentRequest[] @relation("PaymentRequester")
+  paymentsApproved PaymentRequest[] @relation("PaymentApprover")
+  paymentsPaid     PaymentRequest[] @relation("PaymentPayer")
+  activityLogs     ActivityLog[]
+  sopAuthors       Sop[]
+}
+
+// ============================================================
+// STRATEGIC PLANNING
+// ============================================================
+
+model Goal {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  type        String   // ANNUAL, QUARTERLY, MONTHLY, WEEKLY
+  status      String   @default("ACTIVE") // ACTIVE, ACHIEVED, MISSED, ON_HOLD
+  progress    Int      @default(0) // 0-100
+  ownerId     String
+  owner       User     @relation("GoalOwner", fields: [ownerId], references: [id])
+  parentId    String?  // cascade link
+  parent      Goal?    @relation("GoalChildren", fields: [parentId], references: [id])
+  children    Goal[]   @relation("GoalChildren")
+  quarter     String?  // e.g. "Q1-2025"
+  startDate   DateTime
+  dueDate     DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks Task[] @relation("TaskGoal")
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("TODO") // TODO, IN_PROGRESS, DONE, BLOCKED
+  priority    String   @default("MEDIUM") // URGENT, HIGH, MEDIUM, LOW
+  category    String?  // STRATEGIC, OPERATIONAL, ADMIN, DISTRACTION
+  assigneeId  String?
+  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creatorId   String
+  creator     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+  goalId      String?
+  goal        Goal?    @relation("TaskGoal", fields: [goalId], references: [id])
+  projectId   String?
+  project     Project? @relation("ProjectTasks", fields: [projectId], references: [id])
+  dueDate     DateTime?
+  estimatedHrs Int?
+  actualHrs   Int?
+  isDistraction Boolean @default(false)
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// CRM & SALES
+// ============================================================
+
+model Account {
+  id          String   @id @default(cuid())
+  name        String
+  industry    String?
+  website     String?
+  isStrategic Boolean  @default(false)
+  lifetimeValue Float @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contacts      Contact[]
+  opportunities Opportunity[]
+  projects      Project[]
+  invoices      Invoice[]
+  referralsFrom Referral[] @relation("ReferralFromAccount")
+  referralsTo   Referral[] @relation("ReferralToAccount")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id])
+  name      String
+  title     String?
+  email     String?
+  phone     String?
+  isDecisionMaker Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  opportunities Opportunity[]
+  followUps     FollowUp[]
+  referrals     Referral[]
+  leads         Lead[]
+}
+
+model Lead {
+  id          String   @id @default(cuid())
+  contactName String
+  company     String?
+  source      String   @default("REFERRAL") // REFERRAL, EXISTING_CLIENT, NETWORKING, COLD, SOCIAL
+  sourceDetail String? // who referred
+  serviceInterest String?
+  status      String   @default("NEW") // NEW, QUALIFIED, CONVERTED, LOST
+  value       Float    @default(0)
+  contactId   String?
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  opportunityId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Opportunity {
+  id          String   @id @default(cuid())
+  name        String
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  contactId   String?
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  stage       String   @default("DISCOVERY") // DISCOVERY, QUALIFIED, PROPOSAL, NEGOTIATION, WON, LOST
+  value       Float    @default(0)
+  probability Int      @default(20) // 0-100
+  serviceType String?
+  expectedClose DateTime?
+  source      String   @default("REFERRAL")
+  lostReason  String?
+  convertedToProjectId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  proposals  Proposal[]
+  followUps  FollowUp[]
+  activities ActivityLog[]
+}
+
+model Proposal {
+  id          String   @id @default(cuid())
+  opportunityId String?
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  title       String
+  amount      Float
+  status      String   @default("DRAFT") // DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED
+  sentDate    DateTime?
+  responseDate DateTime?
+  validUntil  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FollowUp {
+  id            String   @id @default(cuid())
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+  contactId     String?
+  contact       Contact? @relation(fields: [contactId], references: [id])
+  type          String   @default("CALL") // CALL, EMAIL, MEETING, WHATSAPP
+  subject       String
+  notes         String?
+  dueDate       DateTime
+  completed     Boolean  @default(false)
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Referral {
+  id          String   @id @default(cuid())
+  referrerContactId String?
+  referrer    Contact? @relation(fields: [referrerContactId], references: [id])
+  fromAccountId String?
+  fromAccount Account? @relation("ReferralFromAccount", fields: [fromAccountId], references: [id])
+  toAccountId   String?
+  toAccount   Account? @relation("ReferralToAccount", fields: [toAccountId], references: [id])
+  referrerName String? // free text if no contact
+  value       Float    @default(0) // value of business generated
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// PROJECT & EVENT OPERATIONS
+// ============================================================
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  code        String?  // e.g. EVT-2025-001
+  serviceType String   // EVENT_PRODUCTION, VIDEO_PRODUCTION, TITLE_SEQUENCE, COLOR_GRADING, etc.
+  status      String   @default("PLANNING") // PLANNING, CONFIRMED, IN_PROGRESS, COMPLETED, ON_HOLD, CANCELLED
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  managerId   String?
+  manager     User?    @relation("ProjectManager", fields: [managerId], references: [id])
+  eventDate   DateTime?
+  venue       String?
+  budget      Float    @default(0)
+  revenue     Float    @default(0)
+  progress    Int      @default(0)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  milestones   Milestone[]
+  deliverables Deliverable[]
+  crew         CrewAssignment[]
+  tasks        Task[]      @relation("ProjectTasks")
+  invoices     Invoice[]
+  expenses     Expense[]
+  budgets      Budget[]
+  rfqs         Rfq[]
+  pos          PurchaseOrder[]
+  resources    ResourceBooking[]
+  paymentRequests PaymentRequest[]
+}
+
+model Milestone {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  title       String
+  dueDate     DateTime
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, DONE, OVERDUE
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Deliverable {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  title       String
+  type        String?  // VIDEO, PHOTO, LIVESTREAM, DOCUMENT
+  status      String   @default("PENDING") // PENDING, IN_PROGRESS, REVIEW, DELIVERED
+  dueDate     DateTime?
+  clientApproved Boolean @default(false)
+  deliveredAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CrewAssignment {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  role        String   // PRODUCTION_MANAGER, TECHNICAL_DIRECTOR, CAMERA_OP, SOUND_ENG, LIGHTING, SET_DESIGN, STAGE_MGR, EDITOR, VENDOR
+  dayRate     Float    @default(0)
+  status      String   @default("ASSIGNED") // ASSIGNED, CONFIRMED, DECLINED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ResourceBooking {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  name        String
+  type        String   // CAMERA, LIGHTING, SOUND, LED_SCREEN, STAGE, GENERATOR
+  quantity    Int      @default(1)
+  cost        Float    @default(0)
+  bookedFrom  DateTime?
+  bookedTo    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// PROCUREMENT & VENDOR MANAGEMENT
+// ============================================================
+
+model Vendor {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   // EQUIPMENT, CATERING, DECOR, PRINTING, TRANSPORT, SOUND, LIGHTING, LED, STAGE, OTHER
+  contactName String?
+  phone       String?
+  email       String?
+  bankAccount String?
+  rating      Int      @default(0) // 0-5
+  totalSpent  Float    @default(0)
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotes Quote[]
+  pos    PurchaseOrder[]
+  expenses Expense[]
+}
+
+model Rfq {
+  id          String   @id @default(cuid())
+  code        String?  // Rfq-2025-001
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  title       String
+  description String?
+  category    String?
+  budget      Float?
+  status      String   @default("OPEN") // OPEN, QUOTES_RECEIVED, PO_CREATED, CLOSED
+  neededBy    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotes Quote[]
+}
+
+model Quote {
+  id          String   @id @default(cuid())
+  rfqId       String
+  rfq         Rfq      @relation(fields: [rfqId], references: [id])
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  amount      Float
+  deliveryDays Int?
+  notes       String?
+  isRecommended Boolean @default(false)
+  isApproved   Boolean @default(false)
+  receivedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  code        String?  // PO-2025-001
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  quoteId     String?
+  amount      Float
+  description String?
+  status      String   @default("DRAFT") // DRAFT, ISSUED, DELIVERED, CLOSED
+  issuedAt    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  paymentRequests PaymentRequest[]
+}
+
+model PaymentRequest {
+  id           String   @id @default(cuid())
+  code         String?  // PR-2025-001
+  purchaseOrderId String?
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  projectId    String?
+  project      Project?  @relation(fields: [projectId], references: [id])
+  amount       Float
+  description  String?
+  status       String   @default("PENDING") // PENDING, APPROVED, REJECTED, PAID
+  // 3-way segregation of duties
+  requesterId  String
+  requester    User     @relation("PaymentRequester", fields: [requesterId], references: [id])
+  approverId   String?
+  approver     User?    @relation("PaymentApprover", fields: [approverId], references: [id])
+  payerId      String?
+  payer        User?    @relation("PaymentPayer", fields: [payerId], references: [id])
+  requestedAt  DateTime @default(now())
+  approvedAt   DateTime?
+  paidAt       DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  approvals Approval[]
+}
+
+model Approval {
+  id          String   @id @default(cuid())
+  entityType  String   // PAYMENT_REQUEST, PURCHASE_ORDER, PROPOSAL, EXPENSE
+  entityId    String
+  approverId  String
+  approver    User     @relation("ApprovalApprover", fields: [approverId], references: [id])
+  decision    String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  paymentRequest PaymentRequest? @relation(fields: [paymentRequestId], references: [id])
+  paymentRequestId String?
+}
+
+// ============================================================
+// FINANCIAL INTELLIGENCE
+// ============================================================
+
+model Invoice {
+  id          String   @id @default(cuid())
+  code        String?  // INV-2025-001
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  amount      Float
+  tax         Float    @default(0)
+  status      String   @default("DRAFT") // DRAFT, SENT, PARTIAL, PAID, OVERDUE
+  amountPaid  Float    @default(0)
+  issuedDate  DateTime @default(now())
+  dueDate     DateTime?
+  paidDate    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  category    String   // EQUIPMENT, CREW, VENDOR, LOGISTICS, MARKETING, ADMIN, OTHER
+  description String
+  amount      Float
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  expenseDate DateTime @default(now())
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  category    String
+  amount      Float
+  spent       Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// TEAM MANAGEMENT (REPORTS)
+// ============================================================
+
+model DailyReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  reportDate  DateTime
+  tasksDone   String   // newline separated
+  tasksPlanned String?
+  blockers    String?
+  hoursWorked Float    @default(0)
+  mood        String?  // GREAT, OK, STRESSED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WeeklyReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  weekStart   DateTime
+  weekEnd     DateTime
+  achievements String?
+  challenges  String?
+  learnings   String?
+  nextWeekPlan String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// Sop & KNOWLEDGE BASE
+// ============================================================
+
+model Sop {
+  id          String   @id @default(cuid())
+  title       String
+  category    String   // PROPOSAL_TEMPLATE, EVENT_CHECKLIST, PROCUREMENT_POLICY, VENDOR_SOP, TRAINING, PROCESS
+  content     String
+  tags        String?
+  authorId    String?
+  author      User?    @relation(fields: [authorId], references: [id])
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// AI & ACTIVITY
+// ============================================================
+
+model AIInsight {
+  id          String   @id @default(cuid())
+  type        String   // DAILY_PLAN, RISK, OVERDUE, BUDGET_OVERRUN, OPPORTUNITY, DISTRACTION
+  severity    String   @default("INFO") // INFO, WARNING, CRITICAL
+  title       String
+  message     String
+  entityType  String?
+  entityId    String?
+  isRead      Boolean  @default(false)
+  actionTaken String?
+  createdAt   DateTime @default(now())
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String
+  entityType  String?
+  entityId    String?
+  opportunityId String?
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+  detail      String?
+  createdAt   DateTime @default(now())
+}
