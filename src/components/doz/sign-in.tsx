@@ -24,19 +24,14 @@ export function SignIn() {
   async function handleSignIn(e?: React.FormEvent, emailOverride?: string) {
     e?.preventDefault();
     setLoading(true);
-    const res = await signIn("credentials", {
+    // Use redirect: true so the browser follows the redirect and the cookie
+    // is fully established before the page renders (more reliable in iframes)
+    await signIn("credentials", {
       email: emailOverride ?? email,
       password,
-      redirect: false,
+      redirect: true,
+      callbackUrl: "/",
     });
-    setLoading(false);
-    if (res?.error) {
-      toast.error("Invalid credentials. Try the demo password: doz2025");
-    } else {
-      toast.success("Welcome back to DOZ OS");
-      // Navigate to root — useSession will pick up the new cookie
-      window.location.assign("/");
-    }
   }
 
   function quickSignIn(em: string) {

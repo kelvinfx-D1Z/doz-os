@@ -10,6 +10,35 @@ export function hashPassword(p: string): string {
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/" }, // handled in-app via overlay
+  trustHost: true, // required for Caddy proxy — trust X-Forwarded-Host header
+  // Cookies must be SameSite=None + Secure to work inside the preview iframe
+  cookies: {
+    sessionToken: {
+      name: "next-auth.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "none",
+        secure: true,
+        path: "/",
+      },
+    },
+    callbackUrl: {
+      name: "next-auth.callback-url",
+      options: {
+        sameSite: "none",
+        secure: true,
+        path: "/",
+      },
+    },
+    csrfToken: {
+      name: "next-auth.csrf-token",
+      options: {
+        sameSite: "none",
+        secure: true,
+        path: "/",
+      },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "Credentials",
