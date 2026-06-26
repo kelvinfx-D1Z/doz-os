@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Briefcase,
   Building2,
+  Link2,
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -31,7 +32,9 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 import {
   StatCard,
   StatusBadge,
@@ -83,6 +86,8 @@ type Account = {
   industry: string | null;
   isStrategic: boolean;
   lifetimeValue: number;
+  portalToken: string | null;
+  portalActive: boolean;
   _count: { opportunities: number; projects: number };
 };
 
@@ -411,12 +416,13 @@ export function CrmSales() {
                     <TableHead className="text-right">Lifetime Value</TableHead>
                     <TableHead className="text-center">Opportunities</TableHead>
                     <TableHead className="text-center">Projects</TableHead>
+                    <TableHead className="text-center">Client Portal</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {accounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={6}>
                         <EmptyState icon={<Building2 className="h-6 w-6" />} title="No accounts yet" />
                       </TableCell>
                     </TableRow>
@@ -446,6 +452,25 @@ export function CrmSales() {
                         </TableCell>
                         <TableCell className="text-center">{a._count.opportunities}</TableCell>
                         <TableCell className="text-center">{a._count.projects}</TableCell>
+                        <TableCell className="text-center">
+                          {a.portalActive && a.portalToken ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1.5 text-xs"
+                              onClick={() => {
+                                const url = `${window.location.origin}/?portal=${a.portalToken}`;
+                                navigator.clipboard?.writeText(url);
+                                toast.success(`Portal link copied for ${a.name}`);
+                              }}
+                            >
+                              <Link2 className="h-3 w-3" />
+                              Copy Link
+                            </Button>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">Not enabled</span>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}

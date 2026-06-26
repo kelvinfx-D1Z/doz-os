@@ -892,3 +892,169 @@ Stage Summary:
 - NEW FEATURE 5 DONE: Weekly intern task assignment — new "Weekly Tasks" tab in Team module with intern selector, per-intern weekly task list, assign-new-task form, team weekly snapshot with completion bars.
 - NEW FEATURE 6 DONE: Routines module — 6 business routine templates (Morning Briefing, End of Day Wrap, Weekly Business Review, Event Day Run-Sheet, Monthly Close, Sales Pipeline Review). Interactive checklist runner with progress tracking, step toggling, completion logging, stats (completed today, this week, streak).
 - DOZ OS is now v2.1 with all corrections and new features.
+
+---
+Task ID: P3-A + P3-B
+Agent: Main (orchestrator)
+Task: Phase 3 foundation — schema for client portal + invoice reminders + home router
+
+Work Log:
+- Schema additions:
+  - Account: added portalToken (unique, for ?portal=TOKEN client access), portalActive
+  - Deliverable: added clientApprovedAt, clientApprovalNote, clientRejectedAt (for client approval workflow)
+  - Invoice: added reminderCount, lastReminderAt (for invoice reminder tracking)
+  - New model: PaymentConfirmation (invoiceId, accountId, amount, method, reference, note, evidenceUrl, status PENDING/VERIFIED/REJECTED)
+- Seed: 5 accounts now have portal tokens (gtb-portal-2025, mtn-portal-2025, lcc-portal-2025, dangote-portal-2025, shell-portal-2025). Seeded 1 sample PaymentConfirmation (LCC invoice, ₦4.5M bank transfer, PENDING verification).
+- Created HomeRouter component (src/components/doz/home-router.tsx): checks URL for ?portal=TOKEN — if present renders ClientPortal, otherwise renders AppShell (auth-gated)
+- Created useSearchParam hook (src/hooks/use-search-param.ts): reads URL query params on client side
+- Updated src/app/page.tsx to use HomeRouter
+- Created ClientPortal stub (src/components/modules/client-portal.tsx)
+- Fixed lint: deferred setState in useSearchParam to microtask to avoid "synchronous setState in effect" error
+- Verified: page returns 200, ?portal=gtb-portal-2025 returns 200, lint clean
+
+Stage Summary:
+- Schema ready for client portal + invoice reminders
+- Home router detects ?portal=TOKEN and routes to ClientPortal
+- Portal tokens seeded: gtb-portal-2025, mtn-portal-2025, lcc-portal-2025, dangote-portal-2025, shell-portal-2025
+- Next: dispatching 2 parallel subagents for (1) full Client Portal UI+API, (2) Invoice Reminders UI+API
+
+---
+Task ID: P3-C
+Agent: Client Portal Builder (Phase 3)
+Task: Client-facing portal (no DOZ OS login) — clients view projects, approve deliverables, confirm invoice payments via /?portal=TOKEN
+
+Work Log:
+- READ worklog.md — confirmed P3-A foundation: Account.portalToken/portalActive, Deliverable.clientApprovedAt/clientApprovalNote/clientRejectedAt, PaymentConfirmation model all added; HomeRouter at src/components/doz/home-router.tsx routes ?portal=TOKEN to ClientPortal; 5 portal tokens seeded (gtb/mtn/lcc/dangote/shell-portal-2025); existing ClientPortal was a 5-line stub.
+- READ prisma/schema.prisma — confirmed Account (portalToken, portalActive), Project (accountId, code, serviceType, status, eventDate, venue, progress; NO client-facing restriction enforced at schema level — must be enforced in API select clauses), Deliverable (all client fields present), Invoice (amount, tax, amountPaid, status, issuedDate, dueDate, reminderCount — internal reminder fields excluded from portal response), PaymentConfirmation (invoiceId, accountId, amount, method, reference, note, status). Confirmed Project.accountId and Invoice.accountId are both nullable + Invoice.project.accountId is the alternate ownership path.
+- READ src/lib/format.ts (formatNGN, formatDate, relativeTime available), src/components/ui/{badge,button,tabs,dialog}.tsx (all shadcn primitives available).
+
+Files created/overwritten:
+1. **src/app/api/doz/portal/route.ts** (NEW, ~330 lines):
+   - Shared `resolveAccountByToken(token)` helper that returns the account id/name/industry/isStrategic only if `portalToken === token && portalActive === true`, else null.
+   - **GET** `?token=TOKEN`: 404 `{error:"invalid_token"}` if missing/inactive. Else returns ONLY client-facing fields:
+     - `account: {name, industry, isStrategic}` (NO lifetimeValue, NO website, NO contact info)
+     - `projects[]`: id, name, code, serviceType, status, eventDate, venue, progress + nested `deliverables[]` (id, title, type, status, dueDate, clientApproved, clientApprovedAt, clientApprovalNote, clientRejectedAt, deliveredAt — NO internal fields)
+     - `invoices[]`: id, code, amount, tax, amountPaid, **balance (computed = amount - amountPaid)**, status, issuedDate, dueDate, project{name}, nested `paymentConfirmations[]` (id, amount, method, reference, note, status, createdAt)
+     - `paymentConfirmations[]`: flat list of all confirmations for the account (id, invoiceCode, amount, method, reference, status, createdAt)
+     - Three parallel Prisma queries (projects+deliverables / invoices+project+confirmations / top-level confirmations). Deliberate `select` clauses exclude budget, revenue, managerId, expenses, vendor info — only client-facing data leaves the server.
+   - **POST** `{token, action, ...payload}`: validates token first (401 invalid_token if missing/inactive).
+     - `approve_deliverable` {deliverableId, note?}: looks up deliverable + its project; **403 not_authorized** if `deliverable.project.accountId !== account.id`; **404 deliverable_not_found** if missing. Sets clientApproved=true, clientApprovedAt=now, clientApprovalNote=note, clears clientRejectedAt. If status was "REVIEW" → bumps to "DELIVERED". Returns updated deliverable.
+     - `reject_deliverable` {deliverableId, note}: note is REQUIRED (400 note_required_for_rejection if blank). Same ownership check. Sets clientApproved=false, clientRejectedAt=now, clientApprovalNote=note. Returns updated deliverable.
+     - `confirm_payment` {invoiceId, amount, method, reference?, note?}: validates amount > 0 (400 invalid_amount) and method ∈ {BANK_TRANSFER, CHEQUE, CASH, CARD} (400 invalid_method). Looks up invoice; **403 not_authorized** if invoice.accountId !== account.id AND invoice.project.accountId !== account.id. Creates PaymentConfirmation with status="PENDING" (201). **Does NOT touch invoice.status or invoice.amountPaid** — founder verifies first.
+     - Unknown action → 400 unknown_action.
+2. **src/components/modules/client-portal.tsx** (OVERWRITTEN — was 5-line stub, now ~1200 lines):
+   - "use client" — `export function ClientPortal({ token }: { token: string })`.
+   - Light theme wrapper `bg-zinc-50 text-zinc-900 min-h-screen` (overrides dark DOZ OS theme).
+   - Branded header: emerald "10" logo badge + "Digit One Zero Ltd" wordmark + "Client Portal" pill. "Welcome, [Account Name]" h1 + subtitle. Industry chip + Strategic partner chip (amber star). "Exit portal" link to `/`.
+   - Quick-stat strip: Active projects / Awaiting your approval / Open invoices / Pending confirmations (amber-tinted when > 0).
+   - Tabs: Projects (default) | Invoices | Payment Confirmations. TabsList styled `data-[state=active]:bg-white` for light theme.
+   - **ProjectsTab**: `grid sm:grid-cols-2 gap-4`. ProjectCard: mono code, name, color-coded status badge, service-type/event-date/venue icons (emerald), emerald progress bar, deliverables list. Each DeliverableRow: type icon (Video/Camera/Radio/FileCheck), title, due date, status badge. Action logic: if `(status === REVIEW || status === DELIVERED) && !clientApproved` → emerald Approve + amber Request Changes buttons. If clientApproved → green "Approved on [date]" callout (+note). If clientRejectedAt → amber "Changes requested on [date]" (+note). Approve → POST → toast.success → refresh. Request Changes opens Dialog with required Textarea note → POST reject_deliverable → toast.success → refresh.
+   - **InvoicesTab**: stacked cards. Mono code + status badge (PAID=emerald, PARTIAL=amber, OVERDUE=red, SENT=blue) + red "Past due" chip if overdue. Project name. Issued/due dates. Amount/Paid/Balance strip (balance in amber if >0). If balance > 0 → "Confirm Payment" button → Dialog with Amount (default=balance), Method Select, Reference input, Note textarea. Submit → POST confirm_payment → toast "Payment confirmation submitted — we'll verify and update your invoice." → refresh. Existing payment confirmations for the invoice listed below with status badges.
+   - **PaymentConfirmationsTab**: emerald info banner ("Confirmations are reviewed by our team. Once verified, your invoice will be updated automatically."). Desktop table (Invoice / Amount / Method / Reference / Submitted / Status) + mobile list cards. Status badges: PENDING=amber, VERIFIED=emerald, REJECTED=red.
+   - Error state: centered AlertCircle + "This portal link is no longer valid. Please contact your Digit One Zero project lead for access." + "Return to homepage" button.
+   - Loading state: centered pulsing "10" emerald logo + Loader2 spinner + "Loading your portal…".
+   - Footer: secure-portal note + © Digit One Zero Ltd.
+   - Lint compliance: used inline async IIFE inside useEffect with `let alive = true` for cancellation (the `react-hooks/set-state-in-effect` rule was strict — even calling a useCallback that internally calls setState triggered it). Separate `refresh` useCallback for post-mutation refreshes. Initial `loading=true` state ensures the skeleton shows until the IIFE flips it false.
+
+Testing:
+- Dev server (Next.js 16 Turbopack on port 3000) was already running. Clean compilation — no errors in dev.log.
+- `curl GET /api/doz/portal?token=lcc-portal-2025` → 200. Verified response: account {name:"Lagos Chamber of Commerce", industry:"Association", isStrategic:false}, 1 project (EVT-2025-014, COMPLETED, 100% progress) with 2 deliverables (both clientApproved=true, no internal fields leaked), 2 invoices (INV-2025-061 OVERDUE balance ₦4.5M with 1 PENDING payment confirmation; INV-2025-060 PAID balance 0), 1 top-level payment confirmation. NO internal fields (budget, revenue, managerId, expenses, vendor info, lifetimeValue) present in response.
+- `curl GET /api/doz/portal?token=invalid` → 404 `{"error":"invalid_token"}`. ✓
+- All 5 portal tokens verified: GTBank (1 project, 0 invoices), MTN (1 project, 1 invoice), LCC (1 project, 2 invoices, 1 confirmation), Dangote (1 project, 0 invoices), Shell (1 project, 1 invoice). Each returns the correct account, industry, and isStrategic flag.
+- `curl POST /api/doz/portal -d '{"token":"lcc-portal-2025","action":"confirm_payment","invoiceId":"<LCC INV-2025-061 id>","amount":4500000,"method":"BANK_TRANSFER","reference":"TEST123"}'` → 201 `{confirmation:{...status:"PENDING"}}`. Re-verified invoice status remains OVERDUE, amountPaid remains 0 — founder verifies first. ✓
+- `curl POST` invalid token → 401. Invalid method (WIRE) → 400 invalid_method. Invalid amount (-500) → 400 invalid_amount. Unknown action → 400 unknown_action. Missing invoiceId → 400 missing_invoiceId. ✓
+- `curl POST approve_deliverable` on LCC photo gallery → 200, sets clientApproved=true + clientApprovedAt=now + clientApprovalNote. ✓
+- `curl POST approve_deliverable` on Nollywood Title Sequence deliverable (projTitle has accountId=null) via LCC token → **403 not_authorized**. Ownership enforcement works. ✓
+- `curl POST reject_deliverable` without note → 400 note_required_for_rejection. With note → 200, sets clientApproved=false + clientRejectedAt=now + clientApprovalNote=note. ✓
+- `curl POST confirm_payment` on MTN invoice via LCC token → **403 not_authorized**. Cross-account ownership enforcement works. ✓
+- `curl GET /?portal=lcc-portal-2025` → 200 (portal page renders). ✓
+- Cleaned up test data: restored the 2 LCC deliverables to their seeded state (clientApproved=true, no timestamps/notes), deleted the 2 TEST123 payment confirmations created during curl tests. Re-verified portal response is back to seeded state.
+- `bun run lint` → EXIT 0, zero errors/warnings (fixed `react-hooks/set-state-in-effect` rule by using inline async IIFE pattern with `let alive = true` cancellation, matching the pattern in command-center.tsx).
+- dev.log shows: `GET /api/doz/portal?token=lcc-portal-2025 200`, `GET /api/doz/portal?token=invalid 404`, `POST /api/doz/portal 201/200/400/401/403`, `GET /?portal=lcc-portal-2025 200` — all expected status codes, no compile errors.
+
+Stage Summary:
+- Client Portal is fully implemented, verified end-to-end via curl, and lint-clean.
+- Clients access via `/?portal=TOKEN` — NO DOZ OS login required. The HomeRouter (built in P3-A) routes the request to ClientPortal.
+- API strictly enforces: (1) token validity + portalActive flag, (2) deliverable ownership (deliverable's project.accountId must equal account.id), (3) invoice ownership (invoice.accountId OR invoice.project.accountId must equal account.id), (4) input validation (amount > 0, method enum, note required for rejection). No internal data (costs, profit, team, vendor info, lifetimeValue, expenses) ever leaves the server — enforced via explicit `select` clauses on every Prisma query.
+- The confirm_payment endpoint deliberately does NOT change invoice.status or invoice.amountPaid — it only creates a PENDING PaymentConfirmation. The founder verifies first (this is the intended workflow per the spec — separate from founder-side Invoice Reminders module).
+- Light, branded, mobile-first UI with: emerald "10" logo badge + "Digit One Zero Ltd" wordmark + "Client Portal" pill; "Welcome, [Account Name]" header; 4 quick-stat chips; 3 tabs (Projects/Invoices/Payment Confirmations); per-deliverable Approve (emerald) + Request Changes (amber, opens dialog with required note) buttons; per-invoice Confirm Payment dialog (Amount/Method/Reference/Note); clean invalid-token error screen; pulsing-logo loading state; secure-portal footer.
+- Color discipline: emerald-600 primary, amber for warnings, red for overdue/danger, blue for "Sent" status — NO indigo.
+- Files: NEW `src/app/api/doz/portal/route.ts` (~330 lines), OVERWRITTEN `src/components/modules/client-portal.tsx` (~1200 lines).
+- Work record saved to /home/z/my-project/agent-ctx/P3-C-client-portal.md.
+
+---
+Task ID: P3-D
+Agent: Reminders Builder (Phase 3)
+Task: Invoice Reminders system — detect overdue invoices, generate professional WhatsApp + Email reminder drafts, and surface pending payment confirmations for verification.
+
+Work Log:
+- READ /home/z/my-project/worklog.md — confirmed foundation (emerald theme, shared primitives at @/components/doz/ui-primitives, format helpers at @/lib/format including formatNGN/formatDate/relativeTime, db client at @/lib/db, auth via getSessionUser() from @/lib/auth, API pattern at src/app/api/doz/<module>/route.ts). Confirmed from P3-A+B entry that Invoice.reminderCount + Invoice.lastReminderAt fields exist, and PaymentConfirmation model exists with status PENDING/VERIFIED/REJECTED.
+- READ existing src/components/modules/financial.tsx (~1060 lines) — preserved all existing functionality (Overview/Project P&L/Client P&L/Service P&L/Invoices/Expenses/Budgets tabs). READ prisma/schema.prisma to confirm Invoice + PaymentConfirmation + Account + Contact relations. READ prisma/seed.ts to confirm existing data (INV-2025-061 OVERDUE ₦4.5M for Lagos Chamber of Commerce, contact Dr. Chinyere Alu; 1 seeded PENDING PaymentConfirmation for same invoice ₦4.5M bank transfer).
+
+Files created/edited:
+1. **src/app/api/doz/reminders/route.ts** (NEW, ~440 lines):
+   - GET (auth-gated): returns `{ stats, overdueInvoices, upcomingInvoices, pendingConfirmations }`. Overdue = status==="OVERDUE" OR (not PAID/DRAFT and dueDate < today), sorted by daysOverdue desc. Each overdue invoice includes account.isStrategic, project.name, primary contact (decision-maker preferred, else any contact, else null), and pre-generated `whatsappDraft` + `emailDraft {subject, body}`. Reminders due today = no reminder sent OR last reminder ≥3 days ago. Upcoming = due within next 7 days, not overdue. Pending confirmations = PaymentConfirmation.status === "PENDING" with invoice + account data.
+   - POST (auth-gated) with `{action, ...}`:
+     * `mark_reminder_sent {invoiceId}` → `reminderCount += 1`, `lastReminderAt = now`, activity log created. 400 missing_invoiceId, 404 invoice_not_found.
+     * `verify_payment {confirmationId, subAction: "verify" | "reject"}` → verify: atomic $transaction sets confirmation.status = VERIFIED + updates invoice.amountPaid += confirmation.amount + status (PAID if newBalance ≤ 0 with paidDate=now, else PARTIAL). reject: sets status = REJECTED. 400 missing_confirmationId/invalid_subAction, 404 confirmation_not_found, 409 already_processed.
+   - Template-based draft generation (no AI): WhatsApp is short/friendly with time-of-day greeting + honorific-stripped first name (HONORIFICS set: Dr/Mr/Mrs/Ms/Engr/Chief/Alhaji/HRH/Prince/Pastor/Rev/Hon/Sir/Lady) + invoice code + amount + due date + GTBank details + Adaeze sign-off. Email is formal with subject line + body including invoice details, payment instructions, professional sign-off from "Adaeze Okonkwo, Founder & CEO, Digit One Zero Ltd, Lagos, Nigeria".
+2. **src/components/modules/financial.tsx** (EDITED — additive, ~640 lines added):
+   - Imports: added `Button` from @/components/ui/button, `Collapsible, CollapsibleContent, CollapsibleTrigger` from @/components/ui/collapsible, `toast` from sonner. Extended lucide-react imports with `AlertCircle, XCircle, Send, Copy, Clock, Mail, MessageCircle, Loader2, ChevronDown`. Added `relativeTime` to format imports.
+   - New `Reminders` TabsTrigger (with AlertCircle icon) appended after Budgets.
+   - New `<RemindersTab />` component with:
+     * Top KPI row: 4 StatCards — Overdue Invoices (danger accent if >0, sub ₦ amount), Reminders Due Today (warning accent, sub "3-day cadence"), Pending Confirmations (warning accent, sub ₦ amount), Upcoming Due (7 days).
+     * Section 1: OverdueInvoicesSection + OverdueInvoiceCard — invoice code + account + strategic star + red "X DAYS OVERDUE" badge, balance in rose-200, project/issued/due/contact info, reminder history. Collapsible "View message drafts" button reveals WhatsApp draft (emerald-tinted: bg-emerald-500/5 border-emerald-500/20) + Email draft (blue-tinted: bg-blue-500/5 border-blue-500/20 — the ONLY blue allowed per spec), each with Copy button (navigator.clipboard.writeText + sonner toast "X copied to clipboard") + Mark as Sent button (POST mark_reminder_sent, Loader2 spinner while pending, toast success on confirm).
+     * Section 2: PaymentConfirmationsSection + PaymentConfirmationCard — amber-tinted card with invoice code + account + StatusBadge, "Claims to have paid ₦X" headline, method/reference/submitted 3-col grid, client note, "Verify only after confirming the payment has been received in your bank account." warning, Reject (rose outline) + Verify Payment (emerald) buttons. On verify: toast "Payment verified — invoice updated" with new invoice status. On reject: toast "Payment confirmation rejected".
+     * Section 3: UpcomingInvoicesSection — compact table (Invoice / Account / Balance / Due Date / Days Left). Days Left badge amber if ≤3 days, muted otherwise.
+3. **.env** (EDITED): added `NEXTAUTH_SECRET=doz-os-dev-secret-2025-stable-key-for-jwt-signing`. Was missing, causing JWEDecryptionFailed on every authenticated API route after a server restart. Stable secret now means session cookies survive server restarts and the founder's API requests don't randomly fail with 401.
+
+Testing:
+- Restarted Next.js dev server on port 3000 to pick up the new .env var. Ready in ~1s. Compiles cleanly.
+- Authenticated curl flow (csrf → callback/credentials → session cookie): session endpoint returns {user:{name:"Adaeze Okonkwo", role:"FOUNDER"}}.
+- GET /api/doz/reminders (no auth) → 401 {error:"unauthorized"}.
+- GET /api/doz/reminders (authed) → 200 with stats: {overdueCount:1, overdueAmount:4500000, remindersDueToday:1, pendingConfirmations:1, pendingConfirmationAmount:4500000}. 1 overdue invoice (INV-2025-061, Lagos Chamber, ₦4.5M balance, 9 days overdue, contact Dr. Chinyere Alu +234 803 111 0003 / chinyere@lccsng.org). 1 upcoming invoice (INV-2025-062 MTN ₦4M balance, 4d left). 1 pending confirmation (₦4.5M bank transfer ref GTB/LCC/0042/25).
+- WhatsApp draft verified — opens "Good evening, Chinyere," (Dr. honorific stripped via firstNameOf()), includes invoice INV-2025-061, ₦4,500,000, due date, GTBank bank line, Adaeze sign-off. Matches spec example format exactly.
+- Email draft verified — subject "Overdue Invoice INV-2025-061 — Digit One Zero Ltd (₦4,500,000)". Body opens "Dear Dr. Chinyere Alu," includes invoice details block, GTBank payment instructions, professional close "Warm regards, Adaeze Okonkwo, Founder & CEO, Digit One Zero Ltd, Lagos, Nigeria".
+- POST mark_reminder_sent (valid invoiceId) → 200, returns invoice with reminderCount: 1, lastReminderAt set. Activity log "Sent invoice reminder — Invoice INV-2025-061 — reminder #1" created.
+- POST mark_reminder_sent (missing invoiceId) → 400 {error:"missing_invoiceId"}.
+- POST mark_reminder_sent (bad invoiceId) → 404 {error:"invoice_not_found"}.
+- POST unknown action → 400 {error:"unknown_action", detail:"Action 'foobar' is not supported"}.
+- POST verify_payment reject (valid confirmation) → 200, confirmation.status = REJECTED. Activity log created.
+- POST verify_payment invalid subAction → 400 {error:"invalid_subAction", detail:"expected 'verify' or 'reject'"}.
+- POST verify_payment on already-processed confirmation → 409 {error:"already_processed", detail:"Confirmation is already REJECTED"}.
+- POST verify_payment verify on fresh PENDING ₦2M partial → 200. confirmation.status = VERIFIED, invoice.amountPaid = 2000000, invoice.status = PARTIAL (correct — paidDate stays null until fully paid).
+- Test data reset (deleted test confirmation, reset INV-2025-061 to OVERDUE/amountPaid=0/reminderCount=0, reset original PENDING confirmation back to PENDING).
+- bun run lint → EXIT 0, zero errors/warnings.
+- GET / → 200, page compiles cleanly with new Reminders tab wired in. dev.log shows clean compilation, `GET /api/doz/reminders 200`, `POST /api/doz/reminders 200`, no errors.
+
+Stage Summary:
+- Invoice Reminders feature is fully implemented and verified end-to-end via authenticated curl.
+- API: GET returns overdue invoices + generated WhatsApp/Email drafts + upcoming invoices + pending payment confirmations in one call. POST supports mark_reminder_sent (increments reminderCount + sets lastReminderAt) and verify_payment (atomic transaction: sets confirmation status + updates invoice amountPaid/status — PAID with paidDate=now if fully paid, else PARTIAL).
+- UI: new "Reminders" tab in Financial module with 4 StatCards (Overdue / Reminders Due Today / Pending Confirmations / Upcoming 7-day), overdue invoice cards with collapsible WhatsApp (emerald-tinted) + Email (blue-tinted — only blue allowed) drafts + Copy + Mark as Sent buttons, payment confirmation cards with Verify/Reject buttons + atomic invoice updates, and an upcoming-invoices table with amber-urgent ≤3-day badges.
+- Color discipline: emerald primary, amber warning, rose danger — NO indigo/blue except the email draft card per spec.
+- All existing Financial module tabs (Overview, Project/Client/Service P&L, Invoices, Expenses, Budgets) preserved and untouched.
+- Side effect: added NEXTAUTH_SECRET to .env — was missing, was causing JWDEDecryptionFailed on every authenticated API route after a server restart. Now stable across restarts.
+- Files: src/app/api/doz/reminders/route.ts (NEW, ~440 lines), src/components/modules/financial.tsx (EDITED — added imports + new Reminders TabsTrigger + RemindersTab + 5 sub-components), .env (added NEXTAUTH_SECRET).
+- Work record saved to /home/z/my-project/agent-ctx/P3-D-invoice-reminders.md.
+
+---
+Task ID: P3-E + P3-F (VERIFY)
+Agent: Main (orchestrator)
+Task: Portal link generation in CRM + final verification
+
+Work Log:
+- Added portal link generation to CRM module: Accounts tab now has a "Client Portal" column. Accounts with portalActive=true show a "Copy Link" button that copies `?portal=TOKEN` URL to clipboard. Accounts without portal show "Not enabled".
+- Updated CRM API to return portalToken + portalActive fields in the accounts response
+- Added Link2 icon + Button + toast imports to crm-sales.tsx
+- `bun run lint` → EXIT 0, zero errors
+- All 15 API endpoints working: dashboard, crm, projects, procurement, finance, team, sop, ai, planning, vendors, expenses, tasks, routines, portal, reminders
+- Browser-verified Client Portal: `/?portal=lcc-portal-2025` renders "Welcome, Lagos Chamber of Commerce" with 3 tabs (Projects, Invoices, Payment Confirmations), project cards with deliverables, exit portal link, zero errors
+- Browser-verified Reminders tab: Financial Intelligence module now has "Reminders" tab showing "1 overdue · ₦4.50M", overdue invoice INV-2025-061 with OVERDUE badge, invoice table
+- curl-verified reminders API: returns stats (1 overdue, 1 pending confirmation), WhatsApp draft "Good evening, Chinyere, This is a friendly reminder that invoice INV-2025-061...", pending payment confirmation (₦4.5M bank transfer, PENDING)
+
+Stage Summary:
+- PHASE 3 COMPLETE:
+  1. Client Portal — clients access via ?portal=TOKEN (no login), view projects, approve/reject deliverables, confirm payments. Light theme, client-facing only (no internal data exposed). 5 portal tokens active: gtb-portal-2025, mtn-portal-2025, lcc-portal-2025, dangote-portal-2025, shell-portal-2025
+  2. Invoice Reminders — Financial module "Reminders" tab: overdue invoice detection, WhatsApp + Email draft generation (personalized with contact name), copy-to-clipboard, mark-as-sent tracking, payment confirmation verification (verify/reject with auto-invoice-update)
+  3. Portal Link Generation — CRM Accounts tab "Copy Link" button for sharing client portal access
+- DOZ OS is now v3.0 with client portal + invoice reminders + payment verification workflow

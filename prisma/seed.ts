@@ -75,17 +75,17 @@ async function main() {
     )
   );
 
-  // ---------- ACCOUNTS ----------
+  // ---------- ACCOUNTS (with portal tokens for client portal) ----------
   const accounts = await Promise.all(
     [
-      { name: "GTBank Plc", industry: "Banking", isStrategic: true, lifetimeValue: 28500000 },
-      { name: "MTN Nigeria", industry: "Telecoms", isStrategic: true, lifetimeValue: 42000000 },
-      { name: "Lagos Chamber of Commerce", industry: "Association", isStrategic: false, lifetimeValue: 6500000 },
-      { name: "Dangote Group", industry: "Manufacturing", isStrategic: true, lifetimeValue: 18000000 },
-      { name: "Access Holdings", industry: "Banking", isStrategic: false, lifetimeValue: 9500000 },
-      { name: "Shell Nigeria", industry: "Oil & Gas", isStrategic: true, lifetimeValue: 22000000 },
-      { name: "Nike Art Gallery", industry: "Arts & Culture", isStrategic: false, lifetimeValue: 2200000 },
-      { name: "Federal Ministry of Information", industry: "Government", isStrategic: false, lifetimeValue: 7800000 },
+      { name: "GTBank Plc", industry: "Banking", isStrategic: true, lifetimeValue: 28500000, portalToken: "gtb-portal-2025", portalActive: true },
+      { name: "MTN Nigeria", industry: "Telecoms", isStrategic: true, lifetimeValue: 42000000, portalToken: "mtn-portal-2025", portalActive: true },
+      { name: "Lagos Chamber of Commerce", industry: "Association", isStrategic: false, lifetimeValue: 6500000, portalToken: "lcc-portal-2025", portalActive: true },
+      { name: "Dangote Group", industry: "Manufacturing", isStrategic: true, lifetimeValue: 18000000, portalToken: "dangote-portal-2025", portalActive: true },
+      { name: "Access Holdings", industry: "Banking", isStrategic: false, lifetimeValue: 9500000, portalActive: false },
+      { name: "Shell Nigeria", industry: "Oil & Gas", isStrategic: true, lifetimeValue: 22000000, portalToken: "shell-portal-2025", portalActive: true },
+      { name: "Nike Art Gallery", industry: "Arts & Culture", isStrategic: false, lifetimeValue: 2200000, portalActive: false },
+      { name: "Federal Ministry of Information", industry: "Government", isStrategic: false, lifetimeValue: 7800000, portalActive: false },
     ].map((a) => db.account.create({ data: a }))
   );
 
@@ -299,6 +299,23 @@ async function main() {
   await db.invoice.create({ data: { code: "INV-2025-063", projectId: projShell.id, accountId: accounts[5].id, amount: 22000000, tax: 0, status: "PAID", amountPaid: 22000000, issuedDate: daysAgo(85), dueDate: daysAgo(70), paidDate: daysAgo(72) } });
   await db.invoice.create({ data: { code: "INV-2025-064", projectId: projTitle.id, amount: 1400000, tax: 105000, status: "SENT", amountPaid: 0, issuedDate: daysAgo(3), dueDate: daysFromNow(11) } });
   await db.invoice.create({ data: { code: "INV-2025-060", projectId: projLCC.id, accountId: accounts[2].id, amount: 1500000, tax: 0, status: "PAID", amountPaid: 1500000, issuedDate: daysAgo(40), dueDate: daysAgo(25), paidDate: daysAgo(22) } });
+
+  // ---------- PAYMENT CONFIRMATIONS (Phase 3 — client portal) ----------
+  const invLCC = await db.invoice.findFirst({ where: { code: "INV-2025-061" } });
+  if (invLCC) {
+    await db.paymentConfirmation.create({
+      data: {
+        invoiceId: invLCC.id,
+        accountId: accounts[2].id,
+        amount: 4500000,
+        method: "BANK_TRANSFER",
+        reference: "GTB/LCC/0042/25",
+        note: "Full payment via GTBank transfer — screenshot attached",
+        status: "PENDING",
+        createdAt: daysAgo(1),
+      },
+    });
+  }
 
   // ---------- EXPENSES ----------
   const expenses = [

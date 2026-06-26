@@ -111,6 +111,8 @@ export async function GET() {
     industry: a.industry,
     isStrategic: a.isStrategic,
     lifetimeValue: a.lifetimeValue,
+    portalToken: a.portalToken,
+    portalActive: a.portalActive,
     _count: { opportunities: a._count.opportunities, projects: a._count.projects },
   }));
 

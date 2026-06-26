@@ -1,5 +1,5 @@
-import { AppShell } from "@/components/doz/app-shell";
+import { HomeRouter } from "@/components/doz/home-router";
 
 export default function Home() {
-  return <AppShell />;
+  return <HomeRouter />;
 }

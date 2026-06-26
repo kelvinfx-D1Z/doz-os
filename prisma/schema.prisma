@@ -105,6 +105,8 @@ model Account {
   website     String?
   isStrategic Boolean  @default(false)
   lifetimeValue Float @default(0)
+  portalToken String?  @unique // for client portal access (?portal=TOKEN)
+  portalActive Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -114,6 +116,7 @@ model Account {
   invoices      Invoice[]
   referralsFrom Referral[] @relation("ReferralFromAccount")
   referralsTo   Referral[] @relation("ReferralToAccount")
+  paymentConfirmations PaymentConfirmation[]
 }
 
 model Contact {
@@ -274,7 +277,10 @@ model Deliverable {
   type        String?  // VIDEO, PHOTO, LIVESTREAM, DOCUMENT
   status      String   @default("PENDING") // PENDING, IN_PROGRESS, REVIEW, DELIVERED
   dueDate     DateTime?
-  clientApproved Boolean @default(false)
+  clientApproved   Boolean  @default(false)
+  clientApprovedAt DateTime?
+  clientApprovalNote String?
+  clientRejectedAt  DateTime?
   deliveredAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -441,8 +447,12 @@ model Invoice {
   issuedDate  DateTime @default(now())
   dueDate     DateTime?
   paidDate    DateTime?
+  reminderCount Int    @default(0)
+  lastReminderAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  paymentConfirmations PaymentConfirmation[]
 }
 
 model Expense {
@@ -603,4 +613,24 @@ model RoutineLog {
   startedAt   DateTime @default(now())
   completedAt DateTime?
   createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// CLIENT PORTAL — Payment Confirmations (Phase 3)
+// ============================================================
+
+model PaymentConfirmation {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  amount      Float    // amount the client says they paid
+  method      String?  // BANK_TRANSFER, CHEQUE, CASH, CARD
+  reference   String?  // payment reference / transaction ID
+  note        String?
+  evidenceUrl String?  // uploaded screenshot/file
+  status      String   @default("PENDING") // PENDING (founder verifies), VERIFIED, REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
