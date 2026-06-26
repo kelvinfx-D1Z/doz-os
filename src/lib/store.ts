@@ -12,7 +12,8 @@ export type ModuleId =
   | "sop"
   | "ai"
   | "field"
-  | "routines";
+  | "routines"
+  | "marketing";
 
 interface AppState {
   activeModule: ModuleId;

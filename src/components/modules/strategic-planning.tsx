@@ -36,6 +36,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { FocusScoreCard } from "@/components/doz/focus-score-card";
 
 // ============================================================
 // Types
@@ -712,6 +713,11 @@ export function StrategicPlanning() {
         title="Strategic Planning"
         description="Connect daily execution to annual ambition. Cascade Annual → Quarterly → Monthly → Weekly."
       />
+
+      {/* ============================================================ */}
+      {/* FOCUS & ALIGNMENT SCORE                                     */}
+      {/* ============================================================ */}
+      <FocusScoreCard />
 
       {/* ============================================================ */}
       {/* KPI ROW                                                      */}

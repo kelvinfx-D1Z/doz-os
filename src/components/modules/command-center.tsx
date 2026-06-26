@@ -45,6 +45,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { toast as sonnerToast } from "sonner";
 import { cn } from "@/lib/utils";
+import { FocusScoreCard } from "@/components/doz/focus-score-card";
+import { AiBriefingCard } from "@/components/doz/ai-briefing-card";
 import {
   Target,
   AlertTriangle,
@@ -70,13 +72,24 @@ import {
   Circle,
   Loader2,
   XCircle,
+  GraduationCap,
+  Briefcase,
+  Film,
+  BookOpen,
+  Send,
+  Award,
+  Lightbulb,
+  Clapperboard,
 } from "lucide-react";
+import { useAppStore, type ModuleId } from "@/lib/store";
 
 /* ------------------------------------------------------------------ */
 /* Types — mirror the API contract                                     */
 /* ------------------------------------------------------------------ */
 interface DashboardData {
   founder: { name: string; title: string; role: string } | null;
+  currentUser: { id: string; name: string; email: string; role: string; title: string | null };
+  myDay: MyDay;
   stats: {
     pipelineValue: number;
     weightedPipeline: number;
@@ -189,6 +202,105 @@ interface DashboardData {
   }>;
   lostOpps: unknown[];
   tasks: unknown[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Role-aware "myDay" types                                            */
+/* ------------------------------------------------------------------ */
+interface MyDayTask {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  category: string | null;
+  isDistraction: boolean;
+  dueDate: string | null;
+  completedAt: string | null;
+  assignee: { id: string; name: string; role: string } | null;
+  goal: { id: string; title: string } | null;
+  project: { id: string; name: string } | null;
+}
+interface MyDay {
+  tasks: MyDayTask[];
+  taskCount: number;
+  overdueCount: number;
+  doneToday: number;
+  reportFiled: boolean;
+  todayReportId: string | null;
+  weeklyObjective: { id: string; title: string; progress: number; dueDate: string | null } | null;
+  pendingApprovals: number;
+  pendingApprovalItems: Array<{
+    id: string;
+    code: string;
+    amount: number;
+    description: string | null;
+    status: string;
+    requester: { name: string } | null;
+    project: { name: string } | null;
+  }>;
+  myProjects: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    status: string;
+    serviceType: string;
+    eventDate: string | null;
+    progress: number;
+    account: { name: string } | null;
+  }>;
+  myPendingRequests: Array<{
+    id: string;
+    code: string;
+    amount: number;
+    status: string;
+    description: string | null;
+    project: { name: string } | null;
+    approver: { name: string } | null;
+  }>;
+  crewAssignments: Array<{
+    id: string;
+    role: string;
+    dayRate: number;
+    status: string;
+    project: {
+      id: string;
+      name: string;
+      code: string | null;
+      eventDate: string | null;
+      venue: string | null;
+      serviceType: string;
+      status: string;
+      account: { name: string } | null;
+    };
+  }>;
+  deliverables: Array<{
+    id: string;
+    title: string;
+    type: string | null;
+    status: string;
+    dueDate: string | null;
+    deliveredAt: string | null;
+    project: { id: string; name: string };
+  }>;
+  recentReports: Array<{
+    id: string;
+    reportDate: string;
+    tasksDone: string | null;
+    blockers: string | null;
+    hoursWorked: number;
+    mood: string | null;
+  }>;
+  learningPlan: Array<{ id: string; title: string; category: string; updatedAt: string }>;
+  teamReportsToday: number;
+  teamReportsTotal: number;
+  teamActivity: Array<{
+    id: string;
+    action: string;
+    detail: string | null;
+    user: { name: string; role: string } | null;
+    createdAt: string;
+  }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -511,9 +623,124 @@ export function CommandCenter() {
     );
   }
 
-  const { stats, founder } = data;
-  const founderName = founder?.name ?? "Adaeze Okonkwo";
+  const { stats, founder, currentUser: apiUser } = data;
+  // Prefer the session user's name (so interns/staff see THEIR name, not the
+  // founder's). Fall back to the API's currentUser, then the founder record.
+  const displayName = user?.name ?? apiUser?.name ?? founder?.name ?? "Adaeze Okonkwo";
+  const role = user?.role ?? apiUser?.role ?? "FOUNDER";
 
+  // Shared props passed to every role-specific view.
+  const roleViewProps = {
+    data,
+    user: {
+      id: user?.id ?? apiUser?.id ?? "",
+      name: displayName,
+      role,
+      title: user?.title ?? apiUser?.title ?? null,
+    },
+    handleToggleTask,
+    togglingId,
+    openMyDay,
+    loadData,
+    defaultAssigneeId: user?.id ?? apiUser?.id,
+    setShowQuickAdd,
+    setShowMyDay,
+    myDayTasks,
+    myDayLoading,
+    handleApproval,
+  };
+
+  // ---------- ROLE-AWARE EARLY RETURNS ----------
+  // Each non-founder role gets its own focused dashboard. Founder keeps the
+  // company-wide layout below.
+  if (role === "INTERN") {
+    return (
+      <div className="space-y-6">
+        <InternDashboard {...roleViewProps} />
+        <QuickAddTaskDialog
+          open={showQuickAdd}
+          onOpenChange={setShowQuickAdd}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+          defaultDueDate={todayISODate()}
+          onCreated={() => {
+            setShowQuickAdd(false);
+            loadData();
+          }}
+        />
+        <MyDayDialog
+          open={showMyDay}
+          onOpenChange={setShowMyDay}
+          tasks={myDayTasks}
+          loading={myDayLoading}
+          togglingId={togglingId}
+          onToggle={handleToggleTask}
+          onRefresh={openMyDay}
+          userName={displayName}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+        />
+      </div>
+    );
+  }
+
+  if (role === "FREELANCER") {
+    return (
+      <div className="space-y-6">
+        <FreelancerDashboard {...roleViewProps} />
+        <QuickAddTaskDialog
+          open={showQuickAdd}
+          onOpenChange={setShowQuickAdd}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+          defaultDueDate={todayISODate()}
+          onCreated={() => {
+            setShowQuickAdd(false);
+            loadData();
+          }}
+        />
+        <MyDayDialog
+          open={showMyDay}
+          onOpenChange={setShowMyDay}
+          tasks={myDayTasks}
+          loading={myDayLoading}
+          togglingId={togglingId}
+          onToggle={handleToggleTask}
+          onRefresh={openMyDay}
+          userName={displayName}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+        />
+      </div>
+    );
+  }
+
+  if (role === "STAFF") {
+    return (
+      <div className="space-y-6">
+        <StaffDashboard {...roleViewProps} />
+        <QuickAddTaskDialog
+          open={showQuickAdd}
+          onOpenChange={setShowQuickAdd}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+          defaultDueDate={todayISODate()}
+          onCreated={() => {
+            setShowQuickAdd(false);
+            loadData();
+          }}
+        />
+        <MyDayDialog
+          open={showMyDay}
+          onOpenChange={setShowMyDay}
+          tasks={myDayTasks}
+          loading={myDayLoading}
+          togglingId={togglingId}
+          onToggle={handleToggleTask}
+          onRefresh={openMyDay}
+          userName={displayName}
+          defaultAssigneeId={roleViewProps.defaultAssigneeId}
+        />
+      </div>
+    );
+  }
+
+  // ---------- FOUNDER (or unknown role) — company-wide layout ----------
   // First critical AI insight -> alert banner
   const criticalInsight =
     data.aiInsights.find((i) => i.severity === "CRITICAL") ?? data.aiInsights[0] ?? null;
@@ -536,7 +763,7 @@ export function CommandCenter() {
               {todayLong()}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {greeting()}, <span className="text-primary">{firstName(founderName)}</span>
+              {greeting()}, <span className="text-primary">{firstName(displayName)}</span>
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {aiSummary ? <>You have {aiSummary}. </> : null}
@@ -590,6 +817,9 @@ export function CommandCenter() {
           </div>
         )}
       </header>
+
+      {/* ---------- AI Morning Briefing (founder & staff only) ---------- */}
+      {(user?.role === "FOUNDER" || user?.role === "STAFF") && <AiBriefingCard />}
 
       {/* ---------- KPI row ---------- */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -883,6 +1113,11 @@ export function CommandCenter() {
 
         {/* RIGHT COLUMN */}
         <div className="space-y-6">
+          {/* Focus & Alignment (founder & staff only) */}
+          {(user?.role === "FOUNDER" || user?.role === "STAFF") && (
+            <FocusScoreCard />
+          )}
+
           {/* Weekly Objective */}
           <Card className="p-5">
             <SectionHeader
@@ -1624,5 +1859,1222 @@ function MyDayDialog({
         />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ================================================================== */
+/* ROLE-AWARE DASHBOARDS — Intern, Staff, Freelancer                   */
+/* ================================================================== */
+
+interface RoleViewProps {
+  data: DashboardData;
+  user: { id: string; name: string; role: string; title?: string | null };
+  handleToggleTask: (taskId: string, currentlyDone: boolean) => void;
+  togglingId: string | null;
+  openMyDay: () => void;
+  loadData: () => void;
+  defaultAssigneeId?: string;
+  setShowQuickAdd: (v: boolean) => void;
+  setShowMyDay: (v: boolean) => void;
+  myDayTasks: TaskApi[];
+  myDayLoading: boolean;
+  handleApproval: (action: "approve" | "reject", code: string) => void;
+}
+
+/* ---------- Shared: Daily Report filing banner ------------------ */
+function DailyReportBanner({
+  filed,
+  userName,
+  onFile,
+}: {
+  filed: boolean;
+  userName: string;
+  onFile: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between",
+        filed
+          ? "border-emerald-500/40 bg-emerald-500/[0.06]"
+          : "border-amber-500/50 bg-amber-500/[0.08]",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+            filed
+              ? "bg-emerald-500/15 text-emerald-400"
+              : "bg-amber-500/15 text-amber-400",
+          )}
+        >
+          {filed ? <CheckCircle2 className="h-5 w-5" /> : <FileWarning className="h-5 w-5" />}
+        </div>
+        <div className="min-w-0">
+          <p className={cn("text-sm font-semibold", filed ? "text-emerald-300" : "text-amber-300")}>
+            {filed ? "Daily report filed ✓" : "You haven't filed your daily report yet"}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {filed
+              ? `Nice work, ${firstName(userName)} — your report for today is in. Keep the streak going.`
+              : `Take 2 minutes to log what you did today, ${firstName(userName)}. It helps your team stay aligned.`}
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        onClick={onFile}
+        className={cn(
+          "shrink-0 gap-1.5",
+          filed
+            ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+            : "bg-amber-500 text-amber-950 hover:bg-amber-400",
+        )}
+      >
+        {filed ? (
+          <>
+            <BookOpen className="h-3.5 w-3.5" /> View / Edit report
+          </>
+        ) : (
+          <>
+            <Send className="h-3.5 w-3.5" /> File Your Daily Report
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
+
+/* ---------- Shared: My Tasks list (with checkboxes) ------------- */
+function MyTasksList({
+  tasks,
+  handleToggleTask,
+  togglingId,
+  onAdd,
+  emptyTitle = "Nothing due today",
+  emptyHint = "You're all caught up.",
+}: {
+  tasks: MyDayTask[];
+  handleToggleTask: (taskId: string, currentlyDone: boolean) => void;
+  togglingId: string | null;
+  onAdd?: () => void;
+  emptyTitle?: string;
+  emptyHint?: string;
+}) {
+  if (tasks.length === 0) {
+    return (
+      <div className="mt-3">
+        <EmptyState
+          icon={<CheckCircle2 className="h-6 w-6" />}
+          title={emptyTitle}
+          hint={emptyHint}
+        />
+        {onAdd && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 w-full gap-1.5 border-dashed text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary"
+            onClick={onAdd}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add a task
+          </Button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-1">
+      {tasks.map((t) => {
+        const done = t.status === "DONE";
+        const overdue = t.dueDate ? isOverdue(t.dueDate) : false;
+        const isToggling = togglingId === t.id;
+        return (
+          <div
+            key={t.id}
+            className="group flex items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-accent/40"
+          >
+            <button
+              type="button"
+              onClick={() => handleToggleTask(t.id, done)}
+              disabled={isToggling}
+              aria-label={done ? "Reopen task" : "Complete task"}
+              className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
+                done
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10",
+              )}
+            >
+              {isToggling ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : done ? (
+                <Check className="h-3 w-3" />
+              ) : null}
+            </button>
+            <span className="mt-1.5">
+              <PriorityDot priority={t.priority} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p
+                  className={cn(
+                    "truncate text-sm font-medium",
+                    done && "text-muted-foreground line-through",
+                    overdue && !done && "text-red-400",
+                  )}
+                >
+                  {t.title}
+                </p>
+                {t.isDistraction && (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 bg-amber-500/10 text-[9px] font-bold uppercase tracking-wide text-amber-400"
+                  >
+                    Distraction
+                  </Badge>
+                )}
+                {t.category && (
+                  <Badge
+                    variant="outline"
+                    className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    {t.category.replace(/_/g, " ")}
+                  </Badge>
+                )}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                {t.project && <span>{t.project.name}</span>}
+                {t.dueDate && (
+                  <>
+                    {t.project && <span className="text-muted-foreground/40">·</span>}
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1",
+                        overdue && !done && "text-red-400",
+                      )}
+                    >
+                      <Clock className="h-3 w-3" />
+                      {relativeTime(t.dueDate)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {onAdd && (
+        <div className="mt-2 border-t border-border pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-1.5 border-dashed text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary"
+            onClick={onAdd}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add a task
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Shared: small KPI row for role views ----------------- */
+function RoleHeader({
+  userName,
+  subtitle,
+  badges,
+}: {
+  userName: string;
+  subtitle: string;
+  badges?: React.ReactNode;
+}) {
+  return (
+    <header className="space-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {todayLong()}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+            {greeting()}, <span className="text-primary">{firstName(userName)}</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        </div>
+        {badges && <div className="flex items-center gap-2">{badges}</div>}
+      </div>
+    </header>
+  );
+}
+
+/* ================================================================== */
+/* INTERN DASHBOARD                                                    */
+/* ================================================================== */
+function InternDashboard({
+  data,
+  user,
+  handleToggleTask,
+  togglingId,
+  setShowQuickAdd,
+  setShowMyDay,
+}: RoleViewProps) {
+  const setModule = useAppStore((s) => s.setModule);
+  const { myDay } = data;
+  const myTasks = myDay.tasks;
+  const doneToday = myDay.doneToday;
+  const overdueCount = myDay.overdueCount;
+  const weeklyPct = myDay.weeklyObjective?.progress ?? 0;
+
+  return (
+    <>
+      <RoleHeader
+        userName={user.name}
+        subtitle="Here's your plan for today — stay focused, you've got this."
+        badges={
+          <Badge variant="outline" className="gap-1.5 border-primary/30 text-primary">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+            Intern
+          </Badge>
+        }
+      />
+
+      {/* File daily report — prominent banner */}
+      <DailyReportBanner
+        filed={myDay.reportFiled}
+        userName={user.name}
+        onFile={() => setModule("field" as ModuleId)}
+      />
+
+      {/* KPI row */}
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard
+          label="Tasks Today"
+          value={myTasks.length}
+          sub={myTasks.length === 0 ? "Inbox zero 🎉" : `${myTasks.filter((t) => t.status !== "DONE").length} pending`}
+          accent={myTasks.length > 0 ? "primary" : "default"}
+          icon={<ListTodo className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Done Today"
+          value={doneToday}
+          sub={doneToday > 0 ? "Great momentum" : "Get one done today"}
+          accent="primary"
+          icon={<CheckCircle2 className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Overdue"
+          value={overdueCount}
+          sub={overdueCount > 0 ? "Clear these first" : "None — you're on track"}
+          accent={overdueCount > 0 ? "danger" : "default"}
+          icon={<AlertTriangle className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Weekly Goal"
+          value={`${weeklyPct}%`}
+          sub={myDay.weeklyObjective ? "of your weekly objective" : "No goal set"}
+          accent="primary"
+          icon={<Target className="h-4 w-4" />}
+        />
+      </section>
+
+      {/* Main grid */}
+      <section className="grid gap-6 lg:grid-cols-3">
+        {/* LEFT */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* Your Tasks Today */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Your Tasks Today"
+              description="Check them off as you go"
+              icon={<ListTodo className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setShowMyDay(true)}
+                >
+                  All my tasks <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            <MyTasksList
+              tasks={myTasks}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onAdd={() => setShowQuickAdd(true)}
+              emptyTitle="No tasks due today"
+              emptyHint="Ask your supervisor for assignments, or add one yourself."
+            />
+          </Card>
+
+          {/* Your Weekly Objective */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Your Weekly Objective"
+              icon={<Target className="h-4 w-4" />}
+              action={
+                myDay.weeklyObjective?.dueDate ? (
+                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {relativeTime(myDay.weeklyObjective.dueDate)}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            {myDay.weeklyObjective ? (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm font-medium">{myDay.weeklyObjective.title}</p>
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Progress</span>
+                    <span className="font-semibold text-primary">
+                      {myDay.weeklyObjective.progress.toFixed(0)}% complete
+                    </span>
+                  </div>
+                  <MiniBar value={myDay.weeklyObjective.progress} max={100} color="bg-primary" />
+                </div>
+                {myDay.weeklyObjective.dueDate && (
+                  <p className="text-xs text-muted-foreground">
+                    Due {formatDate(myDay.weeklyObjective.dueDate)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Target className="h-6 w-6" />}
+                  title="No weekly objective linked to you yet"
+                  hint="Your supervisor will assign one. Meanwhile, focus on today's tasks."
+                />
+              </div>
+            )}
+          </Card>
+
+          {/* Your Learning Plan */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Your Learning Plan"
+              description="Training materials picked for you"
+              icon={<GraduationCap className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setModule("sop" as ModuleId)}
+                >
+                  SOP & Knowledge <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            {myDay.learningPlan.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<BookOpen className="h-6 w-6" />}
+                  title="No training materials yet"
+                  hint="Check the SOP & Knowledge module for the full library."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {myDay.learningPlan.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setModule("sop" as ModuleId)}
+                    className="flex items-start gap-3 rounded-md border border-border bg-card/40 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                      <BookOpen className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{s.title}</p>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {s.category.replace(/_/g, " ")} · updated {relativeTime(s.updatedAt)}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* RIGHT */}
+        <div className="space-y-6">
+          {/* Quick actions */}
+          <Card className="p-5">
+            <SectionHeader title="Quick Actions" icon={<Zap className="h-4 w-4" />} />
+            <div className="mt-3 space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                onClick={() => setModule("field" as ModuleId)}
+              >
+                <Send className="h-3.5 w-3.5" /> File daily report
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setModule("sop" as ModuleId)}
+              >
+                <BookOpen className="h-3.5 w-3.5" /> Browse SOPs & training
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setModule("projects" as ModuleId)}
+              >
+                <Briefcase className="h-3.5 w-3.5" /> View projects
+              </Button>
+            </div>
+          </Card>
+
+          {/* Your Recent Reports */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Your Recent Reports"
+              description="Last 3 reports you filed"
+              icon={<BookOpen className="h-4 w-4" />}
+            />
+            {myDay.recentReports.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<BookOpen className="h-6 w-6" />}
+                  title="No reports filed yet"
+                  hint="Your first report will appear here once you file it."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-2 pr-1">
+                {myDay.recentReports.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded-md border border-border bg-card/40 p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {formatDate(r.reportDate)}
+                      </p>
+                      <span className="text-xs">{MOOD_EMOJI[r.mood ?? ""] ?? "·"}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-foreground/90">
+                      {r.tasksDone?.split("\n")[0] ?? "No tasks logged"}
+                    </p>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {r.hoursWorked.toFixed(1)}h
+                      </span>
+                      {r.blockers && (
+                        <span className="inline-flex items-center gap-1 text-amber-400">
+                          <AlertTriangle className="h-3 w-3" /> blocker
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Encouragement */}
+          <Card className="border-primary/20 bg-primary/[0.04] p-5">
+            <div className="flex items-start gap-3">
+              <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-semibold text-primary">Daily rhythm</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Show up, file your report, learn one new thing. Small consistent steps compound
+                  into real expertise. Your team sees your effort.
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ================================================================== */
+/* STAFF DASHBOARD                                                     */
+/* ================================================================== */
+function StaffDashboard({
+  data,
+  user,
+  handleToggleTask,
+  togglingId,
+  setShowQuickAdd,
+  setShowMyDay,
+  handleApproval,
+}: RoleViewProps) {
+  const setModule = useAppStore((s) => s.setModule);
+  const { myDay } = data;
+  const myTasks = myDay.tasks;
+  const myProjects = myDay.myProjects;
+  const approvals = myDay.pendingApprovalItems;
+  const submitted = myDay.myPendingRequests;
+
+  return (
+    <>
+      <RoleHeader
+        userName={user.name}
+        subtitle="Here's what needs your attention today."
+        badges={
+          <>
+            <Badge variant="outline" className="gap-1.5 border-primary/30 text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              {user.title ?? "Staff"}
+            </Badge>
+            <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+              <Briefcase className="h-3 w-3" />
+              {myProjects.length} projects
+            </Badge>
+          </>
+        }
+      />
+
+      {/* KPI row */}
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard
+          label="My Open Tasks"
+          value={myTasks.length}
+          sub={myTasks.length === 0 ? "All clear" : `${myDay.overdueCount} overdue`}
+          accent={myDay.overdueCount > 0 ? "danger" : "default"}
+          icon={<ListTodo className="h-4 w-4" />}
+        />
+        <StatCard
+          label="My Projects"
+          value={myProjects.length}
+          sub={myProjects.length === 0 ? "No active projects" : "Active assignments"}
+          accent="primary"
+          icon={<Briefcase className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Approvals (I can action)"
+          value={approvals.length}
+          sub={
+            approvals.length > 0
+              ? `${formatNGN(approvals.reduce((s, a) => s + a.amount, 0), true)} queued`
+              : "Nothing waiting"
+          }
+          accent={approvals.length > 0 ? "warning" : "default"}
+          icon={<ClipboardList className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Team Reports Today"
+          value={`${myDay.teamReportsToday}/${myDay.teamReportsTotal}`}
+          sub={myDay.teamReportsToday < myDay.teamReportsTotal ? "Some pending" : "All in"}
+          accent={myDay.teamReportsToday < myDay.teamReportsTotal ? "warning" : "primary"}
+          icon={<Users className="h-4 w-4" />}
+        />
+      </section>
+
+      {/* Main grid */}
+      <section className="grid gap-6 lg:grid-cols-3">
+        {/* LEFT */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* My Tasks Today */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Tasks Today"
+              description="What's on your plate"
+              icon={<ListTodo className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setShowMyDay(true)}
+                >
+                  All my tasks <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            <MyTasksList
+              tasks={myTasks}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onAdd={() => setShowQuickAdd(true)}
+              emptyTitle="Nothing due today"
+              emptyHint="You're all caught up — great headroom for deep work."
+            />
+          </Card>
+
+          {/* Pending Approvals — I can action */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Pending Approvals"
+              description="Requests waiting for your sign-off"
+              icon={<ClipboardList className="h-4 w-4" />}
+              action={
+                approvals.length > 0 ? (
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-400">
+                    {approvals.length} pending
+                  </Badge>
+                ) : undefined
+              }
+            />
+            <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-2 pr-1">
+              {approvals.length === 0 && (
+                <EmptyState
+                  icon={<CheckCircle2 className="h-6 w-6" />}
+                  title="Nothing waiting for your approval"
+                  hint="Payment requests you can action will appear here."
+                />
+              )}
+              {approvals.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-start justify-between gap-3 rounded-md border border-border bg-card/40 p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-primary">{a.code}</span>
+                      <StatusBadge status={a.status} />
+                      {a.project && (
+                        <span className="text-[11px] text-muted-foreground">{a.project.name}</span>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium">
+                      {a.description ?? "Payment request"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Requested by {a.requester?.name ?? "—"}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span className="text-sm font-semibold">{formatNGN(a.amount)}</span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-7 gap-1 bg-primary px-2 text-xs hover:bg-primary/90"
+                        onClick={() => handleApproval("approve", a.code)}
+                      >
+                        <Check className="h-3 w-3" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1 border-red-500/40 px-2 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-400"
+                        onClick={() => handleApproval("reject", a.code)}
+                      >
+                        <X className="h-3 w-3" /> Reject
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* My Projects */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Projects"
+              description="Projects you manage"
+              icon={<Briefcase className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setModule("projects" as ModuleId)}
+                >
+                  All projects <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            {myProjects.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Briefcase className="h-6 w-6" />}
+                  title="No active projects assigned to you"
+                  hint="Projects you manage will show up here."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {myProjects.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setModule("projects" as ModuleId)}
+                    className="rounded-md border border-border bg-card/40 p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-medium">{p.name}</p>
+                      <StatusBadge status={p.status} />
+                    </div>
+                    <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                      {p.code ?? "—"} · {p.serviceType.replace(/_/g, " ")}
+                    </p>
+                    {p.account && (
+                      <p className="text-[11px] text-muted-foreground">{p.account.name}</p>
+                    )}
+                    <div className="mt-2">
+                      <div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Progress</span>
+                        <span className="font-semibold text-primary">{p.progress}%</span>
+                      </div>
+                      <MiniBar value={p.progress} max={100} color="bg-primary" />
+                    </div>
+                    {p.eventDate && (
+                      <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(p.eventDate)}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* RIGHT */}
+        <div className="space-y-6">
+          {/* My submitted requests */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Submitted Requests"
+              description="Waiting for approval"
+              icon={<Receipt className="h-4 w-4" />}
+              action={
+                submitted.length > 0 ? (
+                  <Badge variant="outline" className="text-xs text-muted-foreground">
+                    {submitted.length}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            {submitted.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Receipt className="h-6 w-6" />}
+                  title="No requests waiting"
+                  hint="Payment requests you submit will be tracked here."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 max-h-64 overflow-y-auto scroll-thin space-y-2 pr-1">
+                {submitted.map((p) => (
+                  <div
+                    key={p.id}
+                    className="rounded-md border border-border bg-card/40 p-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] font-semibold text-primary">{p.code}</span>
+                      <StatusBadge status={p.status} />
+                    </div>
+                    <p className="mt-1 truncate text-xs font-medium">
+                      {p.description ?? "Payment request"}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>{formatNGN(p.amount)}</span>
+                      <span>
+                        {p.status === "PENDING"
+                          ? p.approver
+                            ? `Awaiting ${p.approver.name}`
+                            : "Awaiting approval"
+                          : "Approved"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* Weekly Objective */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Weekly Objective"
+              icon={<Target className="h-4 w-4" />}
+              action={
+                myDay.weeklyObjective?.dueDate ? (
+                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {relativeTime(myDay.weeklyObjective.dueDate)}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            {myDay.weeklyObjective ? (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm font-medium">{myDay.weeklyObjective.title}</p>
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Progress</span>
+                    <span className="font-semibold text-primary">
+                      {myDay.weeklyObjective.progress.toFixed(0)}% complete
+                    </span>
+                  </div>
+                  <MiniBar value={myDay.weeklyObjective.progress} max={100} color="bg-primary" />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Target className="h-6 w-6" />}
+                  title="No weekly goal linked"
+                  hint="Set one with your manager to anchor your week."
+                />
+              </div>
+            )}
+          </Card>
+
+          {/* Team Activity */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Team Activity"
+              description="What your team is up to"
+              icon={<Megaphone className="h-4 w-4" />}
+            />
+            {myDay.teamActivity.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Megaphone className="h-6 w-6" />}
+                  title="No recent activity"
+                  hint="Team actions will show up here."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 max-h-72 overflow-y-auto scroll-thin space-y-2 pr-1">
+                {myDay.teamActivity.map((a) => (
+                  <div key={a.id} className="flex items-start gap-3 rounded-md px-1 py-1.5">
+                    <Avatar className="h-7 w-7 border border-border">
+                      <AvatarFallback
+                        className={cn("text-[10px] font-semibold", avatarColor(a.user?.name ?? "??"))}
+                      >
+                        {initials(a.user?.name ?? "??")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-snug">
+                        <span className="font-semibold">{a.user?.name ?? "System"}</span>{" "}
+                        <span className="text-muted-foreground">{a.action.toLowerCase()}</span>
+                      </p>
+                      {a.detail && (
+                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{a.detail}</p>
+                      )}
+                      <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                        {relativeTime(a.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ================================================================== */
+/* FREELANCER DASHBOARD                                                */
+/* ================================================================== */
+function FreelancerDashboard({
+  data,
+  user,
+  handleToggleTask,
+  togglingId,
+  setShowQuickAdd,
+  setShowMyDay,
+}: RoleViewProps) {
+  const setModule = useAppStore((s) => s.setModule);
+  const { myDay } = data;
+  const myTasks = myDay.tasks;
+  const crew = myDay.crewAssignments;
+  const deliverables = myDay.deliverables;
+  const totalDayRate = crew.reduce((s, c) => s + c.dayRate, 0);
+
+  return (
+    <>
+      <RoleHeader
+        userName={user.name}
+        subtitle="Here's your work for today."
+        badges={
+          <>
+            <Badge variant="outline" className="gap-1.5 border-primary/30 text-primary">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              Freelancer
+            </Badge>
+            <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+              <Clapperboard className="h-3 w-3" />
+              {crew.length} assignments
+            </Badge>
+          </>
+        }
+      />
+
+      {/* File daily report */}
+      <DailyReportBanner
+        filed={myDay.reportFiled}
+        userName={user.name}
+        onFile={() => setModule("field" as ModuleId)}
+      />
+
+      {/* KPI row */}
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard
+          label="Crew Assignments"
+          value={crew.length}
+          sub={crew.length === 0 ? "No bookings" : `${crew.filter((c) => c.status === "CONFIRMED").length} confirmed`}
+          accent="primary"
+          icon={<Clapperboard className="h-4 w-4" />}
+        />
+        <StatCard
+          label="My Tasks"
+          value={myTasks.length}
+          sub={myDay.overdueCount > 0 ? `${myDay.overdueCount} overdue` : "On track"}
+          accent={myDay.overdueCount > 0 ? "danger" : "default"}
+          icon={<ListTodo className="h-4 w-4" />}
+        />
+        <StatCard
+          label="My Deliverables"
+          value={deliverables.length}
+          sub={deliverables.filter((d) => d.status !== "DELIVERED").length + " pending"}
+          accent="default"
+          icon={<Film className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Total Day Rate"
+          value={formatNGN(totalDayRate, true)}
+          sub={crew.length > 0 ? "Across assignments" : "No active bookings"}
+          accent="primary"
+          icon={<CircleDollarSign className="h-4 w-4" />}
+        />
+      </section>
+
+      {/* Main grid */}
+      <section className="grid gap-6 lg:grid-cols-3">
+        {/* LEFT */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* My Crew Assignments */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Crew Assignments"
+              description="Projects you're booked on"
+              icon={<Clapperboard className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setModule("projects" as ModuleId)}
+                >
+                  All projects <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            {crew.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Clapperboard className="h-6 w-6" />}
+                  title="No crew assignments yet"
+                  hint="When you're booked on a project, it'll appear here with your role and day rate."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {crew.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-md border border-border bg-card/40 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-medium">{c.project.name}</p>
+                          <StatusBadge status={c.status} />
+                        </div>
+                        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                          {c.project.code ?? "—"} · {c.project.serviceType.replace(/_/g, " ")}
+                        </p>
+                        {c.project.account && (
+                          <p className="text-[11px] text-muted-foreground">{c.project.account.name}</p>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-muted-foreground">Your rate</p>
+                        <p className="text-sm font-semibold text-primary">{formatNGN(c.dayRate)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                      <Badge variant="outline" className="border-primary/30 text-primary">
+                        {c.role.replace(/_/g, " ")}
+                      </Badge>
+                      {c.project.eventDate && (
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(c.project.eventDate)}
+                        </span>
+                      )}
+                      {c.project.venue && (
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="h-3 w-3" />
+                          {c.project.venue}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* My Tasks */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Tasks"
+              description="What you need to deliver"
+              icon={<ListTodo className="h-4 w-4" />}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
+                  onClick={() => setShowMyDay(true)}
+                >
+                  All my tasks <ArrowRight className="h-3 w-3" />
+                </Button>
+              }
+            />
+            <MyTasksList
+              tasks={myTasks}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onAdd={() => setShowQuickAdd(true)}
+              emptyTitle="No tasks assigned to you"
+              emptyHint="Reach out to the production manager if you're expecting work."
+            />
+          </Card>
+        </div>
+
+        {/* RIGHT */}
+        <div className="space-y-6">
+          {/* My Deliverables */}
+          <Card className="p-5">
+            <SectionHeader
+              title="My Deliverables"
+              description="What you're responsible for"
+              icon={<Film className="h-4 w-4" />}
+            />
+            {deliverables.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Film className="h-6 w-6" />}
+                  title="No deliverables assigned"
+                  hint="Deliverables on your crew projects will appear here."
+                />
+              </div>
+            ) : (
+              <div className="mt-3 max-h-80 overflow-y-auto scroll-thin space-y-2 pr-1">
+                {deliverables.map((d) => {
+                  const overdue = d.dueDate ? isOverdue(d.dueDate) : false;
+                  return (
+                    <div
+                      key={d.id}
+                      className="rounded-md border border-border bg-card/40 p-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium">{d.title}</p>
+                        <StatusBadge status={d.status} />
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {d.project.name}
+                        {d.type && ` · ${d.type.replace(/_/g, " ")}`}
+                      </p>
+                      {d.dueDate && (
+                        <p
+                          className={cn(
+                            "mt-1 inline-flex items-center gap-1 text-[11px]",
+                            overdue && d.status !== "DELIVERED" ? "text-red-400" : "text-muted-foreground",
+                          )}
+                        >
+                          <Clock className="h-3 w-3" />
+                          {relativeTime(d.dueDate)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Weekly Objective */}
+          <Card className="p-5">
+            <SectionHeader
+              title="Weekly Objective"
+              icon={<Target className="h-4 w-4" />}
+              action={
+                myDay.weeklyObjective?.dueDate ? (
+                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {relativeTime(myDay.weeklyObjective.dueDate)}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            {myDay.weeklyObjective ? (
+              <div className="mt-4 space-y-3">
+                <p className="text-sm font-medium">{myDay.weeklyObjective.title}</p>
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Progress</span>
+                    <span className="font-semibold text-primary">
+                      {myDay.weeklyObjective.progress.toFixed(0)}% complete
+                    </span>
+                  </div>
+                  <MiniBar value={myDay.weeklyObjective.progress} max={100} color="bg-primary" />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <EmptyState
+                  icon={<Target className="h-6 w-6" />}
+                  title="No weekly goal linked"
+                  hint="Your weekly objective will appear here once set."
+                />
+              </div>
+            )}
+          </Card>
+
+          {/* Quick links */}
+          <Card className="p-5">
+            <SectionHeader title="Quick Links" icon={<Zap className="h-4 w-4" />} />
+            <div className="mt-3 space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                onClick={() => setModule("field" as ModuleId)}
+              >
+                <Send className="h-3.5 w-3.5" /> File daily report
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start gap-2"
+                onClick={() => setModule("projects" as ModuleId)}
+              >
+                <Briefcase className="h-3.5 w-3.5" /> View all projects
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </section>
+    </>
   );
 }

@@ -634,3 +634,53 @@ model PaymentConfirmation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ============================================================
+// MARKETING & GROWTH (Task G3)
+// ============================================================
+
+model MarketingCampaign {
+  id          String   @id @default(cuid())
+  name        String
+  channel     String   // SOCIAL, EMAIL, WHATSAPP, REFERRAL, NETWORKING, PAID_ADS
+  status      String   @default("PLANNING") // PLANNING, ACTIVE, COMPLETED, PAUSED
+  budget      Float    @default(0)
+  spent       Float    @default(0)
+  leadsGenerated Int   @default(0)
+  conversions Int      @default(0)
+  revenue     Float    @default(0)  // revenue attributed to this campaign
+  startDate   DateTime?
+  endDate     DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ContentCalendarItem {
+  id          String   @id @default(cuid())
+  title       String
+  platform    String   // INSTAGRAM, LINKEDIN, TWITTER, YOUTUBE, BLOG, EMAIL_NEWSLETTER
+  type        String   // POST, REEL, VIDEO, ARTICLE, STORY, NEWSLETTER
+  status      String   @default("IDEA") // IDEA, DRAFTING, SCHEDULED, PUBLISHED
+  scheduledDate DateTime?
+  publishedDate DateTime?
+  topic       String?  // content topic/theme
+  assigneeId  String?  // who's creating it
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ReferralSource {
+  id          String   @id @default(cuid())
+  name        String   // person/entity who refers business
+  contact     String?  // phone/email
+  relationship String?  // CLIENT, PARTNER, INDUSTRY_CONTACT, FRIEND
+  totalValue  Float    @default(0)  // total business value referred
+  referralCount Int    @default(0)
+  lastContactAt DateTime?
+  nextNurtureDate DateTime?  // when to reach out next
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

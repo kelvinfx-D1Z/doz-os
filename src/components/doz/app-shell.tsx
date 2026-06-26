@@ -21,6 +21,7 @@ import {
   Loader2,
   ShieldCheck,
   Repeat,
+  Megaphone,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -33,6 +34,7 @@ import { SopKnowledge } from "@/components/modules/sop-knowledge";
 import { AiChiefOfStaff } from "@/components/modules/ai-chief-of-staff";
 import { FieldMode } from "@/components/modules/field-mode";
 import { Routines } from "@/components/modules/routines";
+import { MarketingGrowth } from "@/components/modules/marketing-growth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +76,7 @@ const NAV: NavItem[] = [
   { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, group: "Operate", hint: "AI" },
   { id: "field", label: "Field Mode", icon: <Smartphone className="h-4 w-4" />, group: "Operate", hint: "Mobile" },
   { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, group: "Grow" },
+  { id: "marketing", label: "Marketing & Growth", icon: <Megaphone className="h-4 w-4" />, group: "Grow" },
   { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-4 w-4" />, group: "Deliver" },
   { id: "procurement", label: "Procurement", icon: <Truck className="h-4 w-4" />, group: "Deliver" },
   { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, group: "Control" },
@@ -83,8 +86,8 @@ const NAV: NavItem[] = [
 
 // Role-based module access (Phase 2)
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
-  STAFF: ["command", "planning", "routines", "field", "crm", "projects", "procurement", "finance", "team", "sop"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "sop"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "sop"],
   INTERN: ["command", "field", "team", "sop"],
   FREELANCER: ["command", "field", "projects", "team"],
 };
@@ -101,6 +104,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   ai: <AiChiefOfStaff />,
   field: <FieldMode />,
   routines: <Routines />,
+  marketing: <MarketingGrowth />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -115,6 +119,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   ai: { title: "AI Chief of Staff", subtitle: "Your digital Operations Director" },
   field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
   routines: { title: "Routines", subtitle: "Your business rhythm — run the same playbook every time" },
+  marketing: { title: "Marketing & Growth", subtitle: "Turn referrals into a predictable lead engine" },
 };
 
 const ROLE_LABELS: Record<string, string> = {
