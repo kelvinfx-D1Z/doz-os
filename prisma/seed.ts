@@ -18,7 +18,7 @@ async function main() {
   const founder = await db.user.create({
     data: {
       email: "founder@digitonezero.com",
-      name: "Adaeze Okonkwo",
+      name: "Kelvin Keshy",
       role: "FOUNDER",
       title: "Founder & CEO",
       phone: "+234 803 000 0001",

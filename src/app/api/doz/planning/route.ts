@@ -10,7 +10,7 @@ export async function GET() {
   const todayEnd = new Date(todayStart.getTime() + 86400000);
   const weekEnd = new Date(todayStart.getTime() + 7 * 86400000);
 
-  const [goals, tasks] = await Promise.all([
+  const [goals, tasks, users, projects] = await Promise.all([
     db.goal.findMany({
       include: {
         owner: { select: { name: true } },
@@ -34,6 +34,20 @@ export async function GET() {
         project: { select: { name: true } },
       },
       orderBy: [{ status: "asc" }, { dueDate: "asc" }],
+    }),
+    db.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        title: true,
+      },
+      orderBy: [{ role: "asc" }, { name: "asc" }],
+    }),
+    db.project.findMany({
+      select: { id: true, name: true, code: true, status: true },
+      orderBy: { name: "asc" },
     }),
   ]);
 
@@ -130,7 +144,7 @@ export async function GET() {
   };
 
   // =====================================================
-  // TASKS — shaped output
+  // TASKS — shaped output (include raw IDs for the edit form)
   // =====================================================
   const tasksOut = tasks.map((t) => ({
     id: t.id,
@@ -144,11 +158,47 @@ export async function GET() {
     estimatedHrs: t.estimatedHrs,
     actualHrs: t.actualHrs,
     completedAt: t.completedAt,
+    assigneeId: t.assigneeId,
+    goalId: t.goalId,
+    projectId: t.projectId,
     assignee: t.assignee
       ? { name: t.assignee.name, role: t.assignee.role }
       : null,
     goal: t.goal ? { title: t.goal.title, type: t.goal.type } : null,
     project: t.project ? { name: t.project.name } : null,
+  }));
+
+  // =====================================================
+  // USERS — lightweight list for the assignee dropdown
+  // =====================================================
+  const usersOut = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    role: u.role,
+    title: u.title,
+  }));
+
+  // =====================================================
+  // PROJECTS — lightweight list for the project dropdown
+  // =====================================================
+  const projectsOut = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    code: p.code,
+    status: p.status,
+  }));
+
+  // =====================================================
+  // ALL GOALS — flat list for the goal-link dropdown
+  // =====================================================
+  const allGoalsOut = goals.map((g) => ({
+    id: g.id,
+    title: g.title,
+    type: g.type,
+    status: g.status,
+    progress: g.progress,
+    dueDate: g.dueDate,
+    quarter: g.quarter,
   }));
 
   // =====================================================
@@ -210,5 +260,8 @@ export async function GET() {
     goals: topLevelGoals,
     tasks: tasksOut,
     goalsByType,
+    users: usersOut,
+    projects: projectsOut,
+    allGoals: allGoalsOut,
   });
 }

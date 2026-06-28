@@ -20,6 +20,9 @@ import {
   Loader2,
   ArrowDownCircle,
   ArrowUpCircle,
+  Pencil,
+  Trash2,
+  Info,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -45,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   StatCard,
@@ -1069,6 +1073,9 @@ function ProjectDialog({ project: p }: { project: Project }) {
           </div>
         </div>
 
+        {/* Vendor Costs & Financials — project-level vendor tracking */}
+        <VendorCostsSection projectId={p.id} revenue={p.revenue} />
+
         {/* Event + dates */}
         <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
           {p.eventDate && (
@@ -1230,6 +1237,725 @@ function ProjectDialog({ project: p }: { project: Project }) {
         </div>
       </div>
     </DialogContent>
+  );
+}
+
+// ============================================================
+// VENDOR COSTS & FINANCIALS — project-level vendor tracking
+// ============================================================
+
+interface VendorCost {
+  id: string;
+  projectId: string;
+  vendorId: string | null;
+  vendorName: string;
+  item: string;
+  fee: number;
+  amountPaid: number;
+  balance: number;
+  status: "UNPAID" | "PARTIAL" | "PAID";
+  notes: string | null;
+  vendor: { name: string; category: string; phone: string | null } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface VendorCostsPayload {
+  vendorCosts: VendorCost[];
+  summary: {
+    totalFee: number;
+    totalPaid: number;
+    totalBalance: number;
+    receivedFromClient: number;
+    projectProfit: number;
+  };
+}
+
+interface VendorOption {
+  id: string;
+  name: string;
+  category: string | null;
+  phone: string | null;
+}
+
+const MANUAL_VENDOR_VALUE = "__manual__";
+
+function VendorCostStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    UNPAID: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+    PARTIAL: "bg-teal-500/15 text-teal-400 border-teal-500/20",
+    PAID: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  };
+  const cls = styles[status] ?? "bg-muted text-muted-foreground border-border";
+  return (
+    <span
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function SummaryCell({
+  label,
+  value,
+  valueClass,
+  icon,
+}: {
+  label: string;
+  value: string;
+  valueClass: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-border/60 bg-muted/30 p-2">
+      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+        {icon}
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 truncate text-sm font-bold ${valueClass}`}
+        title={value}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// ---------- Vendor Costs Section (mounted inside ProjectDialog) ----------
+function VendorCostsSection({
+  projectId,
+  revenue,
+}: {
+  projectId: string;
+  revenue: number;
+}) {
+  const [data, setData] = useState<VendorCostsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<VendorCost | null>(null);
+
+  const load = useCallback(() => {
+    fetch(
+      `/api/doz/project-vendors?projectId=${encodeURIComponent(projectId)}`
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: VendorCostsPayload | null) => {
+        if (d) {
+          setData(d);
+          setError(null);
+        } else {
+          setError("Failed to load vendor costs");
+        }
+      })
+      .catch(() => setError("Failed to load vendor costs"))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function handleAdd() {
+    setEditing(null);
+    setFormOpen(true);
+  }
+  function handleEdit(c: VendorCost) {
+    setEditing(c);
+    setFormOpen(true);
+  }
+  async function handleDelete(c: VendorCost) {
+    if (
+      !confirm(
+        `Delete vendor cost?\n\n${c.vendorName} — ${c.item}\n${formatNGN(
+          c.fee
+        )} (paid ${formatNGN(c.amountPaid)})`
+      )
+    )
+      return;
+    try {
+      const res = await fetch("/api/doz/project-vendors", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costId: c.id }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error || `Failed (${res.status})`);
+      }
+      toast.success("Vendor cost deleted");
+      load();
+    } catch (e) {
+      toast.error("Couldn't delete", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    }
+  }
+
+  const summary = data?.summary;
+  const costs = data?.vendorCosts ?? [];
+  const profit = summary?.projectProfit ?? 0;
+  const balanceOwed = summary?.totalBalance ?? 0;
+  const receivedFromClient = summary?.receivedFromClient ?? 0;
+  const paidToVendors = summary?.totalPaid ?? 0;
+
+  return (
+    <div className="mt-4 rounded-md border border-border/60">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+        <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <Wallet className="h-3.5 w-3.5" />
+          Vendor Costs & Financials
+        </h4>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleAdd}
+          className="h-7 gap-1 text-xs"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add Vendor Cost
+        </Button>
+      </div>
+
+      <div className="p-3">
+        {/* Financial Summary Strip — 5 cells */}
+        {loading ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-md" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <SummaryCell
+              label="Contract Value"
+              value={formatNGN(revenue, true)}
+              valueClass="text-primary"
+              icon={<CircleDollarSign className="h-3 w-3" />}
+            />
+            <SummaryCell
+              label="Received"
+              value={formatNGN(receivedFromClient, true)}
+              valueClass="text-emerald-500"
+              icon={<ArrowDownCircle className="h-3 w-3" />}
+            />
+            <SummaryCell
+              label="Paid to Vendors"
+              value={formatNGN(paidToVendors, true)}
+              valueClass="text-amber-500"
+              icon={<ArrowUpCircle className="h-3 w-3" />}
+            />
+            <SummaryCell
+              label="Balance Owed"
+              value={formatNGN(balanceOwed, true)}
+              valueClass={
+                balanceOwed > 0 ? "text-rose-500" : "text-emerald-500"
+              }
+            />
+            <SummaryCell
+              label="Project Profit"
+              value={formatNGN(profit, true)}
+              valueClass={profit >= 0 ? "text-emerald-500" : "text-rose-500"}
+              icon={<TrendingUp className="h-3 w-3" />}
+            />
+          </div>
+        )}
+
+        {/* Vendor Costs List */}
+        <div className="mt-3">
+          {error ? (
+            <p className="text-xs text-rose-500">{error}</p>
+          ) : loading ? (
+            <Skeleton className="h-24 w-full rounded-md" />
+          ) : costs.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border/60 p-4 text-center">
+              <Wallet className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-1.5 text-xs font-medium text-foreground">
+                No vendor costs tracked yet
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Add LED screens, audio, lights, decor — anything you&apos;re
+                paying vendors for.
+              </p>
+            </div>
+          ) : (
+            <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-border/60">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="px-2.5 py-1.5 font-medium">Vendor / Item</th>
+                    <th className="px-2.5 py-1.5 text-right font-medium">
+                      Fee
+                    </th>
+                    <th className="px-2.5 py-1.5 text-right font-medium">
+                      Paid
+                    </th>
+                    <th className="px-2.5 py-1.5 text-right font-medium">
+                      Balance
+                    </th>
+                    <th className="px-2.5 py-1.5 text-center font-medium">
+                      Status
+                    </th>
+                    <th className="px-2.5 py-1.5 text-right font-medium">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costs.map((c) => (
+                    <tr
+                      key={c.id}
+                      className="border-t border-border/40 align-top"
+                    >
+                      <td className="px-2.5 py-2">
+                        <div className="font-medium">{c.vendorName}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {c.item}
+                          {c.vendor?.category &&
+                            ` · ${c.vendor.category
+                              .replace(/_/g, " ")
+                              .toLowerCase()}`}
+                        </div>
+                        {c.notes && (
+                          <div className="mt-0.5 line-clamp-1 text-[10px] italic text-muted-foreground">
+                            {c.notes}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-2.5 py-2 text-right font-medium">
+                        {formatNGN(c.fee, true)}
+                      </td>
+                      <td className="px-2.5 py-2 text-right text-emerald-500">
+                        {formatNGN(c.amountPaid, true)}
+                      </td>
+                      <td
+                        className={`px-2.5 py-2 text-right font-medium ${
+                          c.balance > 0 ? "text-amber-500" : "text-emerald-500"
+                        }`}
+                      >
+                        {formatNGN(c.balance, true)}
+                      </td>
+                      <td className="px-2.5 py-2 text-center">
+                        <VendorCostStatusBadge status={c.status} />
+                      </td>
+                      <td className="px-2.5 py-2 text-right">
+                        <div className="inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(c)}
+                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+                            aria-label={`Edit ${c.vendorName} vendor cost`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(c)}
+                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-rose-500"
+                            aria-label={`Delete ${c.vendorName} vendor cost`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Procurement note */}
+        <div className="mt-3 flex items-start gap-1.5 text-[10px] text-muted-foreground">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          <span>
+            For formal procurement with RFQs and approval workflows, use the{" "}
+            <span className="font-medium text-foreground">
+              Procurement module
+            </span>
+            .
+          </span>
+        </div>
+      </div>
+
+      <VendorCostFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        projectId={projectId}
+        editing={editing}
+        onSaved={load}
+      />
+    </div>
+  );
+}
+
+// ---------- Vendor Cost Add/Edit Dialog ----------
+function VendorCostFormDialog({
+  open,
+  onOpenChange,
+  projectId,
+  editing,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  projectId: string;
+  editing: VendorCost | null;
+  onSaved: () => void;
+}) {
+  const [vendorMode, setVendorMode] = useState<"pick" | "manual">("pick");
+  const [vendorId, setVendorId] = useState<string>("");
+  const [manualName, setManualName] = useState<string>("");
+  const [item, setItem] = useState("");
+  const [fee, setFee] = useState<string>("");
+  const [amountPaid, setAmountPaid] = useState<string>("0");
+  const [notes, setNotes] = useState<string>("");
+  const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Load vendors when dialog opens (so the dropdown is populated).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setVendorsLoading(true);
+    fetch("/api/doz/vendors")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const list: VendorOption[] = (d.vendors ?? []).map(
+          (v: {
+            id: string;
+            name: string;
+            category: string | null;
+            phone: string | null;
+          }) => ({
+            id: v.id,
+            name: v.name,
+            category: v.category,
+            phone: v.phone,
+          })
+        );
+        setVendors(list);
+      })
+      .catch(() => {
+        // Non-fatal — the user can still enter a vendor manually.
+      })
+      .finally(() => {
+        if (!cancelled) setVendorsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Prefill fields whenever the dialog opens (for add or edit).
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      if (editing.vendorId) {
+        setVendorMode("pick");
+        setVendorId(editing.vendorId);
+        setManualName("");
+      } else {
+        setVendorMode("manual");
+        setVendorId("");
+        setManualName(editing.vendorName);
+      }
+      setItem(editing.item);
+      setFee(String(editing.fee));
+      setAmountPaid(String(editing.amountPaid));
+      setNotes(editing.notes ?? "");
+    } else {
+      setVendorMode("pick");
+      setVendorId("");
+      setManualName("");
+      setItem("");
+      setFee("");
+      setAmountPaid("0");
+      setNotes("");
+    }
+  }, [open, editing]);
+
+  const feeNum = useMemo(() => {
+    const n = Number(fee);
+    return isNaN(n) ? 0 : n;
+  }, [fee]);
+  const paidNum = useMemo(() => {
+    const n = Number(amountPaid);
+    return isNaN(n) ? 0 : n;
+  }, [amountPaid]);
+  const balance = Math.max(0, feeNum - paidNum);
+  const liveStatus =
+    paidNum <= 0 ? "UNPAID" : paidNum >= feeNum ? "PAID" : "PARTIAL";
+
+  const vendorSelected =
+    vendorMode === "pick" ? !!vendorId : manualName.trim().length > 0;
+
+  const canSubmit =
+    vendorSelected &&
+    item.trim().length > 0 &&
+    fee.trim().length > 0 &&
+    Number(fee) >= 0 &&
+    Number(amountPaid) >= 0 &&
+    !submitting;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        projectId,
+        item: item.trim(),
+        fee: feeNum,
+        amountPaid: paidNum,
+        notes: notes.trim() || undefined,
+      };
+      if (vendorMode === "pick" && vendorId) {
+        payload.vendorId = vendorId;
+      } else {
+        payload.vendorName = manualName.trim();
+      }
+
+      const method = editing ? "PATCH" : "POST";
+      if (editing) payload.costId = editing.id;
+
+      const res = await fetch("/api/doz/project-vendors", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.vendorCost) {
+        throw new Error(json?.error || `Failed (${res.status})`);
+      }
+      toast.success(editing ? "Vendor cost updated" : "Vendor cost added", {
+        description: `${json.vendorCost.vendorName} — ${json.vendorCost.item}`,
+      });
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      toast.error("Couldn't save vendor cost", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // The Select value: when in manual mode, we show the MANUAL sentinel
+  // selected; when in pick mode but no vendor chosen, the placeholder shows.
+  const selectValue =
+    vendorMode === "manual"
+      ? MANUAL_VENDOR_VALUE
+      : vendorId || "";
+
+  function handleSelectChange(v: string) {
+    if (v === MANUAL_VENDOR_VALUE) {
+      setVendorMode("manual");
+      setVendorId("");
+    } else {
+      setVendorMode("pick");
+      setVendorId(v);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Wallet className="h-4 w-4 text-primary" />
+            {editing ? "Edit Vendor Cost" : "Add Vendor Cost"}
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Track what this vendor is charging the project, advances paid, and
+            the balance owed.
+          </p>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit}
+          className="scroll-thin flex max-h-[calc(90vh-9rem)] flex-col"
+        >
+          <div className="space-y-4 overflow-y-auto px-5 py-4">
+            {/* Vendor select (with "Enter manually" sentinel option) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="vc-vendor">Vendor</Label>
+              <Select value={selectValue} onValueChange={handleSelectChange}>
+                <SelectTrigger id="vc-vendor">
+                  <SelectValue
+                    placeholder={
+                      vendorsLoading
+                        ? "Loading vendors…"
+                        : vendors.length === 0
+                          ? "No vendors yet — enter manually ↓"
+                          : "Pick a vendor…"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {vendors.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.name}
+                      {v.category
+                        ? ` · ${v.category
+                            .replace(/_/g, " ")
+                            .toLowerCase()}`
+                        : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={MANUAL_VENDOR_VALUE}>
+                    + Enter vendor manually
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Manual name input — only shown in manual mode */}
+            {vendorMode === "manual" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="vc-name">
+                  Vendor Name <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  id="vc-name"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="e.g. AViti Productions"
+                  required
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* Item / Service */}
+            <div className="space-y-1.5">
+              <Label htmlFor="vc-item">
+                Item / Service <span className="text-rose-500">*</span>
+              </Label>
+              <Input
+                id="vc-item"
+                value={item}
+                onChange={(e) => setItem(e.target.value)}
+                placeholder="e.g. LED Screen 6x4m, Sound system, Lighting package"
+                required
+                autoFocus={vendorMode === "pick"}
+              />
+            </div>
+
+            {/* Fee + Amount Paid */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="vc-fee">
+                  Vendor Fee (₦) <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  id="vc-fee"
+                  type="number"
+                  min={0}
+                  step="1000"
+                  value={fee}
+                  onChange={(e) => setFee(e.target.value)}
+                  placeholder="1500000"
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Total amount the vendor is charging.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="vc-paid">Amount Paid (Advance)</Label>
+                <Input
+                  id="vc-paid"
+                  type="number"
+                  min={0}
+                  step="1000"
+                  value={amountPaid}
+                  onChange={(e) => setAmountPaid(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Advance or payments already made. Default 0.
+                </p>
+              </div>
+            </div>
+
+            {/* Computed balance + live status */}
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Balance owed
+                </span>
+                <span
+                  className={`text-sm font-bold ${
+                    balance > 0 ? "text-amber-500" : "text-emerald-500"
+                  }`}
+                >
+                  {formatNGN(balance)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Status (auto)
+                </span>
+                <VendorCostStatusBadge status={liveStatus} />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label htmlFor="vc-notes">Notes</Label>
+              <Textarea
+                id="vc-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional — e.g. delivery date, deposit terms, what's included"
+                rows={3}
+              />
+            </div>
+
+            {/* Procurement note */}
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5 text-[11px] text-amber-600 dark:text-amber-400">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                This is a lightweight project-level tracker. For formal
+                procurement with RFQs and approval workflows, use the{" "}
+                <span className="font-semibold">Procurement module</span>.
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border px-5 py-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!canSubmit} className="gap-1.5">
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {editing ? "Saving…" : "Adding…"}
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  {editing ? "Save Changes" : "Add Cost"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

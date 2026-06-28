@@ -1,0 +1,1985 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from "react";
+     4→import {
+     5→  Calendar,
+     6→  MapPin,
+     7→  Users,
+     8→  Film,
+     9→  CheckCircle2,
+    10→  Clock,
+    11→  AlertTriangle,
+    12→  Star,
+    13→  Clapperboard,
+    14→  TrendingUp,
+    15→  Wallet,
+    16→  CircleDollarSign,
+    17→  Trophy,
+    18→  FolderKanban,
+    19→  Plus,
+    20→  Loader2,
+    21→  ArrowDownCircle,
+    22→  ArrowUpCircle,
+    23→  Pencil,
+    24→  Trash2,
+    25→  Info,
+    26→} from "lucide-react";
+    27→import { Card } from "@/components/ui/card";
+    28→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    29→import {
+    30→  Dialog,
+    31→  DialogContent,
+    32→  DialogFooter,
+    33→  DialogHeader,
+    34→  DialogTitle,
+    35→  DialogTrigger,
+    36→} from "@/components/ui/dialog";
+    37→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    38→import { Skeleton } from "@/components/ui/skeleton";
+    39→import { Badge } from "@/components/ui/badge";
+    40→import { Progress } from "@/components/ui/progress";
+    41→import { Button } from "@/components/ui/button";
+    42→import { Input } from "@/components/ui/input";
+    43→import { Label } from "@/components/ui/label";
+    44→import {
+    45→  Select,
+    46→  SelectContent,
+    47→  SelectItem,
+    48→  SelectTrigger,
+    49→  SelectValue,
+    50→} from "@/components/ui/select";
+    51→import { Textarea } from "@/components/ui/textarea";
+    52→import { toast } from "sonner";
+    53→import {
+    54→  StatCard,
+    55→  StatusBadge,
+    56→  SectionHeader,
+    57→  EmptyState,
+    58→  MiniBar,
+    59→} from "@/components/doz/ui-primitives";
+    60→import {
+    61→  formatNGN,
+    62→  formatDate,
+    63→  relativeTime,
+    64→  avatarColor,
+    65→  initials,
+    66→} from "@/lib/format";
+    67→
+    68→// ---------- Types ----------
+    69→interface CrewMember {
+    70→  id: string;
+    71→  role: string;
+    72→  status: string;
+    73→  dayRate: number;
+    74→  user: { name: string };
+    75→}
+    76→interface Milestone {
+    77→  id: string;
+    78→  title: string;
+    79→  dueDate: string;
+    80→  status: string;
+    81→  completedAt: string | null;
+    82→}
+    83→interface Deliverable {
+    84→  id: string;
+    85→  title: string;
+    86→  type: string | null;
+    87→  status: string;
+    88→  dueDate: string | null;
+    89→  clientApproved: boolean;
+    90→  deliveredAt: string | null;
+    91→}
+    92→interface Project {
+    93→  id: string;
+    94→  name: string;
+    95→  code: string | null;
+    96→  serviceType: string;
+    97→  status: string;
+    98→  eventDate: string | null;
+    99→  venue: string | null;
+   100→  budget: number;
+   101→  revenue: number;
+   102→  progress: number;
+   103→  startDate: string | null;
+   104→  endDate: string | null;
+   105→  account: { name: string; isStrategic: boolean } | null;
+   106→  manager: { name: string } | null;
+   107→  crew: CrewMember[];
+   108→  milestones: Milestone[];
+   109→  deliverables: Deliverable[];
+   110→  _count: { tasks: number; invoices: number; expenses: number };
+   111→  expensesTotal: number;
+   112→  received: number;
+   113→  balance: number;
+   114→  profit: number;
+   115→  margin: number;
+   116→}
+   117→interface ProjectsData {
+   118→  stats: {
+   119→    total: number;
+   120→    active: number;
+   121→    completed: number;
+   122→    totalRevenue: number;
+   123→    totalExpenses: number;
+   124→    totalProfit: number;
+   125→    totalReceived: number;
+   126→    totalBalance: number;
+   127→    avgMargin: number;
+   128→  };
+   129→  projects: Project[];
+   130→}
+   131→
+   132→interface AccountOption {
+   133→  id: string;
+   134→  name: string;
+   135→  isStrategic?: boolean;
+   136→}
+   137→
+   138→// ---------- Constants ----------
+   139→const ACTIVE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"];
+   140→
+   141→// Service types selectable in the New Project form. Kept in sync with the
+   142→// backend VALID_SERVICE_TYPES list in /api/doz/projects/route.ts.
+   143→const SERVICE_TYPES = [
+   144→  "EVENT_PRODUCTION",
+   145→  "EVENT_MANAGEMENT",
+   146→  "CONFERENCE_PRODUCTION",
+   147→  "VIDEO_PRODUCTION",
+   148→  "CORPORATE_VIDEO",
+   149→  "DOCUMENTARY",
+   150→  "TITLE_SEQUENCE",
+   151→  "COLOR_GRADING",
+   152→  "PHOTOGRAPHY",
+   153→  "MOTION_GRAPHICS",
+   154→  "LIVESTREAM",
+   155→  "POST_PRODUCTION",
+   156→] as const;
+   157→
+   158→// Statuses offered when creating a new project (post-create, IN_PROGRESS can
+   159→// be set later). Defaults to PLANNING.
+   160→const CREATE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"] as const;
+   161→
+   162→const SERVICE_ICON: Record<string, React.ReactNode> = {
+   163→  EVENT_PRODUCTION: <Clapperboard className="h-3.5 w-3.5" />,
+   164→  EVENT_MANAGEMENT: <Clapperboard className="h-3.5 w-3.5" />,
+   165→  VIDEO_PRODUCTION: <Film className="h-3.5 w-3.5" />,
+   166→  CONFERENCE_PRODUCTION: <Users className="h-3.5 w-3.5" />,
+   167→  TITLE_SEQUENCE: <Film className="h-3.5 w-3.5" />,
+   168→  COLOR_GRADING: <Film className="h-3.5 w-3.5" />,
+   169→};
+   170→
+   171→function serviceLabel(s: string): string {
+   172→  return s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+   173→}
+   174→
+   175→function deliverableStatusKey(s: string): string {
+   176→  return s.toLowerCase();
+   177→}
+   178→
+   179→function deliverableSummary(deliverables: Deliverable[]): string {
+   180→  if (deliverables.length === 0) return "No deliverables";
+   181→  const counts: Record<string, number> = {};
+   182→  for (const d of deliverables) {
+   183→    const k = deliverableStatusKey(d.status);
+   184→    counts[k] = (counts[k] ?? 0) + 1;
+   185→  }
+   186→  const order = ["pending", "in_progress", "review", "delivered"];
+   187→  const labels: Record<string, string> = {
+   188→    pending: "pending",
+   189→    in_progress: "in progress",
+   190→    review: "in review",
+   191→    delivered: "delivered",
+   192→  };
+   193→  return order
+   194→    .filter((k) => counts[k])
+   195→    .map((k) => `${counts[k]} ${labels[k]}`)
+   196→    .join(", ");
+   197→}
+   198→
+   199→// ---------- Main ----------
+   200→export function ProjectsEvents() {
+   201→  const [data, setData] = useState<ProjectsData | null>(null);
+   202→  const [loading, setLoading] = useState(true);
+   203→  const [error, setError] = useState<string | null>(null);
+   204→  const [tab, setTab] = useState("all");
+   205→  const [createOpen, setCreateOpen] = useState(false);
+   206→
+   207→  const load = useCallback(() => {
+   208→    // Note: we intentionally do NOT call setLoading(true) here synchronously
+   209→    // — the initial `loading` state is `true` already and we only flip it to
+   210→    // false once data arrives. Refreshes (after create) keep the existing
+   211→    // data on screen and avoid a cascading-render lint warning.
+   212→    fetch("/api/doz/projects")
+   213→      .then((r) => {
+   214→        if (!r.ok) throw new Error(`Request failed (${r.status})`);
+   215→        return r.json();
+   216→      })
+   217→      .then((d: ProjectsData) => {
+   218→        setData(d);
+   219→        setError(null);
+   220→      })
+   221→      .catch((e) => {
+   222→        setError(e.message || "Failed to load projects");
+   223→      })
+   224→      .finally(() => {
+   225→        setLoading(false);
+   226→      });
+   227→  }, []);
+   228→
+   229→  useEffect(() => {
+   230→    load();
+   231→  }, [load]);
+   232→
+   233→  if (loading && !data) return <ProjectsSkeleton />;
+   234→
+   235→  if (error || !data) {
+   236→    return (
+   237→      <div className="space-y-6">
+   238→        <SectionHeader
+   239→          icon={<Clapperboard className="h-5 w-5" />}
+   240→          title="Projects & Event Operations"
+   241→          description="Deliver every event on time, on budget"
+   242→          action={
+   243→            <NewProjectButton onClick={() => setCreateOpen(true)} />
+   244→          }
+   245→        />
+   246→        <EmptyState
+   247→          icon={<AlertTriangle className="h-8 w-8" />}
+   248→          title="Couldn't load projects"
+   249→          hint={error ?? "Unknown error"}
+   250→        />
+   251→        <NewProjectDialog
+   252→          open={createOpen}
+   253→          onOpenChange={setCreateOpen}
+   254→          onCreated={load}
+   255→        />
+   256→      </div>
+   257→    );
+   258→  }
+   259→
+   260→  const { stats, projects } = data;
+   261→
+   262→  // Filter by tab
+   263→  const filtered = projects.filter((p) => {
+   264→    if (tab === "all") return true;
+   265→    if (tab === "active") return ACTIVE_STATUSES.includes(p.status);
+   266→    if (tab === "planning") return p.status === "PLANNING";
+   267→    if (tab === "in_progress") return p.status === "IN_PROGRESS";
+   268→    if (tab === "completed") return p.status === "COMPLETED";
+   269→    return true;
+   270→  });
+   271→
+   272→  return (
+   273→    <div className="space-y-6">
+   274→      <SectionHeader
+   275→        icon={<Clapperboard className="h-5 w-5" />}
+   276→        title="Projects & Event Operations"
+   277→        description={`${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
+   278→        action={
+   279→          <NewProjectButton onClick={() => setCreateOpen(true)} />
+   280→        }
+   281→      />
+   282→
+   283→      {/* KPI ROW */}
+   284→      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+   285→        <StatCard
+   286→          label="Total Projects"
+   287→          value={stats.total}
+   288→          sub={`${stats.active} active`}
+   289→          icon={<FolderKanban className="h-4 w-4" />}
+   290→          accent="default"
+   291→        />
+   292→        <StatCard
+   293→          label="Active"
+   294→          value={stats.active}
+   295→          sub="in progress"
+   296→          icon={<Clapperboard className="h-4 w-4" />}
+   297→          accent="primary"
+   298→        />
+   299→        <StatCard
+   300→          label="Revenue"
+   301→          value={formatNGN(stats.totalRevenue, true)}
+   302→          sub="booked"
+   303→          icon={<CircleDollarSign className="h-4 w-4" />}
+   304→          accent="primary"
+   305→        />
+   306→        <StatCard
+   307→          label="Received"
+   308→          value={formatNGN(stats.totalReceived, true)}
+   309→          sub="collected"
+   310→          icon={<ArrowDownCircle className="h-4 w-4" />}
+   311→          accent="primary"
+   312→        />
+   313→        <StatCard
+   314→          label="Balance Owed"
+   315→          value={formatNGN(stats.totalBalance, true)}
+   316→          sub="outstanding"
+   317→          icon={<ArrowUpCircle className="h-4 w-4" />}
+   318→          accent={stats.totalBalance > 0 ? "warning" : "primary"}
+   319→        />
+   320→        <StatCard
+   321→          label="Profit"
+   322→          value={formatNGN(stats.totalProfit, true)}
+   323→          sub={`exp ${formatNGN(stats.totalExpenses, true)}`}
+   324→          icon={<TrendingUp className="h-4 w-4" />}
+   325→          accent={stats.totalProfit >= 0 ? "primary" : "danger"}
+   326→        />
+   327→        <StatCard
+   328→          label="Avg Margin"
+   329→          value={`${stats.avgMargin.toFixed(1)}%`}
+   330→          sub="per project"
+   331→          icon={<Wallet className="h-4 w-4" />}
+   332→          accent={stats.avgMargin >= 30 ? "primary" : stats.avgMargin >= 15 ? "warning" : "danger"}
+   333→        />
+   334→        <StatCard
+   335→          label="Completed"
+   336→          value={stats.completed}
+   337→          sub="delivered"
+   338→          icon={<Trophy className="h-4 w-4" />}
+   339→          accent="default"
+   340→        />
+   341→      </div>
+   342→
+   343→      {/* PROJECT LIST WITH TABS */}
+   344→      <Tabs value={tab} onValueChange={setTab} className="w-full">
+   345→        <div className="flex flex-wrap items-center justify-between gap-2">
+   346→          <TabsList className="h-9">
+   347→            <TabsTrigger value="all" className="text-xs">All ({projects.length})</TabsTrigger>
+   348→            <TabsTrigger value="active" className="text-xs">Active ({projects.filter((p) => ACTIVE_STATUSES.includes(p.status)).length})</TabsTrigger>
+   349→            <TabsTrigger value="planning" className="text-xs">Planning ({projects.filter((p) => p.status === "PLANNING").length})</TabsTrigger>
+   350→            <TabsTrigger value="in_progress" className="text-xs">In Progress ({projects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
+   351→            <TabsTrigger value="completed" className="text-xs">Completed ({projects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
+   352→          </TabsList>
+   353→          <p className="text-xs text-muted-foreground">
+   354→            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {projects.length}
+   355→          </p>
+   356→        </div>
+   357→
+   358→        <TabsContent value={tab} className="mt-4">
+   359→          {filtered.length === 0 ? (
+   360→            <EmptyState
+   361→              icon={<FolderKanban className="h-8 w-8" />}
+   362→              title="No projects in this view"
+   363→              hint="Switch tabs to see other projects, or create a new one."
+   364→            />
+   365→          ) : (
+   366→            <div className="grid gap-4 lg:grid-cols-2">
+   367→              {filtered.map((p) => (
+   368→                <ProjectCard key={p.id} project={p} />
+   369→              ))}
+   370→            </div>
+   371→          )}
+   372→        </TabsContent>
+   373→      </Tabs>
+   374→
+   375→      <NewProjectDialog
+   376→        open={createOpen}
+   377→        onOpenChange={setCreateOpen}
+   378→        onCreated={load}
+   379→      />
+   380→    </div>
+   381→  );
+   382→}
+   383→
+   384→// ---------- New Project Button ----------
+   385→function NewProjectButton({ onClick }: { onClick: () => void }) {
+   386→  return (
+   387→    <Button onClick={onClick} size="sm" className="gap-1">
+   388→      <Plus className="h-4 w-4" />
+   389→      New Project
+   390→    </Button>
+   391→  );
+   392→}
+   393→
+   394→// ---------- New Project Dialog ----------
+   395→function NewProjectDialog({
+   396→  open,
+   397→  onOpenChange,
+   398→  onCreated,
+   399→}: {
+   400→  open: boolean;
+   401→  onOpenChange: (v: boolean) => void;
+   402→  onCreated: () => void;
+   403→}) {
+   404→  const [name, setName] = useState("");
+   405→  const [serviceType, setServiceType] = useState<string>("");
+   406→  const [status, setStatus] = useState<string>("PLANNING");
+   407→  const [accountId, setAccountId] = useState<string>("");
+   408→  const [eventDate, setEventDate] = useState<string>("");
+   409→  const [venue, setVenue] = useState<string>("");
+   410→  const [budget, setBudget] = useState<string>("");
+   411→  const [revenue, setRevenue] = useState<string>("");
+   412→  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+   413→  const [accountsLoading, setAccountsLoading] = useState(false);
+   414→  const [submitting, setSubmitting] = useState(false);
+   415→
+   416→  // Load accounts (from CRM endpoint) once when the dialog first opens.
+   417→  useEffect(() => {
+   418→    if (!open) return;
+   419→    let cancelled = false;
+   420→    setAccountsLoading(true);
+   421→    fetch("/api/doz/crm")
+   422→      .then((r) => (r.ok ? r.json() : null))
+   423→      .then((d) => {
+   424→        if (cancelled || !d) return;
+   425→        const list: AccountOption[] = (d.accounts ?? []).map(
+   426→          (a: { id: string; name: string; isStrategic?: boolean }) => ({
+   427→            id: a.id,
+   428→            name: a.name,
+   429→            isStrategic: a.isStrategic,
+   430→          })
+   431→        );
+   432→        setAccounts(list);
+   433→      })
+   434→      .catch(() => {
+   435→        // Non-fatal — the field stays as an empty select.
+   436→      })
+   437→      .finally(() => {
+   438→        if (!cancelled) setAccountsLoading(false);
+   439→      });
+   440→    return () => {
+   441→      cancelled = true;
+   442→    };
+   443→  }, [open]);
+   444→
+   445→  // Reset form fields whenever the dialog closes.
+   446→  useEffect(() => {
+   447→    if (!open) {
+   448→      setName("");
+   449→      setServiceType("");
+   450→      setStatus("PLANNING");
+   451→      setAccountId("");
+   452→      setEventDate("");
+   453→      setVenue("");
+   454→      setBudget("");
+   455→      setRevenue("");
+   456→    }
+   457→  }, [open]);
+   458→
+   459→  const budgetNum = useMemo(() => {
+   460→    const n = Number(budget);
+   461→    return isNaN(n) ? 0 : n;
+   462→  }, [budget]);
+   463→  const revenueNum = useMemo(() => {
+   464→    const n = Number(revenue);
+   465→    return isNaN(n) ? 0 : n;
+   466→  }, [revenue]);
+   467→  const projectedProfit = revenueNum - budgetNum;
+   468→  const projectedMargin =
+   469→    revenueNum > 0 ? (projectedProfit / revenueNum) * 100 : 0;
+   470→
+   471→  const canSubmit =
+   472→    name.trim().length > 0 &&
+   473→    serviceType.length > 0 &&
+   474→    budget.trim().length > 0 &&
+   475→    Number(budget) >= 0 &&
+   476→    revenue.trim().length > 0 &&
+   477→    Number(revenue) >= 0 &&
+   478→    !submitting;
+   479→
+   480→  async function handleSubmit(e: React.FormEvent) {
+   481→    e.preventDefault();
+   482→    if (!canSubmit) return;
+   483→    setSubmitting(true);
+   484→    try {
+   485→      const payload: Record<string, unknown> = {
+   486→        name: name.trim(),
+   487→        serviceType,
+   488→        status,
+   489→        budget: budgetNum,
+   490→        revenue: revenueNum,
+   491→      };
+   492→      if (accountId) payload.accountId = accountId;
+   493→      if (eventDate) payload.eventDate = eventDate;
+   494→      if (venue.trim()) payload.venue = venue.trim();
+   495→
+   496→      const res = await fetch("/api/doz/projects", {
+   497→        method: "POST",
+   498→        headers: { "Content-Type": "application/json" },
+   499→        body: JSON.stringify(payload),
+   500→      });
+   501→      const json = await res.json().catch(() => null);
+   502→      if (!res.ok || !json?.project) {
+   503→        throw new Error(json?.error || `Failed (${res.status})`);
+   504→      }
+   505→      toast.success("Project created", {
+   506→        description: `${json.project.name} (${json.project.code ?? "no code"})`,
+   507→      });
+   508→      onOpenChange(false);
+   509→      onCreated();
+   510→    } catch (err) {
+   511→      toast.error("Couldn't create project", {
+   512→        description: err instanceof Error ? err.message : "Unknown error",
+   513→      });
+   514→    } finally {
+   515→      setSubmitting(false);
+   516→    }
+   517→  }
+   518→
+   519→  return (
+   520→    <Dialog open={open} onOpenChange={onOpenChange}>
+   521→      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+   522→        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+   523→          <DialogTitle className="flex items-center gap-2 text-base">
+   524→            <Plus className="h-4 w-4 text-primary" />
+   525→            Create New Project
+   526→          </DialogTitle>
+   527→          <p className="text-xs text-muted-foreground">
+   528→            Add a project with its cost, contract value, and key details.
+   529→          </p>
+   530→        </DialogHeader>
+   531→
+   532→        <form
+   533→          onSubmit={handleSubmit}
+   534→          className="scroll-thin flex max-h-[calc(90vh-9rem)] flex-col"
+   535→        >
+   536→          <div className="space-y-4 overflow-y-auto px-5 py-4">
+   537→            {/* Name */}
+   538→            <div className="space-y-1.5">
+   539→              <Label htmlFor="np-name">
+   540→                Project Name <span className="text-rose-500">*</span>
+   541→              </Label>
+   542→              <Input
+   543→                id="np-name"
+   544→                value={name}
+   545→                onChange={(e) => setName(e.target.value)}
+   546→                placeholder="e.g. GTBank Annual Gala 2025"
+   547→                required
+   548→                autoFocus
+   549→              />
+   550→            </div>
+   551→
+   552→            {/* Service Type + Status */}
+   553→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   554→              <div className="space-y-1.5">
+   555→                <Label htmlFor="np-service">
+   556→                  Service Type <span className="text-rose-500">*</span>
+   557→                </Label>
+   558→                <Select value={serviceType} onValueChange={setServiceType}>
+   559→                  <SelectTrigger id="np-service">
+   560→                    <SelectValue placeholder="Select service…" />
+   561→                  </SelectTrigger>
+   562→                  <SelectContent>
+   563→                    {SERVICE_TYPES.map((s) => (
+   564→                      <SelectItem key={s} value={s}>
+   565→                        {serviceLabel(s)}
+   566→                      </SelectItem>
+   567→                    ))}
+   568→                  </SelectContent>
+   569→                </Select>
+   570→              </div>
+   571→              <div className="space-y-1.5">
+   572→                <Label htmlFor="np-status">Status</Label>
+   573→                <Select value={status} onValueChange={setStatus}>
+   574→                  <SelectTrigger id="np-status">
+   575→                    <SelectValue />
+   576→                  </SelectTrigger>
+   577→                  <SelectContent>
+   578→                    {CREATE_STATUSES.map((s) => (
+   579→                      <SelectItem key={s} value={s}>
+   580→                        {serviceLabel(s)}
+   581→                      </SelectItem>
+   582→                    ))}
+   583→                  </SelectContent>
+   584→                </Select>
+   585→              </div>
+   586→            </div>
+   587→
+   588→            {/* Account + Event Date */}
+   589→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   590→              <div className="space-y-1.5">
+   591→                <Label htmlFor="np-account">Client / Account</Label>
+   592→                <Select value={accountId} onValueChange={setAccountId}>
+   593→                  <SelectTrigger id="np-account">
+   594→                    <SelectValue
+   595→                      placeholder={
+   596→                        accountsLoading ? "Loading…" : "Optional — select client"
+   597→                      }
+   598→                    />
+   599→                  </SelectTrigger>
+   600→                  <SelectContent>
+   601→                    {accounts.length === 0 && !accountsLoading ? (
+   602→                      <SelectItem value="__none__" disabled>
+   603→                        No accounts available
+   604→                      </SelectItem>
+   605→                    ) : (
+   606→                      accounts.map((a) => (
+   607→                        <SelectItem key={a.id} value={a.id}>
+   608→                          {a.isStrategic ? "★ " : ""}
+   609→                          {a.name}
+   610→                        </SelectItem>
+   611→                      ))
+   612→                    )}
+   613→                  </SelectContent>
+   614→                </Select>
+   615→              </div>
+   616→              <div className="space-y-1.5">
+   617→                <Label htmlFor="np-date">Event Date</Label>
+   618→                <Input
+   619→                  id="np-date"
+   620→                  type="date"
+   621→                  value={eventDate}
+   622→                  onChange={(e) => setEventDate(e.target.value)}
+   623→                />
+   624→              </div>
+   625→            </div>
+   626→
+   627→            {/* Venue */}
+   628→            <div className="space-y-1.5">
+   629→              <Label htmlFor="np-venue">Venue</Label>
+   630→              <Input
+   631→                id="np-venue"
+   632→                value={venue}
+   633→                onChange={(e) => setVenue(e.target.value)}
+   634→                placeholder="e.g. Eko Hotel Convention Center"
+   635→              />
+   636→            </div>
+   637→
+   638→            {/* Budget + Revenue */}
+   639→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   640→              <div className="space-y-1.5">
+   641→                <Label htmlFor="np-budget">
+   642→                  Project Cost (Budget) <span className="text-rose-500">*</span>
+   643→                </Label>
+   644→                <Input
+   645→                  id="np-budget"
+   646→                  type="number"
+   647→                  min={0}
+   648→                  step="1000"
+   649→                  value={budget}
+   650→                  onChange={(e) => setBudget(e.target.value)}
+   651→                  placeholder="5,000,000"
+   652→                  required
+   653→                />
+   654→                <p className="text-[11px] text-muted-foreground">
+   655→                  What will this project cost us to deliver?
+   656→                </p>
+   657→              </div>
+   658→              <div className="space-y-1.5">
+   659→                <Label htmlFor="np-revenue">
+   660→                  Total Contract Value <span className="text-rose-500">*</span>
+   661→                </Label>
+   662→                <Input
+   663→                  id="np-revenue"
+   664→                  type="number"
+   665→                  min={0}
+   666→                  step="1000"
+   667→                  value={revenue}
+   668→                  onChange={(e) => setRevenue(e.target.value)}
+   669→                  placeholder="8,000,000"
+   670→                  required
+   671→                />
+   672→                <p className="text-[11px] text-muted-foreground">
+   673→                  Total amount the client will pay.
+   674→                </p>
+   675→              </div>
+   676→            </div>
+   677→
+   678→            {/* Live profit calculation */}
+   679→            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+   680→              <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+   681→                <TrendingUp className="h-3.5 w-3.5" />
+   682→                Projected Profit (if client pays in full)
+   683→              </div>
+   684→              <div className="mt-1 flex flex-wrap items-baseline gap-2">
+   685→                <span
+   686→                  className={`text-lg font-semibold ${
+   687→                    projectedProfit >= 0 ? "text-emerald-500" : "text-rose-500"
+   688→                  }`}
+   689→                >
+   690→                  {formatNGN(projectedProfit)}
+   691→                </span>
+   692→                <span
+   693→                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+   694→                    projectedProfit >= 0
+   695→                      ? "bg-emerald-500/15 text-emerald-400"
+   696→                      : "bg-rose-500/15 text-rose-400"
+   697→                  }`}
+   698→                >
+   699→                  {revenueNum > 0 ? `${projectedMargin.toFixed(1)}% margin` : "—"}
+   700→                </span>
+   701→              </div>
+   702→              <p className="mt-1 text-[11px] text-muted-foreground">
+   703→                Contract {formatNGN(revenueNum, true)} − Cost {formatNGN(budgetNum, true)}
+   704→              </p>
+   705→            </div>
+   706→          </div>
+   707→
+   708→          <DialogFooter className="border-t border-border px-5 py-3">
+   709→            <Button
+   710→              type="button"
+   711→              variant="outline"
+   712→              onClick={() => onOpenChange(false)}
+   713→              disabled={submitting}
+   714→            >
+   715→              Cancel
+   716→            </Button>
+   717→            <Button type="submit" disabled={!canSubmit} className="gap-1.5">
+   718→              {submitting ? (
+   719→                <>
+   720→                  <Loader2 className="h-4 w-4 animate-spin" />
+   721→                  Creating…
+   722→                </>
+   723→              ) : (
+   724→                <>
+   725→                  <Plus className="h-4 w-4" />
+   726→                  Create Project
+   727→                </>
+   728→              )}
+   729→            </Button>
+   730→          </DialogFooter>
+   731→        </form>
+   732→      </DialogContent>
+   733→    </Dialog>
+   734→  );
+   735→}
+   736→
+   737→// ---------- Project Card ----------
+   738→function ProjectCard({ project: p }: { project: Project }) {
+   739→  const overBudgetWarn =
+   740→    p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
+   741→  const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
+   742→
+   743→  // Next 2 upcoming milestones: not DONE, sorted by dueDate asc
+   744→  const upcomingMilestones = p.milestones
+   745→    .filter((m) => m.status !== "DONE")
+   746→    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+   747→    .slice(0, 2);
+   748→
+   749→  const positiveProfit = p.profit >= 0;
+   750→
+   751→  return (
+   752→    <Dialog>
+   753→      <DialogTrigger asChild>
+   754→        <Card className="group cursor-pointer p-4 transition-all hover:border-primary/40 hover:bg-accent/20 lg:p-5">
+   755→          {/* Header: code + name + status */}
+   756→          <div className="flex items-start justify-between gap-2">
+   757→            <div className="min-w-0 flex-1">
+   758→              <div className="flex items-center gap-2">
+   759→                {p.code && (
+   760→                  <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   761→                    {p.code}
+   762→                  </span>
+   763→                )}
+   764→              </div>
+   765→              <h3 className="mt-0.5 truncate text-sm font-semibold leading-tight">
+   766→                {p.name}
+   767→              </h3>
+   768→            </div>
+   769→            <StatusBadge status={p.status} />
+   770→          </div>
+   771→
+   772→          {/* Service type + account */}
+   773→          <div className="mt-2 flex flex-wrap items-center gap-2">
+   774→            <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
+   775→              {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+   776→              {serviceLabel(p.serviceType)}
+   777→            </Badge>
+   778→            {p.account && (
+   779→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   780→                {p.account.isStrategic && (
+   781→                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+   782→                )}
+   783→                {p.account.name}
+   784→              </span>
+   785→            )}
+   786→          </div>
+   787→
+   788→          {/* Event date + venue */}
+   789→          {p.eventDate && (
+   790→            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+   791→              <span className="inline-flex items-center gap-1">
+   792→                <Calendar className="h-3.5 w-3.5" />
+   793→                {formatDate(p.eventDate)}
+   794→              </span>
+   795→              {p.venue && (
+   796→                <span className="inline-flex items-center gap-1">
+   797→                  <MapPin className="h-3.5 w-3.5" />
+   798→                  {p.venue}
+   799→                </span>
+   800→              )}
+   801→            </div>
+   802→          )}
+   803→
+   804→          {/* Financial summary strip — Earned / Received / Balance / Cost */}
+   805→          <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
+   806→            <div className="min-w-0">
+   807→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   808→                <CircleDollarSign className="h-3 w-3" />
+   809→                Earned
+   810→              </p>
+   811→              <p className="mt-0.5 truncate text-sm font-semibold text-primary" title={formatNGN(p.revenue)}>
+   812→                {formatNGN(p.revenue, true)}
+   813→              </p>
+   814→            </div>
+   815→            <div className="min-w-0">
+   816→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   817→                <ArrowDownCircle className="h-3 w-3" />
+   818→                Received
+   819→              </p>
+   820→              <p
+   821→                className="mt-0.5 truncate text-sm font-semibold text-emerald-500"
+   822→                title={formatNGN(p.received)}
+   823→              >
+   824→                {formatNGN(p.received, true)}
+   825→              </p>
+   826→            </div>
+   827→            <div className="min-w-0">
+   828→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   829→                <ArrowUpCircle className="h-3 w-3" />
+   830→                Balance
+   831→              </p>
+   832→              <p
+   833→                className={`mt-0.5 truncate text-sm font-semibold ${
+   834→                  p.balance > 0 ? "text-amber-500" : "text-emerald-500"
+   835→                }`}
+   836→                title={formatNGN(p.balance)}
+   837→              >
+   838→                {formatNGN(p.balance, true)}
+   839→              </p>
+   840→            </div>
+   841→            <div className="min-w-0">
+   842→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   843→                <Wallet className="h-3 w-3" />
+   844→                Cost
+   845→              </p>
+   846→              <p
+   847→                className="mt-0.5 truncate text-sm font-semibold text-muted-foreground"
+   848→                title={formatNGN(p.budget)}
+   849→              >
+   850→                {formatNGN(p.budget, true)}
+   851→              </p>
+   852→            </div>
+   853→          </div>
+   854→
+   855→          {/* Budget burn bar */}
+   856→          <div className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2.5">
+   857→            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   858→              <span>Budget burn</span>
+   859→              <span>
+   860→                Spent <span className="font-medium text-foreground">{formatNGN(p.expensesTotal, true)}</span> · {budgetUtil.toFixed(0)}% of budget
+   861→              </span>
+   862→            </div>
+   863→            <MiniBar
+   864→              value={p.expensesTotal}
+   865→              max={p.budget > 0 ? p.budget : p.revenue || 1}
+   866→              color={overBudgetWarn ? "bg-amber-500" : "bg-emerald-500"}
+   867→            />
+   868→            {/* Collection progress: received / revenue */}
+   869→            <div className="flex items-center justify-between pt-0.5 text-[11px] text-muted-foreground">
+   870→              <span>Collected</span>
+   871→              <span>
+   872→                <span className="font-medium text-emerald-500">
+   873→                  {formatNGN(p.received, true)}
+   874→                </span>
+   875→                {" / "}
+   876→                {formatNGN(p.revenue, true)} ·{" "}
+   877→                <span className="font-medium text-foreground">
+   878→                  {p.revenue > 0 ? ((p.received / p.revenue) * 100).toFixed(0) : 0}%
+   879→                </span>
+   880→              </span>
+   881→            </div>
+   882→            <MiniBar
+   883→              value={p.received}
+   884→              max={p.revenue > 0 ? p.revenue : 1}
+   885→              color="bg-emerald-500"
+   886→            />
+   887→            {overBudgetWarn && (
+   888→              <div className="flex items-center justify-end gap-1 pt-0.5 text-[11px] font-medium text-amber-500">
+   889→                <AlertTriangle className="h-3 w-3" />
+   890→                High burn
+   891→              </div>
+   892→            )}
+   893→          </div>
+   894→
+   895→          {/* Profit + margin */}
+   896→          <div className="mt-2.5 flex items-center justify-between">
+   897→            <div className="flex items-center gap-2">
+   898→              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Profit</span>
+   899→              <span
+   900→                className={`text-sm font-semibold ${
+   901→                  positiveProfit ? "text-emerald-500" : "text-rose-500"
+   902→                }`}
+   903→              >
+   904→                {formatNGN(p.profit, true)}
+   905→              </span>
+   906→            </div>
+   907→            <span
+   908→              className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+   909→                positiveProfit
+   910→                  ? "bg-emerald-500/15 text-emerald-400"
+   911→                  : "bg-rose-500/15 text-rose-400"
+   912→              }`}
+   913→            >
+   914→              {p.margin.toFixed(1)}% margin
+   915→            </span>
+   916→          </div>
+   917→
+   918→          {/* Progress bar */}
+   919→          <div className="mt-3">
+   920→            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   921→              <span>Project progress</span>
+   922→              <span className="font-medium text-foreground">{p.progress}%</span>
+   923→            </div>
+   924→            <Progress value={p.progress} className="mt-1 h-1.5" />
+   925→          </div>
+   926→
+   927→          {/* Crew summary with avatar stack */}
+   928→          <div className="mt-3 flex items-center justify-between">
+   929→            <div className="flex items-center gap-2">
+   930→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   931→                <Users className="h-3.5 w-3.5" />
+   932→                {p.crew.length} crew assigned
+   933→              </span>
+   934→            </div>
+   935→            {p.crew.length > 0 && (
+   936→              <div className="flex -space-x-2">
+   937→                {p.crew.slice(0, 3).map((c) => (
+   938→                  <Avatar
+   939→                    key={c.id}
+   940→                    className="h-6 w-6 border-2 border-background ring-0"
+   941→                  >
+   942→                    <AvatarFallback
+   943→                      className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+   944→                    >
+   945→                      {initials(c.user.name)}
+   946→                    </AvatarFallback>
+   947→                  </Avatar>
+   948→                ))}
+   949→                {p.crew.length > 3 && (
+   950→                  <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-semibold text-muted-foreground">
+   951→                    +{p.crew.length - 3}
+   952→                  </div>
+   953→                )}
+   954→              </div>
+   955→            )}
+   956→          </div>
+   957→
+   958→          {/* Upcoming milestones */}
+   959→          {upcomingMilestones.length > 0 && (
+   960→            <div className="mt-3 border-t border-border/60 pt-2.5">
+   961→              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   962→                Upcoming milestones
+   963→              </p>
+   964→              <div className="space-y-1">
+   965→                {upcomingMilestones.map((m) => (
+   966→                  <div key={m.id} className="flex items-center justify-between gap-2 text-xs">
+   967→                    <span className="inline-flex min-w-0 items-center gap-1.5">
+   968→                      <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+   969→                      <span className="truncate">{m.title}</span>
+   970→                    </span>
+   971→                    <span className="shrink-0 text-[11px] text-muted-foreground">
+   972→                      {relativeTime(m.dueDate)}
+   973→                    </span>
+   974→                  </div>
+   975→                ))}
+   976→              </div>
+   977→            </div>
+   978→          )}
+   979→
+   980→          {/* Deliverables summary */}
+   981→          {p.deliverables.length > 0 && (
+   982→            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+   983→              <CheckCircle2 className="h-3.5 w-3.5" />
+   984→              <span>{deliverableSummary(p.deliverables)}</span>
+   985→            </div>
+   986→          )}
+   987→
+   988→          {/* Footer hint */}
+   989→          <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+   990→            <span>{p._count.tasks} tasks · {p._count.invoices} invoices · {p._count.expenses} expenses</span>
+   991→            <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+   992→              View details →
+   993→            </span>
+   994→          </div>
+   995→        </Card>
+   996→      </DialogTrigger>
+   997→
+   998→      <ProjectDialog project={p} />
+   999→    </Dialog>
+  1000→  );
+  1001→}
+  1002→
+  1003→// ---------- Project Detail Dialog ----------
+  1004→function ProjectDialog({ project: p }: { project: Project }) {
+  1005→  const milestones = [...p.milestones].sort(
+  1006→    (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+  1007→  );
+  1008→  const deliverables = [...p.deliverables].sort((a, b) => {
+  1009→    const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+  1010→    const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+  1011→    return da - db;
+  1012→  });
+  1013→
+  1014→  return (
+  1015→    <DialogContent className="max-h-[88vh] max-w-2xl overflow-hidden p-0">
+  1016→      <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+  1017→        <div className="flex items-center gap-2">
+  1018→          {p.code && (
+  1019→            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+  1020→              {p.code}
+  1021→            </span>
+  1022→          )}
+  1023→          <StatusBadge status={p.status} />
+  1024→        </div>
+  1025→        <DialogTitle className="text-base">{p.name}</DialogTitle>
+  1026→        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+  1027→          <span className="inline-flex items-center gap-1">
+  1028→            {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+  1029→            {serviceLabel(p.serviceType)}
+  1030→          </span>
+  1031→          {p.account && (
+  1032→            <span className="inline-flex items-center gap-1">
+  1033→              {p.account.isStrategic && (
+  1034→                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+  1035→              )}
+  1036→              {p.account.name}
+  1037→            </span>
+  1038→          )}
+  1039→          {p.manager && <span>· PM: {p.manager.name}</span>}
+  1040→        </div>
+  1041→      </DialogHeader>
+  1042→
+  1043→      <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
+  1044→        {/* Quick facts */}
+  1045→        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+  1046→          <div className="rounded-md border border-border/60 p-2.5">
+  1047→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Earned (Contract)</p>
+  1048→            <p className="mt-0.5 text-sm font-semibold text-primary">{formatNGN(p.revenue, true)}</p>
+  1049→          </div>
+  1050→          <div className="rounded-md border border-border/60 p-2.5">
+  1051→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Received</p>
+  1052→            <p className="mt-0.5 text-sm font-semibold text-emerald-500">{formatNGN(p.received, true)}</p>
+  1053→          </div>
+  1054→          <div className="rounded-md border border-border/60 p-2.5">
+  1055→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance Owed</p>
+  1056→            <p className={`mt-0.5 text-sm font-semibold ${p.balance > 0 ? "text-amber-500" : "text-emerald-500"}`}>
+  1057→              {formatNGN(p.balance, true)}
+  1058→            </p>
+  1059→          </div>
+  1060→          <div className="rounded-md border border-border/60 p-2.5">
+  1061→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Budget (Cost)</p>
+  1062→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.budget, true)}</p>
+  1063→          </div>
+  1064→          <div className="rounded-md border border-border/60 p-2.5">
+  1065→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Expenses</p>
+  1066→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.expensesTotal, true)}</p>
+  1067→          </div>
+  1068→          <div className="rounded-md border border-border/60 p-2.5">
+  1069→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Profit / Margin</p>
+  1070→            <p className={`mt-0.5 text-sm font-semibold ${p.profit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+  1071→              {formatNGN(p.profit, true)} · {p.margin.toFixed(1)}%
+  1072→            </p>
+  1073→          </div>
+  1074→        </div>
+  1075→
+  1076→        {/* Vendor Costs & Financials — project-level vendor tracking */}
+  1077→        <VendorCostsSection projectId={p.id} revenue={p.revenue} />
+  1078→
+  1079→        {/* Event + dates */}
+  1080→        <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+  1081→          {p.eventDate && (
+  1082→            <div className="flex items-center gap-2">
+  1083→              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+  1084→              <span className="text-muted-foreground">Event:</span>
+  1085→              <span className="font-medium">{formatDate(p.eventDate)}</span>
+  1086→            </div>
+  1087→          )}
+  1088→          {p.venue && (
+  1089→            <div className="flex items-center gap-2">
+  1090→              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+  1091→              <span className="text-muted-foreground">Venue:</span>
+  1092→              <span className="font-medium">{p.venue}</span>
+  1093→            </div>
+  1094→          )}
+  1095→          {p.startDate && (
+  1096→            <div className="flex items-center gap-2">
+  1097→              <span className="text-muted-foreground">Start:</span>
+  1098→              <span className="font-medium">{formatDate(p.startDate)}</span>
+  1099→            </div>
+  1100→          )}
+  1101→          {p.endDate && (
+  1102→            <div className="flex items-center gap-2">
+  1103→              <span className="text-muted-foreground">End:</span>
+  1104→              <span className="font-medium">{formatDate(p.endDate)}</span>
+  1105→            </div>
+  1106→          )}
+  1107→        </div>
+  1108→
+  1109→        {/* Progress */}
+  1110→        <div className="mt-4">
+  1111→          <div className="flex items-center justify-between text-xs">
+  1112→            <span className="font-medium">Progress</span>
+  1113→            <span className="font-semibold text-primary">{p.progress}%</span>
+  1114→          </div>
+  1115→          <Progress value={p.progress} className="mt-1.5 h-2" />
+  1116→        </div>
+  1117→
+  1118→        {/* Crew */}
+  1119→        <div className="mt-5">
+  1120→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1121→            <Users className="h-3.5 w-3.5" />
+  1122→            Crew ({p.crew.length})
+  1123→          </h4>
+  1124→          {p.crew.length === 0 ? (
+  1125→            <p className="text-xs text-muted-foreground">No crew assigned yet.</p>
+  1126→          ) : (
+  1127→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1128→              {p.crew.map((c) => (
+  1129→                <div
+  1130→                  key={c.id}
+  1131→                  className="flex items-center justify-between rounded-md border border-border/60 px-2.5 py-1.5"
+  1132→                >
+  1133→                  <div className="flex min-w-0 items-center gap-2">
+  1134→                    <Avatar className="h-6 w-6">
+  1135→                      <AvatarFallback
+  1136→                        className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+  1137→                      >
+  1138→                        {initials(c.user.name)}
+  1139→                      </AvatarFallback>
+  1140→                    </Avatar>
+  1141→                    <div className="min-w-0">
+  1142→                      <p className="truncate text-xs font-medium">{c.user.name}</p>
+  1143→                      <p className="truncate text-[10px] text-muted-foreground">
+  1144→                        {c.role.replace(/_/g, " ").toLowerCase()}
+  1145→                      </p>
+  1146→                    </div>
+  1147→                  </div>
+  1148→                  <div className="flex items-center gap-2">
+  1149→                    <span className="text-[11px] text-muted-foreground">
+  1150→                      {formatNGN(c.dayRate, true)}/day
+  1151→                    </span>
+  1152→                    <StatusBadge status={c.status} />
+  1153→                  </div>
+  1154→                </div>
+  1155→              ))}
+  1156→            </div>
+  1157→          )}
+  1158→        </div>
+  1159→
+  1160→        {/* Milestones */}
+  1161→        <div className="mt-5">
+  1162→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1163→            <Clock className="h-3.5 w-3.5" />
+  1164→            Milestones ({milestones.length})
+  1165→          </h4>
+  1166→          {milestones.length === 0 ? (
+  1167→            <p className="text-xs text-muted-foreground">No milestones defined.</p>
+  1168→          ) : (
+  1169→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1170→              {milestones.map((m) => (
+  1171→                <div
+  1172→                  key={m.id}
+  1173→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+  1174→                >
+  1175→                  <div className="flex min-w-0 items-center gap-2">
+  1176→                    <CheckCircle2
+  1177→                      className={`h-3.5 w-3.5 shrink-0 ${
+  1178→                        m.status === "DONE" ? "text-emerald-500" : "text-muted-foreground"
+  1179→                      }`}
+  1180→                    />
+  1181→                    <div className="min-w-0">
+  1182→                      <p className={`truncate text-xs ${m.status === "DONE" ? "line-through text-muted-foreground" : "font-medium"}`}>
+  1183→                        {m.title}
+  1184→                      </p>
+  1185→                      <p className="text-[10px] text-muted-foreground">
+  1186→                        Due {formatDate(m.dueDate)} · {relativeTime(m.dueDate)}
+  1187→                      </p>
+  1188→                    </div>
+  1189→                  </div>
+  1190→                  <StatusBadge status={m.status} />
+  1191→                </div>
+  1192→              ))}
+  1193→            </div>
+  1194→          )}
+  1195→        </div>
+  1196→
+  1197→        {/* Deliverables */}
+  1198→        <div className="mt-5">
+  1199→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1200→            <Film className="h-3.5 w-3.5" />
+  1201→            Deliverables ({deliverables.length})
+  1202→          </h4>
+  1203→          {deliverables.length === 0 ? (
+  1204→            <p className="text-xs text-muted-foreground">No deliverables defined.</p>
+  1205→          ) : (
+  1206→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1207→              {deliverables.map((d) => (
+  1208→                <div
+  1209→                  key={d.id}
+  1210→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+  1211→                >
+  1212→                  <div className="flex min-w-0 items-center gap-2">
+  1213→                    <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1214→                    <div className="min-w-0">
+  1215→                      <p className="truncate text-xs font-medium">{d.title}</p>
+  1216→                      <p className="text-[10px] text-muted-foreground">
+  1217→                        {d.type ? d.type.replace(/_/g, " ").toLowerCase() : "deliverable"}
+  1218→                        {d.dueDate && ` · due ${formatDate(d.dueDate)}`}
+  1219→                        {d.clientApproved && " · approved"}
+  1220→                      </p>
+  1221→                    </div>
+  1222→                  </div>
+  1223→                  <StatusBadge status={d.status} />
+  1224→                </div>
+  1225→              ))}
+  1226→            </div>
+  1227→          )}
+  1228→        </div>
+  1229→
+  1230→        {/* Footer counts */}
+  1231→        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
+  1232→          <span>{p._count.tasks} tasks</span>
+  1233→          <span>·</span>
+  1234→          <span>{p._count.invoices} invoices</span>
+  1235→          <span>·</span>
+  1236→          <span>{p._count.expenses} expenses</span>
+  1237→        </div>
+  1238→      </div>
+  1239→    </DialogContent>
+  1240→  );
+  1241→}
+  1242→
+  1243→// ============================================================
+  1244→// VENDOR COSTS & FINANCIALS — project-level vendor tracking
+  1245→// ============================================================
+  1246→
+  1247→interface VendorCost {
+  1248→  id: string;
+  1249→  projectId: string;
+  1250→  vendorId: string | null;
+  1251→  vendorName: string;
+  1252→  item: string;
+  1253→  fee: number;
+  1254→  amountPaid: number;
+  1255→  balance: number;
+  1256→  status: "UNPAID" | "PARTIAL" | "PAID";
+  1257→  notes: string | null;
+  1258→  vendor: { name: string; category: string; phone: string | null } | null;
+  1259→  createdAt?: string;
+  1260→  updatedAt?: string;
+  1261→}
+  1262→
+  1263→interface VendorCostsPayload {
+  1264→  vendorCosts: VendorCost[];
+  1265→  summary: {
+  1266→    totalFee: number;
+  1267→    totalPaid: number;
+  1268→    totalBalance: number;
+  1269→    receivedFromClient: number;
+  1270→    projectProfit: number;
+  1271→  };
+  1272→}
+  1273→
+  1274→interface VendorOption {
+  1275→  id: string;
+  1276→  name: string;
+  1277→  category: string | null;
+  1278→  phone: string | null;
+  1279→}
+  1280→
+  1281→const MANUAL_VENDOR_VALUE = "__manual__";
+  1282→
+  1283→function VendorCostStatusBadge({ status }: { status: string }) {
+  1284→  const styles: Record<string, string> = {
+  1285→    UNPAID: "bg-amber-500/15 text-amber-400 border-amber-500/20",
+  1286→    PARTIAL: "bg-teal-500/15 text-teal-400 border-teal-500/20",
+  1287→    PAID: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  1288→  };
+  1289→  const cls = styles[status] ?? "bg-muted text-muted-foreground border-border";
+  1290→  return (
+  1291→    <span
+  1292→      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}
+  1293→    >
+  1294→      {status}
+  1295→    </span>
+  1296→  );
+  1297→}
+  1298→
+  1299→function SummaryCell({
+  1300→  label,
+  1301→  value,
+  1302→  valueClass,
+  1303→  icon,
+  1304→}: {
+  1305→  label: string;
+  1306→  value: string;
+  1307→  valueClass: string;
+  1308→  icon?: React.ReactNode;
+  1309→}) {
+  1310→  return (
+  1311→    <div className="min-w-0 rounded-md border border-border/60 bg-muted/30 p-2">
+  1312→      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1313→        {icon}
+  1314→        {label}
+  1315→      </p>
+  1316→      <p
+  1317→        className={`mt-0.5 truncate text-sm font-bold ${valueClass}`}
+  1318→        title={value}
+  1319→      >
+  1320→        {value}
+  1321→      </p>
+  1322→    </div>
+  1323→  );
+  1324→}
+  1325→
+  1326→// ---------- Vendor Costs Section (mounted inside ProjectDialog) ----------
+  1327→function VendorCostsSection({
+  1328→  projectId,
+  1329→  revenue,
+  1330→}: {
+  1331→  projectId: string;
+  1332→  revenue: number;
+  1333→}) {
+  1334→  const [data, setData] = useState<VendorCostsPayload | null>(null);
+  1335→  const [loading, setLoading] = useState(true);
+  1336→  const [error, setError] = useState<string | null>(null);
+  1337→  const [formOpen, setFormOpen] = useState(false);
+  1338→  const [editing, setEditing] = useState<VendorCost | null>(null);
+  1339→
+  1340→  const load = useCallback(() => {
+  1341→    fetch(
+  1342→      `/api/doz/project-vendors?projectId=${encodeURIComponent(projectId)}`
+  1343→    )
+  1344→      .then((r) => (r.ok ? r.json() : null))
+  1345→      .then((d: VendorCostsPayload | null) => {
+  1346→        if (d) {
+  1347→          setData(d);
+  1348→          setError(null);
+  1349→        } else {
+  1350→          setError("Failed to load vendor costs");
+  1351→        }
+  1352→      })
+  1353→      .catch(() => setError("Failed to load vendor costs"))
+  1354→      .finally(() => setLoading(false));
+  1355→  }, [projectId]);
+  1356→
+  1357→  useEffect(() => {
+  1358→    load();
+  1359→  }, [load]);
+  1360→
+  1361→  function handleAdd() {
+  1362→    setEditing(null);
+  1363→    setFormOpen(true);
+  1364→  }
+  1365→  function handleEdit(c: VendorCost) {
+  1366→    setEditing(c);
+  1367→    setFormOpen(true);
+  1368→  }
+  1369→  async function handleDelete(c: VendorCost) {
+  1370→    if (
+  1371→      !confirm(
+  1372→        `Delete vendor cost?\n\n${c.vendorName} — ${c.item}\n${formatNGN(
+  1373→          c.fee
+  1374→        )} (paid ${formatNGN(c.amountPaid)})`
+  1375→      )
+  1376→    )
+  1377→      return;
+  1378→    try {
+  1379→      const res = await fetch("/api/doz/project-vendors", {
+  1380→        method: "DELETE",
+  1381→        headers: { "Content-Type": "application/json" },
+  1382→        body: JSON.stringify({ costId: c.id }),
+  1383→      });
+  1384→      if (!res.ok) {
+  1385→        const j = await res.json().catch(() => null);
+  1386→        throw new Error(j?.error || `Failed (${res.status})`);
+  1387→      }
+  1388→      toast.success("Vendor cost deleted");
+  1389→      load();
+  1390→    } catch (e) {
+  1391→      toast.error("Couldn't delete", {
+  1392→        description: e instanceof Error ? e.message : "Unknown error",
+  1393→      });
+  1394→    }
+  1395→  }
+  1396→
+  1397→  const summary = data?.summary;
+  1398→  const costs = data?.vendorCosts ?? [];
+  1399→  const profit = summary?.projectProfit ?? 0;
+  1400→  const balanceOwed = summary?.totalBalance ?? 0;
+  1401→  const receivedFromClient = summary?.receivedFromClient ?? 0;
+  1402→  const paidToVendors = summary?.totalPaid ?? 0;
+  1403→
+  1404→  return (
+  1405→    <div className="mt-4 rounded-md border border-border/60">
+  1406→      {/* Header */}
+  1407→      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+  1408→        <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1409→          <Wallet className="h-3.5 w-3.5" />
+  1410→          Vendor Costs & Financials
+  1411→        </h4>
+  1412→        <Button
+  1413→          size="sm"
+  1414→          variant="outline"
+  1415→          onClick={handleAdd}
+  1416→          className="h-7 gap-1 text-xs"
+  1417→        >
+  1418→          <Plus className="h-3.5 w-3.5" />
+  1419→          Add Vendor Cost
+  1420→        </Button>
+  1421→      </div>
+  1422→
+  1423→      <div className="p-3">
+  1424→        {/* Financial Summary Strip — 5 cells */}
+  1425→        {loading ? (
+  1426→          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+  1427→            {Array.from({ length: 5 }).map((_, i) => (
+  1428→              <Skeleton key={i} className="h-14 w-full rounded-md" />
+  1429→            ))}
+  1430→          </div>
+  1431→        ) : (
+  1432→          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+  1433→            <SummaryCell
+  1434→              label="Contract"
+  1435→              value={formatNGN(revenue, true)}
+  1436→              valueClass="text-primary"
+  1437→              icon={<CircleDollarSign className="h-3 w-3" />}
+  1438→            />
+  1439→            <SummaryCell
+  1440→              label="Received"
+  1441→              value={formatNGN(receivedFromClient, true)}
+  1442→              valueClass="text-emerald-500"
+  1443→              icon={<ArrowDownCircle className="h-3 w-3" />}
+  1444→            />
+  1445→            <SummaryCell
+  1446→              label="Paid Out"
+  1447→              value={formatNGN(paidToVendors, true)}
+  1448→              valueClass="text-amber-500"
+  1449→              icon={<ArrowUpCircle className="h-3 w-3" />}
+  1450→            />
+  1451→            <SummaryCell
+  1452→              label="Owed to Vendors"
+  1453→              value={formatNGN(balanceOwed, true)}
+  1454→              valueClass={
+  1455→                balanceOwed > 0 ? "text-rose-500" : "text-emerald-500"
+  1456→              }
+  1457→            />
+  1458→            <SummaryCell
+  1459→              label="Profit"
+  1460→              value={formatNGN(profit, true)}
+  1461→              valueClass={profit >= 0 ? "text-emerald-500" : "text-rose-500"}
+  1462→              icon={<TrendingUp className="h-3 w-3" />}
+  1463→            />
+  1464→          </div>
+  1465→        )}
+  1466→
+  1467→        {/* Vendor Costs List */}
+  1468→        <div className="mt-3">
+  1469→          {error ? (
+  1470→            <p className="text-xs text-rose-500">{error}</p>
+  1471→          ) : loading ? (
+  1472→            <Skeleton className="h-24 w-full rounded-md" />
+  1473→          ) : costs.length === 0 ? (
+  1474→            <div className="rounded-md border border-dashed border-border/60 p-4 text-center">
+  1475→              <Wallet className="mx-auto h-6 w-6 text-muted-foreground" />
+  1476→              <p className="mt-1.5 text-xs font-medium text-foreground">
+  1477→                No vendor costs tracked yet
+  1478→              </p>
+  1479→              <p className="text-[11px] text-muted-foreground">
+  1480→                Add LED screens, audio, lights, decor — anything you&apos;re
+  1481→                paying vendors for.
+  1482→              </p>
+  1483→            </div>
+  1484→          ) : (
+  1485→            <div className="scroll-thin max-h-72 overflow-y-auto rounded-md border border-border/60">
+  1486→              <table className="w-full text-xs">
+  1487→                <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
+  1488→                  <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+  1489→                    <th className="px-2.5 py-1.5 font-medium">Vendor / Item</th>
+  1490→                    <th className="px-2.5 py-1.5 text-right font-medium">
+  1491→                      Fee
+  1492→                    </th>
+  1493→                    <th className="px-2.5 py-1.5 text-right font-medium">
+  1494→                      Paid
+  1495→                    </th>
+  1496→                    <th className="px-2.5 py-1.5 text-right font-medium">
+  1497→                      Balance
+  1498→                    </th>
+  1499→                    <th className="px-2.5 py-1.5 text-center font-medium">
+  1500→                      Status
+  1501→                    </th>
+  1502→                    <th className="px-2.5 py-1.5 text-right font-medium">
+  1503→                      Actions
+  1504→                    </th>
+  1505→                  </tr>
+  1506→                </thead>
+  1507→                <tbody>
+  1508→                  {costs.map((c) => (
+  1509→                    <tr
+  1510→                      key={c.id}
+  1511→                      className="border-t border-border/40 align-top"
+  1512→                    >
+  1513→                      <td className="px-2.5 py-2">
+  1514→                        <div className="font-medium">{c.vendorName}</div>
+  1515→                        <div className="text-[11px] text-muted-foreground">
+  1516→                          {c.item}
+  1517→                          {c.vendor?.category &&
+  1518→                            ` · ${c.vendor.category
+  1519→                              .replace(/_/g, " ")
+  1520→                              .toLowerCase()}`}
+  1521→                        </div>
+  1522→                        {c.notes && (
+  1523→                          <div className="mt-0.5 line-clamp-1 text-[10px] italic text-muted-foreground">
+  1524→                            {c.notes}
+  1525→                          </div>
+  1526→                        )}
+  1527→                      </td>
+  1528→                      <td className="px-2.5 py-2 text-right font-medium">
+  1529→                        {formatNGN(c.fee, true)}
+  1530→                      </td>
+  1531→                      <td className="px-2.5 py-2 text-right text-emerald-500">
+  1532→                        {formatNGN(c.amountPaid, true)}
+  1533→                      </td>
+  1534→                      <td
+  1535→                        className={`px-2.5 py-2 text-right font-medium ${
+  1536→                          c.balance > 0 ? "text-amber-500" : "text-emerald-500"
+  1537→                        }`}
+  1538→                      >
+  1539→                        {formatNGN(c.balance, true)}
+  1540→                      </td>
+  1541→                      <td className="px-2.5 py-2 text-center">
+  1542→                        <VendorCostStatusBadge status={c.status} />
+  1543→                      </td>
+  1544→                      <td className="px-2.5 py-2 text-right">
+  1545→                        <div className="inline-flex items-center gap-0.5">
+  1546→                          <button
+  1547→                            type="button"
+  1548→                            onClick={() => handleEdit(c)}
+  1549→                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+  1550→                            aria-label={`Edit ${c.vendorName} vendor cost`}
+  1551→                          >
+  1552→                            <Pencil className="h-3.5 w-3.5" />
+  1553→                          </button>
+  1554→                          <button
+  1555→                            type="button"
+  1556→                            onClick={() => handleDelete(c)}
+  1557→                            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-rose-500"
+  1558→                            aria-label={`Delete ${c.vendorName} vendor cost`}
+  1559→                          >
+  1560→                            <Trash2 className="h-3.5 w-3.5" />
+  1561→                          </button>
+  1562→                        </div>
+  1563→                      </td>
+  1564→                    </tr>
+  1565→                  ))}
+  1566→                </tbody>
+  1567→              </table>
+  1568→            </div>
+  1569→          )}
+  1570→        </div>
+  1571→
+  1572→        {/* Procurement note */}
+  1573→        <div className="mt-3 flex items-start gap-1.5 text-[10px] text-muted-foreground">
+  1574→          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+  1575→          <span>
+  1576→            For formal procurement with RFQs and approval workflows, use the{" "}
+  1577→            <span className="font-medium text-foreground">
+  1578→              Procurement module
+  1579→            </span>
+  1580→            .
+  1581→          </span>
+  1582→        </div>
+  1583→      </div>
+  1584→
+  1585→      <VendorCostFormDialog
+  1586→        open={formOpen}
+  1587→        onOpenChange={setFormOpen}
+  1588→        projectId={projectId}
+  1589→        editing={editing}
+  1590→        onSaved={load}
+  1591→      />
+  1592→    </div>
+  1593→  );
+  1594→}
+  1595→
+  1596→// ---------- Vendor Cost Add/Edit Dialog ----------
+  1597→function VendorCostFormDialog({
+  1598→  open,
+  1599→  onOpenChange,
+  1600→  projectId,
+  1601→  editing,
+  1602→  onSaved,
+  1603→}: {
+  1604→  open: boolean;
+  1605→  onOpenChange: (v: boolean) => void;
+  1606→  projectId: string;
+  1607→  editing: VendorCost | null;
+  1608→  onSaved: () => void;
+  1609→}) {
+  1610→  const [vendorMode, setVendorMode] = useState<"pick" | "manual">("pick");
+  1611→  const [vendorId, setVendorId] = useState<string>("");
+  1612→  const [manualName, setManualName] = useState<string>("");
+  1613→  const [item, setItem] = useState("");
+  1614→  const [fee, setFee] = useState<string>("");
+  1615→  const [amountPaid, setAmountPaid] = useState<string>("0");
+  1616→  const [notes, setNotes] = useState<string>("");
+  1617→  const [vendors, setVendors] = useState<VendorOption[]>([]);
+  1618→  const [vendorsLoading, setVendorsLoading] = useState(false);
+  1619→  const [submitting, setSubmitting] = useState(false);
+  1620→
+  1621→  // Load vendors when dialog opens (so the dropdown is populated).
+  1622→  useEffect(() => {
+  1623→    if (!open) return;
+  1624→    let cancelled = false;
+  1625→    setVendorsLoading(true);
+  1626→    fetch("/api/doz/vendors")
+  1627→      .then((r) => (r.ok ? r.json() : null))
+  1628→      .then((d) => {
+  1629→        if (cancelled || !d) return;
+  1630→        const list: VendorOption[] = (d.vendors ?? []).map(
+  1631→          (v: {
+  1632→            id: string;
+  1633→            name: string;
+  1634→            category: string | null;
+  1635→            phone: string | null;
+  1636→          }) => ({
+  1637→            id: v.id,
+  1638→            name: v.name,
+  1639→            category: v.category,
+  1640→            phone: v.phone,
+  1641→          })
+  1642→        );
+  1643→        setVendors(list);
+  1644→      })
+  1645→      .catch(() => {
+  1646→        // Non-fatal — the user can still enter a vendor manually.
+  1647→      })
+  1648→      .finally(() => {
+  1649→        if (!cancelled) setVendorsLoading(false);
+  1650→      });
+  1651→    return () => {
+  1652→      cancelled = true;
+  1653→    };
+  1654→  }, [open]);
+  1655→
+  1656→  // Prefill fields whenever the dialog opens (for add or edit).
+  1657→  useEffect(() => {
+  1658→    if (!open) return;
+  1659→    if (editing) {
+  1660→      if (editing.vendorId) {
+  1661→        setVendorMode("pick");
+  1662→        setVendorId(editing.vendorId);
+  1663→        setManualName("");
+  1664→      } else {
+  1665→        setVendorMode("manual");
+  1666→        setVendorId("");
+  1667→        setManualName(editing.vendorName);
+  1668→      }
+  1669→      setItem(editing.item);
+  1670→      setFee(String(editing.fee));
+  1671→      setAmountPaid(String(editing.amountPaid));
+  1672→      setNotes(editing.notes ?? "");
+  1673→    } else {
+  1674→      setVendorMode("pick");
+  1675→      setVendorId("");
+  1676→      setManualName("");
+  1677→      setItem("");
+  1678→      setFee("");
+  1679→      setAmountPaid("0");
+  1680→      setNotes("");
+  1681→    }
+  1682→  }, [open, editing]);
+  1683→
+  1684→  const feeNum = useMemo(() => {
+  1685→    const n = Number(fee);
+  1686→    return isNaN(n) ? 0 : n;
+  1687→  }, [fee]);
+  1688→  const paidNum = useMemo(() => {
+  1689→    const n = Number(amountPaid);
+  1690→    return isNaN(n) ? 0 : n;
+  1691→  }, [amountPaid]);
+  1692→  const balance = Math.max(0, feeNum - paidNum);
+  1693→  const liveStatus =
+  1694→    paidNum <= 0 ? "UNPAID" : paidNum >= feeNum ? "PAID" : "PARTIAL";
+  1695→
+  1696→  const vendorSelected =
+  1697→    vendorMode === "pick" ? !!vendorId : manualName.trim().length > 0;
+  1698→
+  1699→  const canSubmit =
+  1700→    vendorSelected &&
+  1701→    item.trim().length > 0 &&
+  1702→    fee.trim().length > 0 &&
+  1703→    Number(fee) >= 0 &&
+  1704→    Number(amountPaid) >= 0 &&
+  1705→    !submitting;
+  1706→
+  1707→  async function handleSubmit(e: React.FormEvent) {
+  1708→    e.preventDefault();
+  1709→    if (!canSubmit) return;
+  1710→    setSubmitting(true);
+  1711→    try {
+  1712→      const payload: Record<string, unknown> = {
+  1713→        projectId,
+  1714→        item: item.trim(),
+  1715→        fee: feeNum,
+  1716→        amountPaid: paidNum,
+  1717→        notes: notes.trim() || undefined,
+  1718→      };
+  1719→      if (vendorMode === "pick" && vendorId) {
+  1720→        payload.vendorId = vendorId;
+  1721→      } else {
+  1722→        payload.vendorName = manualName.trim();
+  1723→      }
+  1724→
+  1725→      const method = editing ? "PATCH" : "POST";
+  1726→      if (editing) payload.costId = editing.id;
+  1727→
+  1728→      const res = await fetch("/api/doz/project-vendors", {
+  1729→        method,
+  1730→        headers: { "Content-Type": "application/json" },
+  1731→        body: JSON.stringify(payload),
+  1732→      });
+  1733→      const json = await res.json().catch(() => null);
+  1734→      if (!res.ok || !json?.vendorCost) {
+  1735→        throw new Error(json?.error || `Failed (${res.status})`);
+  1736→      }
+  1737→      toast.success(editing ? "Vendor cost updated" : "Vendor cost added", {
+  1738→        description: `${json.vendorCost.vendorName} — ${json.vendorCost.item}`,
+  1739→      });
+  1740→      onOpenChange(false);
+  1741→      onSaved();
+  1742→    } catch (err) {
+  1743→      toast.error("Couldn't save vendor cost", {
+  1744→        description: err instanceof Error ? err.message : "Unknown error",
+  1745→      });
+  1746→    } finally {
+  1747→      setSubmitting(false);
+  1748→    }
+  1749→  }
+  1750→
+  1751→  // The Select value: when in manual mode, we show the MANUAL sentinel
+  1752→  // selected; when in pick mode but no vendor chosen, the placeholder shows.
+  1753→  const selectValue =
+  1754→    vendorMode === "manual"
+  1755→      ? MANUAL_VENDOR_VALUE
+  1756→      : vendorId || "";
+  1757→
+  1758→  function handleSelectChange(v: string) {
+  1759→    if (v === MANUAL_VENDOR_VALUE) {
+  1760→      setVendorMode("manual");
+  1761→      setVendorId("");
+  1762→    } else {
+  1763→      setVendorMode("pick");
+  1764→      setVendorId(v);
+  1765→    }
+  1766→  }
+  1767→
+  1768→  return (
+  1769→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1770→      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+  1771→        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+  1772→          <DialogTitle className="flex items-center gap-2 text-base">
+  1773→            <Wallet className="h-4 w-4 text-primary" />
+  1774→            {editing ? "Edit Vendor Cost" : "Add Vendor Cost"}
+  1775→          </DialogTitle>
+  1776→          <p className="text-xs text-muted-foreground">
+  1777→            Track what this vendor is charging the project, advances paid, and
+  1778→            the balance owed.
+  1779→          </p>
+  1780→        </DialogHeader>
+  1781→
+  1782→        <form
+  1783→          onSubmit={handleSubmit}
+  1784→          className="scroll-thin flex max-h-[calc(90vh-9rem)] flex-col"
+  1785→        >
+  1786→          <div className="space-y-4 overflow-y-auto px-5 py-4">
+  1787→            {/* Vendor select (with "Enter manually" sentinel option) */}
+  1788→            <div className="space-y-1.5">
+  1789→              <Label htmlFor="vc-vendor">Vendor</Label>
+  1790→              <Select value={selectValue} onValueChange={handleSelectChange}>
+  1791→                <SelectTrigger id="vc-vendor">
+  1792→                  <SelectValue
+  1793→                    placeholder={
+  1794→                      vendorsLoading
+  1795→                        ? "Loading vendors…"
+  1796→                        : vendors.length === 0
+  1797→                          ? "No vendors yet — enter manually ↓"
+  1798→                          : "Pick a vendor…"
+  1799→                    }
+  1800→                  />
+  1801→                </SelectTrigger>
+  1802→                <SelectContent>
+  1803→                  {vendors.map((v) => (
+  1804→                    <SelectItem key={v.id} value={v.id}>
+  1805→                      {v.name}
+  1806→                      {v.category
+  1807→                        ? ` · ${v.category
+  1808→                            .replace(/_/g, " ")
+  1809→                            .toLowerCase()}`
+  1810→                        : ""}
+  1811→                    </SelectItem>
+  1812→                  ))}
+  1813→                  <SelectItem value={MANUAL_VENDOR_VALUE}>
+  1814→                    + Enter vendor manually
+  1815→                  </SelectItem>
+  1816→                </SelectContent>
+  1817→              </Select>
+  1818→            </div>
+  1819→
+  1820→            {/* Manual name input — only shown in manual mode */}
+  1821→            {vendorMode === "manual" && (
+  1822→              <div className="space-y-1.5">
+  1823→                <Label htmlFor="vc-name">
+  1824→                  Vendor Name <span className="text-rose-500">*</span>
+  1825→                </Label>
+  1826→                <Input
+  1827→                  id="vc-name"
+  1828→                  value={manualName}
+  1829→                  onChange={(e) => setManualName(e.target.value)}
+  1830→                  placeholder="e.g. AViti Productions"
+  1831→                  required
+  1832→                  autoFocus
+  1833→                />
+  1834→              </div>
+  1835→            )}
+  1836→
+  1837→            {/* Item / Service */}
+  1838→            <div className="space-y-1.5">
+  1839→              <Label htmlFor="vc-item">
+  1840→                Item / Service <span className="text-rose-500">*</span>
+  1841→              </Label>
+  1842→              <Input
+  1843→                id="vc-item"
+  1844→                value={item}
+  1845→                onChange={(e) => setItem(e.target.value)}
+  1846→                placeholder="e.g. LED Screen 6x4m, Sound system, Lighting package"
+  1847→                required
+  1848→                autoFocus={vendorMode === "pick"}
+  1849→              />
+  1850→            </div>
+  1851→
+  1852→            {/* Fee + Amount Paid */}
+  1853→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+  1854→              <div className="space-y-1.5">
+  1855→                <Label htmlFor="vc-fee">
+  1856→                  Vendor Fee (₦) <span className="text-rose-500">*</span>
+  1857→                </Label>
+  1858→                <Input
+  1859→                  id="vc-fee"
+  1860→                  type="number"
+  1861→                  min={0}
+  1862→                  step="1000"
+  1863→                  value={fee}
+  1864→                  onChange={(e) => setFee(e.target.value)}
+  1865→                  placeholder="1500000"
+  1866→                  required
+  1867→                />
+  1868→                <p className="text-[11px] text-muted-foreground">
+  1869→                  Total amount the vendor is charging.
+  1870→                </p>
+  1871→              </div>
+  1872→              <div className="space-y-1.5">
+  1873→                <Label htmlFor="vc-paid">Amount Paid (Advance)</Label>
+  1874→                <Input
+  1875→                  id="vc-paid"
+  1876→                  type="number"
+  1877→                  min={0}
+  1878→                  step="1000"
+  1879→                  value={amountPaid}
+  1880→                  onChange={(e) => setAmountPaid(e.target.value)}
+  1881→                />
+  1882→                <p className="text-[11px] text-muted-foreground">
+  1883→                  Advance or payments already made. Default 0.
+  1884→                </p>
+  1885→              </div>
+  1886→            </div>
+  1887→
+  1888→            {/* Computed balance + live status */}
+  1889→            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+  1890→              <div className="flex items-center justify-between">
+  1891→                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+  1892→                  Balance owed
+  1893→                </span>
+  1894→                <span
+  1895→                  className={`text-sm font-bold ${
+  1896→                    balance > 0 ? "text-amber-500" : "text-emerald-500"
+  1897→                  }`}
+  1898→                >
+  1899→                  {formatNGN(balance)}
+  1900→                </span>
+  1901→              </div>
+  1902→              <div className="mt-1 flex items-center justify-between">
+  1903→                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+  1904→                  Status (auto)
+  1905→                </span>
+  1906→                <VendorCostStatusBadge status={liveStatus} />
+  1907→              </div>
+  1908→            </div>
+  1909→
+  1910→            {/* Notes */}
+  1911→            <div className="space-y-1.5">
+  1912→              <Label htmlFor="vc-notes">Notes</Label>
+  1913→              <Textarea
+  1914→                id="vc-notes"
+  1915→                value={notes}
+  1916→                onChange={(e) => setNotes(e.target.value)}
+  1917→                placeholder="Optional — e.g. delivery date, deposit terms, what's included"
+  1918→                rows={3}
+  1919→              />
+  1920→            </div>
+  1921→
+  1922→            {/* Procurement note */}
+  1923→            <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5 text-[11px] text-amber-600 dark:text-amber-400">
+  1924→              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+  1925→              <span>
+  1926→                This is a lightweight project-level tracker. For formal
+  1927→                procurement with RFQs and approval workflows, use the{" "}
+  1928→                <span className="font-semibold">Procurement module</span>.
+  1929→              </span>
+  1930→            </div>
+  1931→          </div>
+  1932→
+  1933→          <DialogFooter className="border-t border-border px-5 py-3">
+  1934→            <Button
+  1935→              type="button"
+  1936→              variant="outline"
+  1937→              onClick={() => onOpenChange(false)}
+  1938→              disabled={submitting}
+  1939→            >
+  1940→              Cancel
+  1941→            </Button>
+  1942→            <Button type="submit" disabled={!canSubmit} className="gap-1.5">
+  1943→              {submitting ? (
+  1944→                <>
+  1945→                  <Loader2 className="h-4 w-4 animate-spin" />
+  1946→                  {editing ? "Saving…" : "Adding…"}
+  1947→                </>
+  1948→              ) : (
+  1949→                <>
+  1950→                  <Plus className="h-4 w-4" />
+  1951→                  {editing ? "Save Changes" : "Add Cost"}
+  1952→                </>
+  1953→              )}
+  1954→            </Button>
+  1955→          </DialogFooter>
+  1956→        </form>
+  1957→      </DialogContent>
+  1958→    </Dialog>
+  1959→  );
+  1960→}
+  1961→
+  1962→// ---------- Skeleton ----------
+  1963→function ProjectsSkeleton() {
+  1964→  return (
+  1965→    <div className="space-y-6">
+  1966→      <SectionHeader
+  1967→        icon={<Clapperboard className="h-5 w-5" />}
+  1968→        title="Projects & Event Operations"
+  1969→        description="Loading projects…"
+  1970→      />
+  1971→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+  1972→        {Array.from({ length: 6 }).map((_, i) => (
+  1973→          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+  1974→        ))}
+  1975→      </div>
+  1976→      <Skeleton className="h-9 w-full max-w-md rounded-lg" />
+  1977→      <div className="grid gap-4 lg:grid-cols-2">
+  1978→        {Array.from({ length: 4 }).map((_, i) => (
+  1979→          <Skeleton key={i} className="h-64 w-full rounded-lg" />
+  1980→        ))}
+  1981→      </div>
+  1982→    </div>
+  1983→  );
+  1984→}
+  1985→

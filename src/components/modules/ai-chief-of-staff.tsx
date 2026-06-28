@@ -14,6 +14,13 @@ import {
   Shield,
   Circle,
   CornerDownRight,
+  CheckCircle2,
+  Phone,
+  Mail,
+  Calendar,
+  MessageCircle,
+  Briefcase,
+  TrendingUp as OppIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,10 +72,26 @@ interface AiData {
   contextSummary: ContextSummary | null;
 }
 
+// A single DIDI action that the LLM requested + the server-executed result.
+interface ActionResult {
+  type: string;
+  ok: boolean;
+  error?: string;
+  title?: string;
+  id?: string;
+  name?: string;
+  subject?: string;
+  dueDate?: string;
+  value?: number;
+  taskTitle?: string;
+}
+
 interface ChatExchange {
   role: "user" | "assistant";
   content: string;
   action?: Action;
+  // For assistant messages with chat_with_actions, store the executed action results
+  actionResults?: ActionResult[];
 }
 
 // ============================================================
@@ -125,10 +148,10 @@ function typeBadgeColor(t: string): string {
 // ============================================================
 
 const QUICK_PROMPTS = [
+  "Create a task to follow up with GTBank tomorrow",
+  "Schedule a follow-up call with Shell next week",
+  "Add an account for Dangote",
   "What should I delegate today?",
-  "Which project is at risk of going over budget?",
-  "Draft a follow-up to GTBank",
-  "Summarize this week's wins",
 ];
 
 // ============================================================
@@ -186,26 +209,49 @@ export function AiChiefOfStaff() {
     }
 
     try {
+      // For chat, use the new chat_with_actions endpoint so DIDI can take actions.
+      const endpointAction = action === "chat" ? "chat_with_actions" : action;
       const res = await fetch("/api/doz/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: endpointAction,
           message: action === "chat" ? userMessage : undefined,
           opportunityName: oppName,
         }),
       });
       if (!res.ok) throw new Error("AI request failed");
-      const json = (await res.json()) as { response: string; error?: boolean };
-      const text = json.response ?? "No response.";
+      const json = (await res.json()) as {
+        response?: string;
+        reply?: string;
+        actionResults?: ActionResult[];
+        error?: boolean;
+        offline?: boolean;
+        rawNotJson?: boolean;
+      };
+
+      // chat_with_actions returns { reply, actionResults }; others return { response }.
+      const text =
+        typeof json.reply === "string" && json.reply.length > 0
+          ? json.reply
+          : json.response ?? "No response.";
+      const actionResults = json.actionResults ?? [];
       setLastResponse(text);
-      setHistory((h) => [...h, { role: "assistant", content: text, action }]);
+      setHistory((h) => [
+        ...h,
+        { role: "assistant", content: text, action, actionResults },
+      ]);
       // keep only last 3 exchanges (1 exchange = user + assistant = 2 messages)
       if (history.length > 4) {
         setHistory((h) => h.slice(-4));
       }
-      if (json.error) {
-        toast.warning("AI offline — showing cached recommendation");
+      if (json.offline) {
+        toast.warning("DIDI offline — showing cached guidance");
+      } else if (actionResults.length > 0) {
+        const okCount = actionResults.filter((a) => a.ok).length;
+        if (okCount > 0) {
+          toast.success(`DIDI took ${okCount} action${okCount === 1 ? "" : "s"}`);
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "AI request failed");
@@ -379,24 +425,30 @@ export function AiChiefOfStaff() {
 
             {/* chat input */}
             {chatMode && (
-              <form
-                className="mt-3 flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void runAction("chat");
-                }}
-              >
-                <Input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask the Operations Director…"
-                  disabled={!!busy}
-                  autoFocus
-                />
-                <Button type="submit" disabled={!!busy || !chatInput.trim()} size="sm">
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
+              <div className="mt-3">
+                <form
+                  className="flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void runAction("chat");
+                  }}
+                >
+                  <Input
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask DIDI to create tasks, follow-ups, accounts…"
+                    disabled={!!busy}
+                    autoFocus
+                  />
+                  <Button type="submit" disabled={!!busy || !chatInput.trim()} size="sm">
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </form>
+                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  DIDI can create tasks, follow-ups, and accounts for you — just ask.
+                </p>
+              </div>
             )}
 
             {/* response area */}
@@ -408,17 +460,32 @@ export function AiChiefOfStaff() {
                   <div className="flex items-center gap-2 mb-3 pb-2 border-b border-primary/15">
                     <Bot className="h-4 w-4 text-primary" />
                     <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                      Operations Director
+                      DIDI · Operations Director
                     </span>
                   </div>
                   <MarkdownRender content={lastResponse} />
+                  {/* Show actions taken on the most recent response */}
+                  {(() => {
+                    const last = history[history.length - 1];
+                    if (!last || last.role !== "assistant" || !last.actionResults || last.actionResults.length === 0) {
+                      return null;
+                    }
+                    return (
+                      <div className="mt-3 border-t border-primary/15 pt-3">
+                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-primary">
+                          Actions taken
+                        </p>
+                        <ActionBadges results={last.actionResults} />
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border p-6 text-center">
                   <Sparkles className="mx-auto h-8 w-8 text-muted-foreground/50" />
                   <p className="mt-2 text-sm font-medium">No output yet</p>
                   <p className="text-xs text-muted-foreground">
-                    Click an action above to get a daily plan, risk report, or proposal draft.
+                    Ask DIDI to plan your day, scan risks, draft a proposal — or to create tasks & follow-ups.
                   </p>
                 </div>
               )}
@@ -452,7 +519,7 @@ export function AiChiefOfStaff() {
                                   m.role === "user" ? "text-muted-foreground" : "text-primary"
                                 )}
                               >
-                                {m.role === "user" ? "You" : "AI"}
+                                {m.role === "user" ? "You" : "DIDI"}
                               </span>
                               {m.action && (
                                 <Badge
@@ -466,7 +533,14 @@ export function AiChiefOfStaff() {
                             {m.role === "user" ? (
                               <p className="text-sm">{m.content}</p>
                             ) : (
-                              <MarkdownRender content={m.content} compact />
+                              <>
+                                <MarkdownRender content={m.content} compact />
+                                {m.actionResults && m.actionResults.length > 0 && (
+                                  <div className="mt-2">
+                                    <ActionBadges results={m.actionResults} compact />
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                         ))}
@@ -726,7 +800,7 @@ function ThinkingIndicator({ action }: { action: Action }) {
       ? "Scanning for risks"
       : action === "proposal_draft"
       ? "Drafting proposal"
-      : "Thinking";
+      : "DIDI is thinking";
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-5">
       <div className="flex items-center gap-3">
@@ -743,6 +817,76 @@ function ThinkingIndicator({ action }: { action: Action }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Action confirmation badges — shows what DIDI did
+// ============================================================
+function actionIcon(type: string): React.ReactNode {
+  switch (type) {
+    case "create_task":
+      return <CheckCircle2 className="h-3 w-3" />;
+    case "complete_task":
+      return <CheckCircle2 className="h-3 w-3" />;
+    case "create_followup":
+      return <Phone className="h-3 w-3" />;
+    case "create_account":
+      return <Briefcase className="h-3 w-3" />;
+    case "create_opportunity":
+      return <OppIcon className="h-3 w-3" />;
+    default:
+      return <CheckCircle2 className="h-3 w-3" />;
+  }
+}
+
+function actionLabel(r: ActionResult): string {
+  switch (r.type) {
+    case "create_task":
+      return r.ok ? `Task created: ${r.title ?? "—"}` : `Failed to create task${r.error ? ` — ${r.error}` : ""}`;
+    case "complete_task":
+      return r.ok ? `Task completed: ${r.title ?? "—"}` : `Couldn't complete task${r.taskTitle ? ` "${r.taskTitle}"` : ""}${r.error ? ` — ${r.error}` : ""}`;
+    case "create_followup":
+      return r.ok ? `Follow-up scheduled: ${r.subject ?? "—"}` : `Failed to schedule follow-up${r.error ? ` — ${r.error}` : ""}`;
+    case "create_account":
+      return r.ok ? `Account created: ${r.name ?? "—"}` : `Couldn't create account${r.error === "account_exists" ? " — already exists" : r.error ? ` — ${r.error}` : ""}`;
+    case "create_opportunity":
+      return r.ok
+        ? `Opportunity created: ${r.name ?? "—"}${typeof r.value === "number" ? ` (${formatNGN(r.value, true)})` : ""}`
+        : `Failed to create opportunity${r.error ? ` — ${r.error}` : ""}`;
+    default:
+      return r.ok ? `Action: ${r.type}` : `Failed action${r.error ? ` — ${r.error}` : ""}`;
+  }
+}
+
+function ActionBadges({
+  results,
+  compact = false,
+}: {
+  results: ActionResult[];
+  compact?: boolean;
+}) {
+  if (results.length === 0) return null;
+  return (
+    <div className={cn("flex flex-col gap-1.5", compact && "gap-1")}>
+      {results.map((r, i) => (
+        <span
+          key={i}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium",
+            compact && "text-[10px] py-0.5",
+            r.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+              : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+          )}
+        >
+          <span className={r.ok ? "text-emerald-400" : "text-rose-400"}>
+            {actionIcon(r.type)}
+          </span>
+          <span className="truncate">{actionLabel(r)}</span>
+        </span>
+      ))}
     </div>
   );
 }

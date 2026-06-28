@@ -26,6 +26,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import {
   StatCard,
   StatusBadge,
   SectionHeader,
@@ -34,6 +43,7 @@ import {
   PriorityDot,
 } from "@/components/doz/ui-primitives";
 import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -63,6 +73,10 @@ import {
   UserPlus,
   ChevronRight,
   Loader2,
+  Pencil,
+  UserX,
+  UserCheck,
+  Key,
 } from "lucide-react";
 
 // ============================================================
@@ -281,13 +295,32 @@ function FilterPill({
 // ============================================================
 // Member card
 // ============================================================
-function MemberCard({ m }: { m: Member }) {
+function MemberCard({
+  m,
+  isFounder,
+  isSelf,
+  onEdit,
+  onDeactivate,
+  onReactivate,
+}: {
+  m: Member;
+  isFounder: boolean;
+  isSelf: boolean;
+  onEdit: () => void;
+  onDeactivate: () => void;
+  onReactivate: () => void;
+}) {
   const today = new Date();
   const reportedToday =
     m.lastReport && isSameDay(new Date(m.lastReport.reportDate), today);
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <Card
+      className={cn(
+        "flex flex-col gap-3 p-4 transition-opacity",
+        !m.isActive && "opacity-50"
+      )}
+    >
       {/* Header */}
       <div className="flex items-start gap-3">
         <Avatar className="h-10 w-10 shrink-0">
@@ -305,9 +338,19 @@ function MemberCard({ m }: { m: Member }) {
               {m.role}
             </span>
           </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {m.title ?? m.role.toLowerCase()}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="truncate text-xs text-muted-foreground">
+              {m.title ?? m.role.toLowerCase()}
+            </p>
+            {!m.isActive && (
+              <Badge
+                variant="outline"
+                className="border-rose-500/40 bg-rose-500/10 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
+              >
+                Inactive
+              </Badge>
+            )}
+          </div>
         </div>
       </div>
 
@@ -394,6 +437,47 @@ function MemberCard({ m }: { m: Member }) {
           </span>
         )}
       </div>
+
+      {/* Action buttons — only visible to FOUNDER */}
+      {isFounder && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-[11px]"
+            onClick={onEdit}
+          >
+            <Pencil className="h-3 w-3" />
+            Edit
+          </Button>
+          {m.isActive ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-[11px] text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+              onClick={onDeactivate}
+              disabled={isSelf}
+              title={isSelf ? "You cannot deactivate your own account" : undefined}
+            >
+              <UserX className="h-3 w-3" />
+              Deactivate
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-[11px] text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+              onClick={onReactivate}
+            >
+              <UserCheck className="h-3 w-3" />
+              Reactivate
+            </Button>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
@@ -1314,29 +1398,713 @@ function TeamSkeleton() {
 }
 
 // ============================================================
+// Role options (shared by Add + Edit dialogs)
+// ============================================================
+const ROLE_OPTIONS: { value: Role; label: string }[] = [
+  { value: "FOUNDER", label: "Founder" },
+  { value: "STAFF", label: "Staff" },
+  { value: "INTERN", label: "Intern" },
+  { value: "FREELANCER", label: "Freelancer" },
+];
+
+// ============================================================
+// Add Member Dialog
+// ============================================================
+function AddMemberDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("STAFF");
+  const [title, setTitle] = useState("");
+  const [phone, setPhone] = useState("");
+  const [capacity, setCapacity] = useState("40");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset form whenever the dialog is opened.
+  // Canonical "store info from previous renders" pattern — see:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setName("");
+      setEmail("");
+      setRole("STAFF");
+      setTitle("");
+      setPhone("");
+      setCapacity("40");
+      setPassword("");
+      setSubmitting(false);
+    }
+  }
+
+  const valid =
+    name.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    password.length >= 6;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!valid || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          role,
+          title: title.trim() || undefined,
+          phone: phone.trim() || undefined,
+          capacity: Number(capacity) || 40,
+          password,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const msg =
+          json?.error === "email_taken"
+            ? "A user with this email already exists."
+            : json?.error === "weak_password"
+              ? "Password must be at least 6 characters."
+              : json?.message || `Failed (HTTP ${res.status})`;
+        toast.error(msg);
+        setSubmitting(false);
+        return;
+      }
+      toast.success(`${name.trim()} added to the team as ${role}.`);
+      onOpenChange(false);
+      onCreated();
+    } catch (err) {
+      toast.error("Network error — please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Add Team Member</DialogTitle>
+          <DialogDescription>
+            Create a new account. The member can sign in immediately with the
+            password you set.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="add-name">Name *</Label>
+              <Input
+                id="add-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Adaeze Okonkwo"
+                required
+                autoFocus
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="add-email">Email *</Label>
+              <Input
+                id="add-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@digitonezero.com"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-role">Role *</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+                <SelectTrigger id="add-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-capacity">Capacity (hrs/week)</Label>
+              <Input
+                id="add-capacity"
+                type="number"
+                min={0}
+                max={168}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-title">Title</Label>
+              <Input
+                id="add-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Operations Lead"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-phone">Phone</Label>
+              <Input
+                id="add-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+234 ..."
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="add-password">Password *</Label>
+              <Input
+                id="add-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Minimum 6 characters"
+                required
+              />
+              <p className="text-[11px] text-muted-foreground">
+                You can change this later via the member&apos;s Edit menu.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid || submitting}>
+              {submitting ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Create Member
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Edit Member Dialog
+// ============================================================
+function EditMemberDialog({
+  member,
+  onOpenChange,
+  onSaved,
+  onChangePassword,
+}: {
+  member: Member | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+  onChangePassword: (m: Member) => void;
+}) {
+  const [name, setName] = useState("");
+  const [title, setTitle] = useState("");
+  const [phone, setPhone] = useState("");
+  const [role, setRole] = useState<Role>("STAFF");
+  const [capacity, setCapacity] = useState("40");
+  const [isActive, setIsActive] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Sync form state whenever a different member opens.
+  // Canonical "store info from previous renders" pattern — see:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevMember, setPrevMember] = useState<Member | null>(member);
+  if (member !== prevMember) {
+    setPrevMember(member);
+    if (member) {
+      setName(member.name);
+      setTitle(member.title ?? "");
+      setPhone(member.phone ?? "");
+      setRole(member.role);
+      setCapacity(String(member.capacity ?? 40));
+      setIsActive(member.isActive);
+      setSubmitting(false);
+    }
+  }
+
+  const open = member !== null;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!member || submitting) return;
+    if (!name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          userId: member.id,
+          name: name.trim(),
+          title: title.trim() || null,
+          phone: phone.trim() || null,
+          role,
+          capacity: Number(capacity) || 40,
+          isActive,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        setSubmitting(false);
+        return;
+      }
+      toast.success(`${name.trim()}'s details updated.`);
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      toast.error("Network error — please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Edit Member</DialogTitle>
+          <DialogDescription>
+            {member
+              ? `Update ${member.name}'s profile, role, and status.`
+              : "Update member details."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="edit-name">Name *</Label>
+              <Input
+                id="edit-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-role">Role</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+                <SelectTrigger id="edit-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-capacity">Capacity (hrs/week)</Label>
+              <Input
+                id="edit-capacity"
+                type="number"
+                min={0}
+                max={168}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input
+                id="edit-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Operations Lead"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input
+                id="edit-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+234 ..."
+              />
+            </div>
+            <div className="col-span-2 flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2.5">
+              <div>
+                <p className="text-sm font-medium">Active</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Inactive members cannot sign in but their data is preserved.
+                </p>
+              </div>
+              <Switch checked={isActive} onCheckedChange={setIsActive} />
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => member && onChangePassword(member)}
+              disabled={submitting}
+            >
+              <Key className="h-3.5 w-3.5" />
+              Change Password
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Change Password Dialog
+// ============================================================
+function ChangePasswordDialog({
+  member,
+  onOpenChange,
+  onSaved,
+}: {
+  member: Member | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reset form whenever a different member opens.
+  // Canonical "store info from previous renders" pattern — see:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevMember, setPrevMember] = useState<Member | null>(member);
+  if (member !== prevMember) {
+    setPrevMember(member);
+    if (member) {
+      setNewPassword("");
+      setConfirmPassword("");
+      setSubmitting(false);
+    }
+  }
+
+  const open = member !== null;
+  const passwordsMatch = newPassword === confirmPassword;
+  const valid = newPassword.length >= 6 && passwordsMatch;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!member || !valid || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change_password",
+          userId: member.id,
+          newPassword,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        setSubmitting(false);
+        return;
+      }
+      toast.success(`Password updated for ${member.name}.`);
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      toast.error("Network error — please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Change Password</DialogTitle>
+          <DialogDescription>
+            {member
+              ? `Set a new password for ${member.name}. They'll need to use it on next sign-in.`
+              : "Set a new password."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-new">New Password *</Label>
+            <Input
+              id="cp-new"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Minimum 6 characters"
+              required
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-confirm">Confirm Password *</Label>
+            <Input
+              id="cp-confirm"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter the new password"
+              required
+            />
+            {confirmPassword.length > 0 && !passwordsMatch && (
+              <p className="text-[11px] text-rose-400">
+                Passwords do not match.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid || submitting}>
+              {submitting ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <Key className="mr-1.5 h-3.5 w-3.5" />
+                  Reset Password
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Deactivate Confirm Dialog
+// ============================================================
+function DeactivateConfirmDialog({
+  member,
+  onOpenChange,
+  onConfirmed,
+}: {
+  member: Member | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirmed: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const open = member !== null;
+
+  // Reset submitting flag whenever a different member opens.
+  // Canonical "store info from previous renders" pattern — see:
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevMember, setPrevMember] = useState<Member | null>(member);
+  if (member !== prevMember) {
+    setPrevMember(member);
+    setSubmitting(false);
+  }
+
+  async function handleConfirm() {
+    if (!member || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: member.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        setSubmitting(false);
+        return;
+      }
+      toast.success(`${member.name} deactivated. Their data is preserved.`);
+      onOpenChange(false);
+      onConfirmed();
+    } catch (err) {
+      toast.error("Network error — please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserX className="h-4 w-4 text-rose-400" />
+            Deactivate Member
+          </DialogTitle>
+          <DialogDescription>
+            {member ? (
+              <>
+                Are you sure you want to deactivate{" "}
+                <span className="font-semibold text-foreground">
+                  {member.name}
+                </span>
+                ? They will no longer be able to sign in, but their reports,
+                tasks, and history will be preserved. You can reactivate them
+                at any time.
+              </>
+            ) : (
+              "Are you sure you want to deactivate this member?"
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="bg-rose-600 hover:bg-rose-700"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                Deactivating...
+              </>
+            ) : (
+              <>
+                <UserX className="mr-1.5 h-3.5 w-3.5" />
+                Deactivate
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export function Team() {
   const [data, setData] = useState<TeamData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Role | "ALL">("ALL");
+  const { user: currentUser } = useCurrentUser();
+  const isFounder = currentUser?.role === "FOUNDER";
+
+  // Dialog state
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [passwordMember, setPasswordMember] = useState<Member | null>(null);
+  const [deactivateMember, setDeactivateMember] = useState<Member | null>(null);
+  const [reactivatingMember, setReactivatingMember] = useState<Member | null>(null);
+
+  // ---- Load team data (with refresh support)
+  const loadTeam = useCallback(async () => {
+    try {
+      const res = await fetch("/api/doz/team");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as TeamData;
+      setData(json);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load team");
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/doz/team");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as TeamData;
-        if (!cancelled) setData(json);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load team");
+    loadTeam();
+  }, [loadTeam]);
+
+  // ---- Reactivate handler (PATCH isActive: true)
+  async function handleReactivate(m: Member) {
+    setReactivatingMember(m);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          userId: m.id,
+          isActive: true,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      toast.success(`${m.name} reactivated. They can now sign in.`);
+      await loadTeam();
+    } catch (err) {
+      toast.error("Network error — please try again.");
+    } finally {
+      setReactivatingMember(null);
+    }
+  }
 
   // ---- Filtered members
   const filteredMembers = useMemo(() => {
@@ -1493,43 +2261,56 @@ export function Team() {
 
         {/* ============== TEAM TAB ============== */}
         <TabsContent value="team" className="space-y-4">
-          {/* Filter pills */}
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterPill
-              active={filter === "ALL"}
-              onClick={() => setFilter("ALL")}
-              count={filterCounts.ALL}
-            >
-              All
-            </FilterPill>
-            <FilterPill
-              active={filter === "FOUNDER"}
-              onClick={() => setFilter("FOUNDER")}
-              count={filterCounts.FOUNDER}
-            >
-              Founder
-            </FilterPill>
-            <FilterPill
-              active={filter === "STAFF"}
-              onClick={() => setFilter("STAFF")}
-              count={filterCounts.STAFF}
-            >
-              Staff
-            </FilterPill>
-            <FilterPill
-              active={filter === "INTERN"}
-              onClick={() => setFilter("INTERN")}
-              count={filterCounts.INTERN}
-            >
-              Interns
-            </FilterPill>
-            <FilterPill
-              active={filter === "FREELANCER"}
-              onClick={() => setFilter("FREELANCER")}
-              count={filterCounts.FREELANCER}
-            >
-              Freelancers
-            </FilterPill>
+          {/* Filter pills + Add Member button */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterPill
+                active={filter === "ALL"}
+                onClick={() => setFilter("ALL")}
+                count={filterCounts.ALL}
+              >
+                All
+              </FilterPill>
+              <FilterPill
+                active={filter === "FOUNDER"}
+                onClick={() => setFilter("FOUNDER")}
+                count={filterCounts.FOUNDER}
+              >
+                Founder
+              </FilterPill>
+              <FilterPill
+                active={filter === "STAFF"}
+                onClick={() => setFilter("STAFF")}
+                count={filterCounts.STAFF}
+              >
+                Staff
+              </FilterPill>
+              <FilterPill
+                active={filter === "INTERN"}
+                onClick={() => setFilter("INTERN")}
+                count={filterCounts.INTERN}
+              >
+                Interns
+              </FilterPill>
+              <FilterPill
+                active={filter === "FREELANCER"}
+                onClick={() => setFilter("FREELANCER")}
+                count={filterCounts.FREELANCER}
+              >
+                Freelancers
+              </FilterPill>
+            </div>
+            {isFounder && (
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Member
+              </Button>
+            )}
           </div>
 
           {/* Member cards grid */}
@@ -1542,7 +2323,15 @@ export function Team() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredMembers.map((m) => (
-                <MemberCard key={m.id} m={m} />
+                <MemberCard
+                  key={m.id}
+                  m={m}
+                  isFounder={isFounder}
+                  isSelf={currentUser?.id === m.id}
+                  onEdit={() => setEditingMember(m)}
+                  onDeactivate={() => setDeactivateMember(m)}
+                  onReactivate={() => handleReactivate(m)}
+                />
               ))}
             </div>
           )}
@@ -1654,6 +2443,48 @@ export function Team() {
           />
         </TabsContent>
       </Tabs>
+
+      {/* ============== MANAGEMENT DIALOGS (FOUNDER only) ============== */}
+      {isFounder && (
+        <>
+          <AddMemberDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            onCreated={loadTeam}
+          />
+          <EditMemberDialog
+            member={editingMember}
+            onOpenChange={(open) => !open && setEditingMember(null)}
+            onSaved={loadTeam}
+            onChangePassword={(m) => {
+              setEditingMember(null);
+              setPasswordMember(m);
+            }}
+          />
+          <ChangePasswordDialog
+            member={passwordMember}
+            onOpenChange={(open) => !open && setPasswordMember(null)}
+            onSaved={() => {
+              /* no member-list refresh needed; password not shown */
+            }}
+          />
+          <DeactivateConfirmDialog
+            member={deactivateMember}
+            onOpenChange={(open) => !open && setDeactivateMember(null)}
+            onConfirmed={loadTeam}
+          />
+        </>
+      )}
+
+      {/* Reactivating overlay indicator (very subtle — just disables clicks) */}
+      {reactivatingMember && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/30">
+          <div className="flex items-center gap-2 rounded-md bg-background px-4 py-3 text-sm shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+            Reactivating {reactivatingMember.name}...
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,2002 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useState, useMemo, useCallback } from "react";
+     4→     4→import {
+     5→     5→  Target,
+     6→     6→  Flag,
+     7→     7→  AlertTriangle,
+     8→     8→  CheckCircle2,
+     9→     9→  Clock,
+    10→    10→  TrendingUp,
+    11→    11→  Calendar,
+    12→    12→  ChevronRight,
+    13→    13→  Circle,
+    14→    14→  CircleDot,
+    15→    15→  Pencil,
+    16→    16→  Trash2,
+    17→    17→  Sparkles,
+    18→    18→  Plus,
+    19→    19→  Bot,
+    20→    20→  Ban,
+    21→    21→  Loader2,
+    22→    22→  X,
+    23→    23→} from "lucide-react";
+    24→    24→import { Card } from "@/components/ui/card";
+    25→    25→import { Button } from "@/components/ui/button";
+    26→    26→import { Input } from "@/components/ui/input";
+    27→    27→import { Textarea } from "@/components/ui/textarea";
+    28→    28→import { Label } from "@/components/ui/label";
+    29→    29→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    30→    30→import {
+    31→    31→  Dialog,
+    32→    32→  DialogContent,
+    33→    33→  DialogDescription,
+    34→    34→  DialogFooter,
+    35→    35→  DialogHeader,
+    36→    36→  DialogTitle,
+    37→    37→} from "@/components/ui/dialog";
+    38→    38→import {
+    39→    39→  AlertDialog,
+    40→    40→  AlertDialogAction,
+    41→    41→  AlertDialogCancel,
+    42→    42→  AlertDialogContent,
+    43→    43→  AlertDialogDescription,
+    44→    44→  AlertDialogFooter,
+    45→    45→  AlertDialogHeader,
+    46→    46→  AlertDialogTitle,
+    47→    47→} from "@/components/ui/alert-dialog";
+    48→    48→import {
+    49→    49→  Select,
+    50→    50→  SelectContent,
+    51→    51→  SelectItem,
+    52→    52→  SelectTrigger,
+    53→    53→  SelectValue,
+    54→    54→} from "@/components/ui/select";
+    55→    55→import {
+    56→    56→  StatCard,
+    57→    57→  StatusBadge,
+    58→    58→  SectionHeader,
+    59→    59→  EmptyState,
+    60→    60→  MiniBar,
+    61→    61→  PriorityDot,
+    62→    62→} from "@/components/doz/ui-primitives";
+    63→    63→import {
+    64→    64→  formatDate,
+    65→    65→  relativeTime,
+    66→    66→  daysUntil,
+    67→    67→  avatarColor,
+    68→    68→  initials,
+    69→    69→} from "@/lib/format";
+    70→    70→import { Skeleton } from "@/components/ui/skeleton";
+    71→    71→import { Badge } from "@/components/ui/badge";
+    72→    72→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    73→    73→import { Progress } from "@/components/ui/progress";
+    74→    74→import { toast } from "sonner";
+    75→    75→import { cn } from "@/lib/utils";
+    76→    76→import { FocusScoreCard } from "@/components/doz/focus-score-card";
+    77→    77→
+    78→    78→// ============================================================
+    79→    79→// Types
+    80→    80→// ============================================================
+    81→    81→interface Stats {
+    82→    82→  activeGoals: number;
+    83→    83→  achievedGoals: number;
+    84→    84→  missedGoals: number;
+    85→    85→  overdueTasks: number;
+    86→    86→  dueToday: number;
+    87→    87→  distractions: number;
+    88→    88→  completedThisWeek: number;
+    89→    89→  completionRate: number;
+    90→    90→  avgGoalProgress: number;
+    91→    91→}
+    92→    92→
+    93→    93→interface GoalChild {
+    94→    94→  id: string;
+    95→    95→  title: string;
+    96→    96→  type: string;
+    97→    97→  progress: number;
+    98→    98→  status: string;
+    99→    99→  dueDate: string;
+   100→   100→}
+   101→   101→
+   102→   102→interface Goal {
+   103→   103→  id: string;
+   104→   104→  title: string;
+   105→   105→  description: string | null;
+   106→   106→  type: string;
+   107→   107→  status: string;
+   108→   108→  progress: number;
+   109→   109→  quarter: string | null;
+   110→   110→  startDate: string;
+   111→   111→  dueDate: string;
+   112→   112→  ownerId: string;
+   113→   113→  owner: { name: string };
+   114→   114→  parentId: string | null;
+   115→   115→  children: GoalChild[];
+   116→   116→}
+   117→   117→
+   118→   118→interface Task {
+   119→   119→  id: string;
+   120→   120→  title: string;
+   121→   121→  description: string | null;
+   122→   122→  status: string;
+   123→   123→  priority: string;
+   124→   124→  category: string | null;
+   125→   125→  isDistraction: boolean;
+   126→   126→  dueDate: string | null;
+   127→   127→  estimatedHrs: number | null;
+   128→   128→  actualHrs: number | null;
+   129→   129→  completedAt: string | null;
+   130→   130→  assigneeId: string | null;
+   131→   131→  goalId: string | null;
+   132→   132→  projectId: string | null;
+   133→   133→  assignee: { name: string; role: string } | null;
+   134→   134→  goal: { title: string; type: string } | null;
+   135→   135→  project: { name: string } | null;
+   136→   136→}
+   137→   137→
+   138→   138→interface GoalLite {
+   139→   139→  id: string;
+   140→   140→  title: string;
+   141→   141→  status: string;
+   142→   142→  progress: number;
+   143→   143→  dueDate: string;
+   144→   144→  quarter?: string | null;
+   145→   145→  owner: { name: string };
+   146→   146→  parentId: string | null;
+   147→   147→}
+   148→   148→
+   149→   149→interface TeamUser {
+   150→   150→  id: string;
+   151→   151→  name: string;
+   152→   152→  role: string;
+   153→   153→  title: string | null;
+   154→   154→}
+   155→   155→
+   156→   156→interface ProjectLite {
+   157→   157→  id: string;
+   158→   158→  name: string;
+   159→   159→  code: string | null;
+   160→   160→  status: string;
+   161→   161→}
+   162→   162→
+   163→   163→interface AllGoalLite {
+   164→   164→  id: string;
+   165→   165→  title: string;
+   166→   166→  type: string;
+   167→   167→  status: string;
+   168→   168→  progress: number;
+   169→   169→  dueDate: string;
+   170→   170→  quarter?: string | null;
+   171→   171→}
+   172→   172→
+   173→   173→interface PlanningData {
+   174→   174→  stats: Stats;
+   175→   175→  goals: Goal[];
+   176→   176→  tasks: Task[];
+   177→   177→  goalsByType: {
+   178→   178→    ANNUAL: GoalLite[];
+   179→   179→    QUARTERLY: GoalLite[];
+   180→   180→    MONTHLY: GoalLite[];
+   181→   181→    WEEKLY: GoalLite[];
+   182→   182→  };
+   183→   183→  users?: TeamUser[];
+   184→   184→  projects?: ProjectLite[];
+   185→   185→  allGoals?: AllGoalLite[];
+   186→   186→}
+   187→   187→
+   188→   188→// ============================================================
+   189→   189→// Form payload — used for both create and edit
+   190→   190→// ============================================================
+   191→   191→interface TaskFormPayload {
+   192→   192→  title: string;
+   193→   193→  description: string;
+   194→   194→  priority: string;
+   195→   195→  category: string; // "STRATEGIC" | "OPERATIONAL" | "ADMIN" | "DISTRACTION" | "__none__"
+   196→   196→  assigneeId: string; // user id or "__none__"
+   197→   197→  goalId: string; // goal id or "__none__"
+   198→   198→  projectId: string; // project id or "__none__"
+   199→   199→  dueDate: string; // YYYY-MM-DD or ""
+   200→   200→  isDistraction: boolean;
+   201→   201→}
+   202→   202→
+   203→   203→// ============================================================
+   204→   204→// Helpers
+   205→   205→// ============================================================
+   206→   206→const CATEGORY_STYLE: Record<string, string> = {
+   207→   207→  STRATEGIC: "bg-emerald-500/15 text-emerald-400",
+   208→   208→  OPERATIONAL: "bg-teal-500/15 text-teal-300",
+   209→   209→  ADMIN: "bg-muted text-muted-foreground",
+   210→   210→  DISTRACTION: "bg-amber-500/15 text-amber-400",
+   211→   211→};
+   212→   212→
+   213→   213→const PRIORITY_LABEL: Record<string, string> = {
+   214→   214→  URGENT: "Urgent",
+   215→   215→  HIGH: "High Priority",
+   216→   216→  MEDIUM: "Medium Priority",
+   217→   217→  LOW: "Low Priority",
+   218→   218→};
+   219→   219→
+   220→   220→const PRIORITY_ORDER: Record<string, number> = {
+   221→   221→  URGENT: 0,
+   222→   222→  HIGH: 1,
+   223→   223→  MEDIUM: 2,
+   224→   224→  LOW: 3,
+   225→   225→};
+   226→   226→
+   227→   227→function isSameDay(a: Date, b: Date): boolean {
+   228→   228→  return (
+   229→   229→    a.getFullYear() === b.getFullYear() &&
+   230→   230→    a.getMonth() === b.getMonth() &&
+   231→   231→    a.getDate() === b.getDate()
+   232→   232→  );
+   233→   233→}
+   234→   234→
+   235→   235→function isThisWeek(d: Date): boolean {
+   236→   236→  const now = new Date();
+   237→   237→  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+   238→   238→  const end = new Date(start.getTime() + 7 * 86400000);
+   239→   239→  const t = d.getTime();
+   240→   240→  return t >= start.getTime() && t < end.getTime();
+   241→   241→}
+   242→   242→
+   243→   243→// ============================================================
+   244→   244→// Category badge
+   245→   245→// ============================================================
+   246→   246→function CategoryBadge({ category }: { category: string | null }) {
+   247→   247→  if (!category) return null;
+   248→   248→  return (
+   249→   249→    <span
+   250→   250→      className={cn(
+   251→   251→        "inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+   252→   252→        CATEGORY_STYLE[category] ?? "bg-muted text-muted-foreground"
+   253→   253→      )}
+   254→   254→    >
+   255→   255→      {category}
+   256→   256→    </span>
+   257→   257→  );
+   258→   258→}
+   259→   259→
+   260→   260→// ============================================================
+   261→   261→// Cascade goal row
+   262→   262→// ============================================================
+   263→   263→const LEVEL_LABEL = ["Annual", "Quarterly", "Monthly", "Weekly"];
+   264→   264→
+   265→   265→function CascadeRow({
+   266→   266→  goal,
+   267→   267→  level,
+   268→   268→}: {
+   269→   269→  goal: {
+   270→   270→    id: string;
+   271→   271→    title: string;
+   272→   272→    status: string;
+   273→   273→    progress: number;
+   274→   274→    dueDate: string;
+   275→   275→    owner: { name: string };
+   276→   276→    quarter?: string | null;
+   277→   277→  };
+   278→   278→  level: number;
+   279→   279→}) {
+   280→   280→  const days = daysUntil(goal.dueDate);
+   281→   281→  const isOverdue = days < 0 && goal.status !== "ACHIEVED";
+   282→   282→  const isAchieved = goal.status === "ACHIEVED";
+   283→   283→  const levelLabel = LEVEL_LABEL[level] ?? "Goal";
+   284→   284→
+   285→   285→  return (
+   286→   286→    <div
+   287→   287→      className={cn(
+   288→   288→        level > 0 && "border-l-2 border-primary/40 pl-4",
+   289→   289→        level === 1 && "ml-0",
+   290→   290→        level === 2 && "ml-4",
+   291→   291→        level === 3 && "ml-8",
+   292→   292→        level === 0 && "border-l-0 pl-0"
+   293→   293→      )}
+   294→   294→    >
+   295→   295→      <Card
+   296→   296→        className={cn(
+   297→   297→          "p-4 transition-colors hover:bg-accent/30",
+   298→   298→          level === 0 && "ring-1 ring-primary/30",
+   299→   299→          isAchieved && "bg-primary/5",
+   300→   300→          isOverdue && "border-red-500/40"
+   301→   301→        )}
+   302→   302→      >
+   303→   303→        <div className="flex flex-wrap items-start justify-between gap-2">
+   304→   304→          <div className="min-w-0 flex-1">
+   305→   305→            <div className="flex items-center gap-2">
+   306→   306→              <span className="text-primary">
+   307→   307→                {level === 0 ? (
+   308→   308→                  <Target className="h-3.5 w-3.5" />
+   309→   309→                ) : level === 1 ? (
+   310→   310→                  <Flag className="h-3.5 w-3.5" />
+   311→   311→                ) : level === 2 ? (
+   312→   312→                  <Calendar className="h-3.5 w-3.5" />
+   313→   313→                ) : (
+   314→   314→                  <CircleDot className="h-3.5 w-3.5" />
+   315→   315→                )}
+   316→   316→              </span>
+   317→   317→              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   318→   318→                {levelLabel}
+   319→   319→                {goal.quarter ? ` · ${goal.quarter}` : ""}
+   320→   320→              </span>
+   321→   321→              <StatusBadge status={goal.status} />
+   322→   322→            </div>
+   323→   323→            <p className="mt-1.5 line-clamp-2 text-sm font-medium leading-snug">
+   324→   324→              {goal.title}
+   325→   325→            </p>
+   326→   326→          </div>
+   327→   327→          <div className="text-right">
+   328→   328→            <p
+   329→   329→              className={cn(
+   330→   330→                "text-xs font-medium",
+   331→   331→                isOverdue
+   332→   332→                  ? "text-destructive"
+   333→   333→                  : isAchieved
+   334→   334→                  ? "text-primary"
+   335→   335→                  : "text-muted-foreground"
+   336→   336→              )}
+   337→   337→            >
+   338→   338→              {isOverdue
+   339→   339→                ? `${Math.abs(days)}d overdue`
+   340→   340→                : isAchieved
+   341→   341→                ? "Achieved"
+   342→   342→                : relativeTime(goal.dueDate)}
+   343→   343→            </p>
+   344→   344→            <p className="mt-0.5 text-[10px] text-muted-foreground">
+   345→   345→              {formatDate(goal.dueDate)}
+   346→   346→            </p>
+   347→   347→          </div>
+   348→   348→        </div>
+   349→   349→        <div className="mt-3 flex items-center gap-3">
+   350→   350→          <div className="flex-1">
+   351→   351→            <MiniBar
+   352→   352→              value={goal.progress}
+   353→   353→              max={100}
+   354→   354→              color={
+   355→   355→                isAchieved
+   356→   356→                  ? "bg-primary"
+   357→   357→                  : isOverdue
+   358→   358→                  ? "bg-red-500"
+   359→   359→                  : "bg-primary"
+   360→   360→              }
+   361→   361→            />
+   362→   362→          </div>
+   363→   363→          <span className="w-10 text-right text-xs font-semibold">
+   364→   364→            {goal.progress}%
+   365→   365→          </span>
+   366→   366→          <span className="text-[10px] text-muted-foreground">
+   367→   367→            · {goal.owner.name.split(" ")[0]}
+   368→   368→          </span>
+   369→   369→        </div>
+   370→   370→      </Card>
+   371→   371→    </div>
+   372→   372→  );
+   373→   373→}
+   374→   374→
+   375→   375→// ============================================================
+   376→   376→// Task row
+   377→   377→// ============================================================
+   378→   378→function TaskRow({
+   379→   379→  task,
+   380→   380→  onToggle,
+   381→   381→  onEdit,
+   382→   382→  onDelete,
+   383→   383→  onToggleDistraction,
+   384→   384→}: {
+   385→   385→  task: Task;
+   386→   386→  onToggle: (id: string) => void;
+   387→   387→  onEdit: (task: Task) => void;
+   388→   388→  onDelete: (task: Task) => void;
+   389→   389→  onToggleDistraction: (task: Task) => void;
+   390→   390→}) {
+   391→   391→  const isDone = task.status === "DONE";
+   392→   392→  const isOverdue =
+   393→   393→    !isDone &&
+   394→   394→    task.dueDate &&
+   395→   395→    new Date(task.dueDate).getTime() < new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+   396→   396→  const isDistraction = task.isDistraction && !isDone;
+   397→   397→
+   398→   398→  return (
+   399→   399→    <div
+   400→   400→      className={cn(
+   401→   401→        "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors",
+   402→   402→        isDistraction
+   403→   403→          ? "border-amber-500/40 bg-amber-500/5"
+   404→   404→          : "border-border bg-card",
+   405→   405→        "hover:bg-accent/30"
+   406→   406→      )}
+   407→   407→    >
+   408→   408→      {/* Toggle */}
+   409→   409→      <button
+   410→   410→        type="button"
+   411→   411→        onClick={() => onToggle(task.id)}
+   412→   412→        className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+   413→   413→        aria-label={isDone ? "Mark not done" : "Mark done"}
+   414→   414→      >
+   415→   415→        {isDone ? (
+   416→   416→          <CheckCircle2 className="h-5 w-5 text-primary" />
+   417→   417→        ) : (
+   418→   418→          <Circle className="h-5 w-5" />
+   419→   419→        )}
+   420→   420→      </button>
+   421→   421→
+   422→   422→      {/* Priority dot */}
+   423→   423→      <PriorityDot priority={task.priority} />
+   424→   424→
+   425→   425→      {/* Title + meta — clickable to edit */}
+   426→   426→      <button
+   427→   427→        type="button"
+   428→   428→        onClick={() => onEdit(task)}
+   429→   429→        className="min-w-0 flex-1 text-left"
+   430→   430→        aria-label={`Edit task ${task.title}`}
+   431→   431→      >
+   432→   432→        <div className="flex flex-wrap items-center gap-2">
+   433→   433→          <p
+   434→   434→            className={cn(
+   435→   435→              "text-sm font-medium leading-snug",
+   436→   436→              isDone && "text-muted-foreground line-through"
+   437→   437→            )}
+   438→   438→          >
+   439→   439→            {task.title}
+   440→   440→          </p>
+   441→   441→          {isDistraction && (
+   442→   442→            <Badge
+   443→   443→              variant="outline"
+   444→   444→              className="border-amber-500/40 bg-amber-500/10 text-[9px] font-bold uppercase tracking-wide text-amber-400"
+   445→   445→            >
+   446→   446→              Distraction
+   447→   447→            </Badge>
+   448→   448→          )}
+   449→   449→          {isOverdue && (
+   450→   450→            <Badge
+   451→   451→              variant="outline"
+   452→   452→              className="border-red-500/40 bg-red-500/10 text-[9px] font-bold uppercase tracking-wide text-destructive"
+   453→   453→            >
+   454→   454→              Overdue
+   455→   455→            </Badge>
+   456→   456→          )}
+   457→   457→        </div>
+   458→   458→        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+   459→   459→          <CategoryBadge category={task.category} />
+   460→   460→          {task.goal && (
+   461→   461→            <span className="inline-flex items-center gap-1">
+   462→   462→              <ChevronRight className="h-3 w-3" />
+   463→   463→              <span className="truncate">{task.goal.title}</span>
+   464→   464→            </span>
+   465→   465→          )}
+   466→   466→          {task.project && (
+   467→   467→            <span className="inline-flex items-center gap-1">
+   468→   468→              <span className="text-muted-foreground/60">·</span>
+   469→   469→              <span className="truncate">{task.project.name}</span>
+   470→   470→            </span>
+   471→   471→          )}
+   472→   472→          <span className="text-[10px] text-muted-foreground/70">
+   473→   473→            · click to edit
+   474→   474→          </span>
+   475→   475→        </div>
+   476→   476→      </button>
+   477→   477→
+   478→   478→      {/* Assignee */}
+   479→   479→      {task.assignee && (
+   480→   480→        <div className="hidden shrink-0 items-center gap-2 sm:flex">
+   481→   481→          <Avatar className="h-7 w-7">
+   482→   482→            <AvatarFallback
+   483→   483→              className={cn("text-[10px] font-semibold", avatarColor(task.assignee.name))}
+   484→   484→            >
+   485→   485→              {initials(task.assignee.name)}
+   486→   486→            </AvatarFallback>
+   487→   487→          </Avatar>
+   488→   488→          <span className="text-[11px] text-muted-foreground">
+   489→   489→            {task.assignee.name.split(" ")[0]}
+   490→   490→          </span>
+   491→   491→        </div>
+   492→   492→      )}
+   493→   493→
+   494→   494→      {/* Due date */}
+   495→   495→      <div className="shrink-0 text-right">
+   496→   496→        {task.dueDate ? (
+   497→   497→          <>
+   498→   498→            <p
+   499→   499→              className={cn(
+   500→   500→                "text-[11px] font-medium",
+   501→   501→                isOverdue
+   502→   502→                  ? "text-destructive"
+   503→   503→                  : isDone
+   504→   504→                  ? "text-muted-foreground"
+   505→   505→                  : "text-foreground"
+   506→   506→              )}
+   507→   507→            >
+   508→   508→              {relativeTime(task.dueDate)}
+   509→   509→            </p>
+   510→   510→            <p className="text-[9px] text-muted-foreground">
+   511→   511→              {formatDate(task.dueDate)}
+   512→   512→            </p>
+   513→   513→          </>
+   514→   514→        ) : (
+   515→   515→          <p className="text-[11px] text-muted-foreground">—</p>
+   516→   516→        )}
+   517→   517→      </div>
+   518→   518→
+   519→   519→      {/* Status */}
+   520→   520→      <div className="hidden shrink-0 md:block">
+   521→   521→        <StatusBadge status={task.status} />
+   522→   522→      </div>
+   523→   523→
+   524→   524→      {/* Distraction toggle */}
+   525→   525→      <button
+   526→   526→        type="button"
+   527→   527→        onClick={() => onToggleDistraction(task)}
+   528→   528→        title={isDistraction ? "Remove distraction flag" : "Flag as distraction"}
+   529→   529→        className={cn(
+   530→   530→          "shrink-0 rounded-md p-1.5 transition-colors",
+   531→   531→          isDistraction
+   532→   532→            ? "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
+   533→   533→            : "text-muted-foreground/50 hover:bg-amber-500/10 hover:text-amber-400"
+   534→   534→        )}
+   535→   535→        aria-label={isDistraction ? "Remove distraction flag" : "Flag as distraction"}
+   536→   536→      >
+   537→   537→        {isDistraction ? (
+   538→   538→          <Ban className="h-3.5 w-3.5" />
+   539→   539→        ) : (
+   540→   540→          <CircleDot className="h-3.5 w-3.5" />
+   541→   541→        )}
+   542→   542→      </button>
+   543→   543→
+   544→   544→      {/* Edit */}
+   545→   545→      <button
+   546→   546→        type="button"
+   547→   547→        onClick={() => onEdit(task)}
+   548→   548→        title="Edit task"
+   549→   549→        className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-primary"
+   550→   550→        aria-label="Edit task"
+   551→   551→      >
+   552→   552→        <Pencil className="h-3.5 w-3.5" />
+   553→   553→      </button>
+   554→   554→
+   555→   555→      {/* Delete */}
+   556→   556→      <button
+   557→   557→        type="button"
+   558→   558→        onClick={() => onDelete(task)}
+   559→   559→        title="Delete task"
+   560→   560→        className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-destructive"
+   561→   561→        aria-label="Delete task"
+   562→   562→      >
+   563→   563→        <Trash2 className="h-3.5 w-3.5" />
+   564→   564→      </button>
+   565→   565→    </div>
+   566→   566→  );
+   567→   567→}
+   568→   568→
+   569→   569→// ============================================================
+   570→   570→// Goal Health donut (SVG)
+   571→   571→// ============================================================
+   572→   572→function HealthDonut({
+   573→   573→  active,
+   574→   574→  achieved,
+   575→   575→  missed,
+   576→   576→}: {
+   577→   577→  active: number;
+   578→   578→  achieved: number;
+   579→   579→  missed: number;
+   580→   580→}) {
+   581→   581→  const total = active + achieved + missed;
+   582→   582→  const r = 54;
+   583→   583→  const c = 2 * Math.PI * r;
+   584→   584→  const activePct = total > 0 ? active / total : 0;
+   585→   585→  const achievedPct = total > 0 ? achieved / total : 0;
+   586→   586→  const missedPct = total > 0 ? missed / total : 0;
+   587→   587→
+   588→   588→  // arc helper
+   589→   589→  const arc = (pct: number, offset: number) =>
+   590→   590→    `${(pct * c).toFixed(2)} ${c.toFixed(2)}`;
+   591→   591→
+   592→   592→  return (
+   593→   593→    <div className="flex items-center gap-5">
+   594→   594→      <div className="relative h-32 w-32 shrink-0">
+   595→   595→        <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90">
+   596→   596→          <circle cx="70" cy="70" r={r} fill="none" stroke="currentColor" strokeWidth="14" className="text-muted" />
+   597→   597→          {achievedPct > 0 && (
+   598→   598→            <circle
+   599→   599→              cx="70"
+   600→   600→              cy="70"
+   601→   601→              r={r}
+   602→   602→              fill="none"
+   603→   603→              stroke="currentColor"
+   604→   604→              strokeWidth="14"
+   605→   605→              className="text-primary"
+   606→   606→              strokeDasharray={arc(achievedPct, 0)}
+   607→   607→              strokeDashoffset={0}
+   608→   608→            />
+   609→   609→          )}
+   610→   610→          {activePct > 0 && (
+   611→   611→            <circle
+   612→   612→              cx="70"
+   613→   613→              cy="70"
+   614→   614→              r={r}
+   615→   615→              fill="none"
+   616→   616→              stroke="currentColor"
+   617→   617→              strokeWidth="14"
+   618→   618→              className="text-teal-400"
+   619→   619→              strokeDasharray={arc(activePct, 0)}
+   620→   620→              strokeDashoffset={`${(-achievedPct * c).toFixed(2)}`}
+   621→   621→            />
+   622→   622→          )}
+   623→   623→          {missedPct > 0 && (
+   624→   624→            <circle
+   625→   625→              cx="70"
+   626→   626→              cy="70"
+   627→   627→              r={r}
+   628→   628→              fill="none"
+   629→   629→              stroke="currentColor"
+   630→   630→              strokeWidth="14"
+   631→   631→              className="text-destructive"
+   632→   632→              strokeDasharray={arc(missedPct, 0)}
+   633→   633→              strokeDashoffset={`${(-((achievedPct + activePct) * c)).toFixed(2)}`}
+   634→   634→            />
+   635→   635→          )}
+   636→   636→        </svg>
+   637→   637→        <div className="absolute inset-0 flex flex-col items-center justify-center">
+   638→   638→          <p className="text-2xl font-semibold">{total}</p>
+   639→   639→          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Goals</p>
+   640→   640→        </div>
+   641→   641→      </div>
+   642→   642→      <div className="flex-1 space-y-2">
+   643→   643→        <div className="flex items-center justify-between text-sm">
+   644→   644→          <span className="flex items-center gap-2">
+   645→   645→            <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+   646→   646→            Achieved
+   647→   647→          </span>
+   648→   648→          <span className="font-semibold">{achieved}</span>
+   649→   649→        </div>
+   650→   650→        <div className="flex items-center justify-between text-sm">
+   651→   651→          <span className="flex items-center gap-2">
+   652→   652→            <span className="h-2.5 w-2.5 rounded-full bg-teal-400" />
+   653→   653→            Active
+   654→   654→          </span>
+   655→   655→          <span className="font-semibold">{active}</span>
+   656→   656→        </div>
+   657→   657→        <div className="flex items-center justify-between text-sm">
+   658→   658→          <span className="flex items-center gap-2">
+   659→   659→            <span className="h-2.5 w-2.5 rounded-full bg-destructive" />
+   660→   660→            Missed
+   661→   661→          </span>
+   662→   662→          <span className="font-semibold">{missed}</span>
+   663→   663→        </div>
+   664→   664→      </div>
+   665→   665→    </div>
+   666→   666→  );
+   667→   667→}
+   668→   668→
+   669→   669→// ============================================================
+   670→   670→// Skeleton
+   671→   671→// ============================================================
+   672→   672→function SkeletonGrid() {
+   673→   673→  return (
+   674→   674→    <div className="space-y-6">
+   675→   675→      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+   676→   676→        {Array.from({ length: 6 }).map((_, i) => (
+   677→   677→          <Skeleton key={i} className="h-24 w-full" />
+   678→   678→        ))}
+   679→   679→      </div>
+   680→   680→      <div className="grid gap-6 lg:grid-cols-3">
+   681→   681→        <div className="space-y-6 lg:col-span-2">
+   682→   682→          <Skeleton className="h-80 w-full" />
+   683→   683→          <Skeleton className="h-96 w-full" />
+   684→   684→        </div>
+   685→   685→        <div className="space-y-6">
+   686→   686→          <Skeleton className="h-64 w-full" />
+   687→   687→          <Skeleton className="h-64 w-full" />
+   688→   688→          <Skeleton className="h-64 w-full" />
+   689→   689→        </div>
+   690→   690→      </div>
+   691→   691→    </div>
+   692→   692→  );
+   693→   693→}
+   694→   694→
+   695→   695→// ============================================================
+   696→   696→// Empty form payload + helpers
+   697→   697→// ============================================================
+   698→   698→const NONE = "__none__";
+   699→   699→
+   700→   700→function emptyForm(): TaskFormPayload {
+   701→   701→  return {
+   702→   702→    title: "",
+   703→   703→    description: "",
+   704→   704→    priority: "MEDIUM",
+   705→   705→    category: NONE,
+   706→   706→    assigneeId: NONE,
+   707→   707→    goalId: NONE,
+   708→   708→    projectId: NONE,
+   709→   709→    dueDate: "",
+   710→   710→    isDistraction: false,
+   711→   711→  };
+   712→   712→}
+   713→   713→
+   714→   714→function taskToForm(task: Task): TaskFormPayload {
+   715→   715→  return {
+   716→   716→    title: task.title,
+   717→   717→    description: task.description ?? "",
+   718→   718→    priority: task.priority,
+   719→   719→    category: task.category ?? NONE,
+   720→   720→    assigneeId: task.assigneeId ?? NONE,
+   721→   721→    goalId: task.goalId ?? NONE,
+   722→   722→    projectId: task.projectId ?? NONE,
+   723→   723→    dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
+   724→   724→    isDistraction: task.isDistraction,
+   725→   725→  };
+   726→   726→}
+   727→   727→
+   728→   728→// ============================================================
+   729→   729→// Task form dialog (used for both create & edit)
+   730→   730→// ============================================================
+   731→   731→function TaskFormDialog({
+   732→   732→  open,
+   733→   733→  onOpenChange,
+   734→   734→  mode, // "create" | "edit"
+   735→   735→  initial,
+   736→   736→  users,
+   737→   737→  goals,
+   738→   738→  projects,
+   739→   739→  onSubmit,
+   740→   740→}: {
+   741→   741→  open: boolean;
+   742→   742→  onOpenChange: (v: boolean) => void;
+   743→   743→  mode: "create" | "edit";
+   744→   744→  initial: TaskFormPayload | null;
+   745→   745→  users: TeamUser[];
+   746→   746→  goals: AllGoalLite[];
+   747→   747→  projects: ProjectLite[];
+   748→   748→  onSubmit: (payload: TaskFormPayload) => Promise<void>;
+   749→   749→}) {
+   750→   750→  const [form, setForm] = useState<TaskFormPayload>(initial ?? emptyForm());
+   751→   751→  const [saving, setSaving] = useState(false);
+   752→   752→
+   753→   753→  // Reset form when the dialog opens / initial changes
+   754→   754→  useEffect(() => {
+   755→   755→    if (open) {
+   756→   756→      setForm(initial ?? emptyForm());
+   757→   757→    }
+   758→   758→  }, [open, initial]);
+   759→   759→
+   760→   760→  const setField = <K extends keyof TaskFormPayload>(key: K, value: TaskFormPayload[K]) => {
+   761→   761→    setForm((f) => ({ ...f, [key]: value }));
+   762→   762→  };
+   763→   763→
+   764→   764→  const handleSubmit = async (e: React.FormEvent) => {
+   765→   765→    e.preventDefault();
+   766→   766→    if (!form.title.trim()) {
+   767→   767→      toast.error("Title is required");
+   768→   768→      return;
+   769→   769→    }
+   770→   770→    setSaving(true);
+   771→   771→    try {
+   772→   772→      await onSubmit(form);
+   773→   773→      onOpenChange(false);
+   774→   774→    } catch (err) {
+   775→   775→      toast.error(err instanceof Error ? err.message : "Failed to save task");
+   776→   776→    } finally {
+   777→   777→      setSaving(false);
+   778→   778→    }
+   779→   779→  };
+   780→   780→
+   781→   781→  return (
+   782→   782→    <Dialog open={open} onOpenChange={onOpenChange}>
+   783→   783→      <DialogContent className="max-w-lg">
+   784→   784→        <DialogHeader>
+   785→   785→          <DialogTitle className="flex items-center gap-2">
+   786→   786→            {mode === "create" ? (
+   787→   787→              <>
+   788→   788→                <Plus className="h-5 w-5 text-primary" />
+   789→   789→                New Task
+   790→   790→              </>
+   791→   791→            ) : (
+   792→   792→              <>
+   793→   793→                <Pencil className="h-5 w-5 text-primary" />
+   794→   794→                Edit Task
+   795→   795→              </>
+   796→   796→            )}
+   797→   797→          </DialogTitle>
+   798→   798→          <DialogDescription>
+   799→   799→            {mode === "create"
+   800→   800→              ? "Add a new task to the system. Connect it to a goal for focus."
+   801→   801→              : "Update task fields. All changes save to the database."}
+   802→   802→          </DialogDescription>
+   803→   803→        </DialogHeader>
+   804→   804→
+   805→   805→        <form onSubmit={handleSubmit} className="space-y-3">
+   806→   806→          {/* Title */}
+   807→   807→          <div className="space-y-1.5">
+   808→   808→            <Label htmlFor="task-title">Title *</Label>
+   809→   809→            <Input
+   810→   810→              id="task-title"
+   811→   811→              value={form.title}
+   812→   812→              onChange={(e) => setField("title", e.target.value)}
+   813→   813→              placeholder="e.g. Call GTBank treasury team to confirm invoice payment"
+   814→   814→              autoFocus
+   815→   815→              required
+   816→   816→            />
+   817→   817→          </div>
+   818→   818→
+   819→   819→          {/* Description */}
+   820→   820→          <div className="space-y-1.5">
+   821→   821→            <Label htmlFor="task-desc">Description</Label>
+   822→   822→            <Textarea
+   823→   823→              id="task-desc"
+   824→   824→              value={form.description}
+   825→   825→              onChange={(e) => setField("description", e.target.value)}
+   826→   826→              placeholder="Optional notes, context, or acceptance criteria"
+   827→   827→              rows={3}
+   828→   828→            />
+   829→   829→          </div>
+   830→   830→
+   831→   831→          {/* Priority + Category */}
+   832→   832→          <div className="grid grid-cols-2 gap-3">
+   833→   833→            <div className="space-y-1.5">
+   834→   834→              <Label>Priority</Label>
+   835→   835→              <Select value={form.priority} onValueChange={(v) => setField("priority", v)}>
+   836→   836→                <SelectTrigger className="w-full">
+   837→   837→                  <SelectValue placeholder="Priority" />
+   838→   838→                </SelectTrigger>
+   839→   839→                <SelectContent>
+   840→   840→                  <SelectItem value="URGENT">Urgent</SelectItem>
+   841→   841→                  <SelectItem value="HIGH">High</SelectItem>
+   842→   842→                  <SelectItem value="MEDIUM">Medium</SelectItem>
+   843→   843→                  <SelectItem value="LOW">Low</SelectItem>
+   844→   844→                </SelectContent>
+   845→   845→              </Select>
+   846→   846→            </div>
+   847→   847→            <div className="space-y-1.5">
+   848→   848→              <Label>Category</Label>
+   849→   849→              <Select value={form.category} onValueChange={(v) => setField("category", v)}>
+   850→   850→                <SelectTrigger className="w-full">
+   851→   851→                  <SelectValue placeholder="None" />
+   852→   852→                </SelectTrigger>
+   853→   853→                <SelectContent>
+   854→   854→                  <SelectItem value={NONE}>— none —</SelectItem>
+   855→   855→                  <SelectItem value="STRATEGIC">Strategic</SelectItem>
+   856→   856→                  <SelectItem value="OPERATIONAL">Operational</SelectItem>
+   857→   857→                  <SelectItem value="ADMIN">Admin</SelectItem>
+   858→   858→                  <SelectItem value="DISTRACTION">Distraction</SelectItem>
+   859→   859→                </SelectContent>
+   860→   860→              </Select>
+   861→   861→            </div>
+   862→   862→          </div>
+   863→   863→
+   864→   864→          {/* Assignee + Due date */}
+   865→   865→          <div className="grid grid-cols-2 gap-3">
+   866→   866→            <div className="space-y-1.5">
+   867→   867→              <Label>Assignee</Label>
+   868→   868→              <Select value={form.assigneeId} onValueChange={(v) => setField("assigneeId", v)}>
+   869→   869→                <SelectTrigger className="w-full">
+   870→   870→                  <SelectValue placeholder="Unassigned" />
+   871→   871→                </SelectTrigger>
+   872→   872→                <SelectContent>
+   873→   873→                  <SelectItem value={NONE}>— unassigned —</SelectItem>
+   874→   874→                  {users.map((u) => (
+   875→   875→                    <SelectItem key={u.id} value={u.id}>
+   876→   876→                      {u.name} · {u.role}
+   877→   877→                    </SelectItem>
+   878→   878→                  ))}
+   879→   879→                </SelectContent>
+   880→   880→              </Select>
+   881→   881→            </div>
+   882→   882→            <div className="space-y-1.5">
+   883→   883→              <Label htmlFor="task-due">Due date</Label>
+   884→   884→              <Input
+   885→   885→                id="task-due"
+   886→   886→                type="date"
+   887→   887→                value={form.dueDate}
+   888→   888→                onChange={(e) => setField("dueDate", e.target.value)}
+   889→   889→              />
+   890→   890→            </div>
+   891→   891→          </div>
+   892→   892→
+   893→   893→          {/* Goal + Project */}
+   894→   894→          <div className="grid grid-cols-2 gap-3">
+   895→   895→            <div className="space-y-1.5">
+   896→   896→              <Label>Link to goal</Label>
+   897→   897→              <Select value={form.goalId} onValueChange={(v) => setField("goalId", v)}>
+   898→   898→                <SelectTrigger className="w-full">
+   899→   899→                  <SelectValue placeholder="None" />
+   900→   900→                </SelectTrigger>
+   901→   901→                <SelectContent className="max-h-72">
+   902→   902→                  <SelectItem value={NONE}>— none —</SelectItem>
+   903→   903→                  {goals.map((g) => (
+   904→   904→                    <SelectItem key={g.id} value={g.id}>
+   905→   905→                      [{g.type}] {g.title}
+   906→   906→                    </SelectItem>
+   907→   907→                  ))}
+   908→   908→                </SelectContent>
+   909→   909→              </Select>
+   910→   910→            </div>
+   911→   911→            <div className="space-y-1.5">
+   912→   912→              <Label>Link to project</Label>
+   913→   913→              <Select value={form.projectId} onValueChange={(v) => setField("projectId", v)}>
+   914→   914→                <SelectTrigger className="w-full">
+   915→   915→                  <SelectValue placeholder="None" />
+   916→   916→                </SelectTrigger>
+   917→   917→                <SelectContent className="max-h-72">
+   918→   918→                  <SelectItem value={NONE}>— none —</SelectItem>
+   919→   919→                  {projects.map((p) => (
+   920→   920→                    <SelectItem key={p.id} value={p.id}>
+   921→   921→                      {p.name}
+   922→   922→                    </SelectItem>
+   923→   923→                  ))}
+   924→   924→                </SelectContent>
+   925→   925→              </Select>
+   926→   926→            </div>
+   927→   927→          </div>
+   928→   928→
+   929→   929→          {/* Distraction toggle */}
+   930→   930→          <button
+   931→   931→            type="button"
+   932→   932→            onClick={() => setField("isDistraction", !form.isDistraction)}
+   933→   933→            className={cn(
+   934→   934→              "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+   935→   935→              form.isDistraction
+   936→   936→                ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+   937→   937→                : "border-border text-muted-foreground hover:bg-accent/30"
+   938→   938→            )}
+   939→   939→          >
+   940→   940→            <span className="flex items-center gap-2">
+   941→   941→              <Ban className="h-4 w-4" />
+   942→   942→              <span className="font-medium">
+   943→   943→                {form.isDistraction ? "Flagged as distraction" : "Flag as distraction"}
+   944→   944→              </span>
+   945→   945→            </span>
+   946→   946→            <span className="text-[11px]">
+   947→   947→              {form.isDistraction ? "Will be batched — click to unflag" : "Batch & defer non-strategic work"}
+   948→   948→            </span>
+   949→   949→          </button>
+   950→   950→
+   951→   951→          <DialogFooter className="gap-2 pt-2">
+   952→   952→            <Button
+   953→   953→              type="button"
+   954→   954→              variant="outline"
+   955→   955→              onClick={() => onOpenChange(false)}
+   956→   956→              disabled={saving}
+   957→   957→            >
+   958→   958→              Cancel
+   959→   959→            </Button>
+   960→   960→            <Button type="submit" disabled={saving || !form.title.trim()}>
+   961→   961→              {saving ? (
+   962→   962→                <>
+   963→   963→                  <Loader2 className="h-4 w-4 animate-spin" />
+   964→   964→                  Saving…
+   965→   965→                </>
+   966→   966→              ) : mode === "create" ? (
+   967→   967→                <>
+   968→   968→                  <Plus className="h-4 w-4" />
+   969→   969→                  Create Task
+   970→   970→                </>
+   971→   971→              ) : (
+   972→   972→                <>
+   973→   973→                  <CheckCircle2 className="h-4 w-4" />
+   974→   974→                  Save Changes
+   975→   975→                </>
+   976→   976→              )}
+   977→   977→            </Button>
+   978→   978→          </DialogFooter>
+   979→   979→        </form>
+   980→   980→      </DialogContent>
+   981→   981→    </Dialog>
+   982→   982→  );
+   983→   983→}
+   984→   984→
+   985→   985→// ============================================================
+   986→   986→// Plan Tasks with DIDI dialog
+   987→   987→// ============================================================
+   988→   988→interface PlanSuggestion {
+   989→   989→  title: string;
+   990→   990→  priority?: string;
+   991→   991→  category?: string;
+   992→   992→  assigneeSuggestion?: string;
+   993→   993→  goalTitle?: string;
+   994→   994→  rationale?: string;
+   995→   995→}
+   996→   996→
+   997→   997→function PlanTasksDialog({
+   998→   998→  open,
+   999→   999→  onOpenChange,
+  1000→  1000→  onAdd,
+  1001→  1001→}: {
+  1002→  1002→  open: boolean;
+  1003→  1003→  onOpenChange: (v: boolean) => void;
+  1004→  1004→  onAdd: (s: PlanSuggestion) => Promise<boolean>;
+  1005→  1005→}) {
+  1006→  1006→  const [loading, setLoading] = useState(false);
+  1007→  1007→  const [suggestions, setSuggestions] = useState<PlanSuggestion[]>([]);
+  1008→  1008→  const [error, setError] = useState<string | null>(null);
+  1009→  1009→  const [addedSet, setAddedSet] = useState<Set<number>>(new Set());
+  1010→  1010→  const [addingIdx, setAddingIdx] = useState<number | null>(null);
+  1011→  1011→  const [emptyMsg, setEmptyMsg] = useState<string | null>(null);
+  1012→  1012→  const [rawText, setRawText] = useState<string | null>(null);
+  1013→  1013→
+  1014→  1014→  const fetchSuggestions = useCallback(async () => {
+  1015→  1015→    setLoading(true);
+  1016→  1016→    setError(null);
+  1017→  1017→    setEmptyMsg(null);
+  1018→  1018→    setRawText(null);
+  1019→  1019→    setSuggestions([]);
+  1020→  1020→    setAddedSet(new Set());
+  1021→  1021→    try {
+  1022→  1022→      const res = await fetch("/api/doz/ai", {
+  1023→  1023→        method: "POST",
+  1024→  1024→        headers: { "Content-Type": "application/json" },
+  1025→  1025→        body: JSON.stringify({ action: "plan_tasks" }),
+  1026→  1026→      });
+  1027→  1027→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1028→  1028→      const json = await res.json();
+  1029→  1029→      if (json.empty) {
+  1030→  1030→        setEmptyMsg(json.message ?? "No active goals found.");
+  1031→  1031→      } else if (json.offline) {
+  1032→  1032→        setError(json.message ?? "AI service offline.");
+  1033→  1033→      } else if (Array.isArray(json.suggestions) && json.suggestions.length > 0) {
+  1034→  1034→        setSuggestions(json.suggestions);
+  1035→  1035→        if (json.raw) setRawText(json.raw);
+  1036→  1036→      } else {
+  1037→  1037→        // Couldn't parse — show raw text if any
+  1038→  1038→        if (json.raw) {
+  1039→  1039→          setRawText(json.raw);
+  1040→  1040→          setError("DIDI returned a response I couldn't parse — showing raw text below.");
+  1041→  1041→        } else {
+  1042→  1042→          setError("DIDI didn't return any suggestions. Try again.");
+  1043→  1043→        }
+  1044→  1044→      }
+  1045→  1045→    } catch (e) {
+  1046→  1046→      setError(e instanceof Error ? e.message : "Failed to get suggestions");
+  1047→  1047→    } finally {
+  1048→  1048→      setLoading(false);
+  1049→  1049→    }
+  1050→  1050→  }, []);
+  1051→  1051→
+  1052→  1052→  // Auto-fetch when opened
+  1053→  1053→  useEffect(() => {
+  1054→  1054→    if (open) {
+  1055→  1055→      void fetchSuggestions();
+  1056→  1056→    }
+  1057→  1057→  }, [open, fetchSuggestions]);
+  1058→  1058→
+  1059→  1059→  const handleAdd = async (s: PlanSuggestion, idx: number) => {
+  1060→  1060→    setAddingIdx(idx);
+  1061→  1061→    try {
+  1062→  1062→      const ok = await onAdd(s);
+  1063→  1063→      if (ok) {
+  1064→  1064→        setAddedSet((prev) => new Set(prev).add(idx));
+  1065→  1065→      }
+  1066→  1066→    } finally {
+  1067→  1067→      setAddingIdx(null);
+  1068→  1068→    }
+  1069→  1069→  };
+  1070→  1070→
+  1071→  1071→  return (
+  1072→  1072→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1073→  1073→      <DialogContent className="max-w-2xl">
+  1074→  1074→        <DialogHeader>
+  1075→  1075→          <DialogTitle className="flex items-center gap-2">
+  1076→  1076→            <Sparkles className="h-5 w-5 text-primary" />
+  1077→  1077→            Plan Tasks with DIDI
+  1078→  1078→          </DialogTitle>
+  1079→  1079→          <DialogDescription>
+  1080→  1080→            DIDI analyzes your active goals and current tasks, then suggests new tasks that move
+  1081→  1081→            them forward. Click <span className="font-semibold">Add</span> on any suggestion to
+  1082→  1082→            create it in the system.
+  1083→  1083→          </DialogDescription>
+  1084→  1084→        </DialogHeader>
+  1085→  1085→
+  1086→  1086→        <div className="max-h-[60vh] overflow-y-auto pr-1 scroll-thin">
+  1087→  1087→          {loading ? (
+  1088→  1088→            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+  1089→  1089→              <div className="relative">
+  1090→  1090→                <Bot className="h-10 w-10 text-primary" />
+  1091→  1091→                <Loader2 className="absolute -bottom-1 -right-1 h-4 w-4 animate-spin text-primary" />
+  1092→  1092→              </div>
+  1093→  1093→              <div>
+  1094→  1094→                <p className="text-sm font-medium text-primary">DIDI is analyzing your goals…</p>
+  1095→  1095→                <p className="text-xs text-muted-foreground">
+  1096→  1096→                  Reading active goals, open tasks, and team members.
+  1097→  1097→                </p>
+  1098→  1098→              </div>
+  1099→  1099→            </div>
+  1100→  1100→          ) : emptyMsg ? (
+  1101→  1101→            <EmptyState
+  1102→  1102→              icon={<Target className="h-8 w-8" />}
+  1103→  1103→              title="No active goals"
+  1104→  1104→              hint={emptyMsg}
+  1105→  1105→            />
+  1106→  1106→          ) : error && suggestions.length === 0 ? (
+  1107→  1107→            <EmptyState
+  1108→  1108→              icon={<AlertTriangle className="h-8 w-8" />}
+  1109→  1109→              title="Couldn't get suggestions"
+  1110→  1110→              hint={error}
+  1111→  1111→            />
+  1112→  1112→          ) : (
+  1113→  1113→            <div className="space-y-3">
+  1114→  1114→              {suggestions.map((s, i) => {
+  1115→  1115→                const isAdded = addedSet.has(i);
+  1116→  1116→                const isAdding = addingIdx === i;
+  1117→  1117→                return (
+  1118→  1118→                  <div
+  1119→  1119→                    key={`${s.title}-${i}`}
+  1120→  1120→                    className={cn(
+  1121→  1121→                      "rounded-lg border p-3 transition-colors",
+  1122→  1122→                      isAdded
+  1123→  1123→                        ? "border-primary/30 bg-primary/5"
+  1124→  1124→                        : "border-border bg-card hover:border-primary/30"
+  1125→  1125→                    )}
+  1126→  1126→                  >
+  1127→  1127→                    <div className="flex items-start justify-between gap-3">
+  1128→  1128→                      <div className="min-w-0 flex-1">
+  1129→  1129→                        <p className="text-sm font-medium leading-snug">{s.title}</p>
+  1130→  1130→                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+  1131→  1131→                          {s.priority && (
+  1132→  1132→                            <Badge variant="outline" className="text-[9px] font-semibold uppercase">
+  1133→  1133→                              <PriorityDot priority={s.priority} />
+  1134→  1134→                              <span className="ml-1">{s.priority}</span>
+  1135→  1135→                            </Badge>
+  1136→  1136→                          )}
+  1137→  1137→                          {s.category && (
+  1138→  1138→                            <CategoryBadge category={s.category} />
+  1139→  1139→                          )}
+  1140→  1140→                          {s.assigneeSuggestion && (
+  1141→  1141→                            <Badge
+  1142→  1142→                              variant="outline"
+  1143→  1143→                              className="text-[9px] font-semibold uppercase text-muted-foreground"
+  1144→  1144→                            >
+  1145→  1145→                              → {s.assigneeSuggestion}
+  1146→  1146→                            </Badge>
+  1147→  1147→                          )}
+  1148→  1148→                          {s.goalTitle && (
+  1149→  1149→                            <Badge
+  1150→  1150→                              variant="outline"
+  1151→  1151→                              className="border-primary/30 bg-primary/10 text-[9px] font-semibold uppercase text-primary"
+  1152→  1152→                            >
+  1153→  1153→                              <Target className="mr-1 h-2.5 w-2.5" />
+  1154→  1154→                              {s.goalTitle}
+  1155→  1155→                            </Badge>
+  1156→  1156→                          )}
+  1157→  1157→                        </div>
+  1158→  1158→                        {s.rationale && (
+  1159→  1159→                          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+  1160→  1160→                            {s.rationale}
+  1161→  1161→                          </p>
+  1162→  1162→                        )}
+  1163→  1163→                      </div>
+  1164→  1164→                      <Button
+  1165→  1165→                        type="button"
+  1166→  1166→                        size="sm"
+  1167→  1167→                        variant={isAdded ? "outline" : "default"}
+  1168→  1168→                        disabled={isAdded || isAdding}
+  1169→  1169→                        onClick={() => handleAdd(s, i)}
+  1170→  1170→                        className="shrink-0"
+  1171→  1171→                      >
+  1172→  1172→                        {isAdding ? (
+  1173→  1173→                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1174→  1174→                        ) : isAdded ? (
+  1175→  1175→                          <>
+  1176→  1176→                            <CheckCircle2 className="h-3.5 w-3.5" />
+  1177→  1177→                            Added
+  1178→  1178→                          </>
+  1179→  1179→                        ) : (
+  1180→  1180→                          <>
+  1181→  1181→                            <Plus className="h-3.5 w-3.5" />
+  1182→  1182→                            Add
+  1183→  1183→                          </>
+  1184→  1184→                        )}
+  1185→  1185→                      </Button>
+  1186→  1186→                    </div>
+  1187→  1187→                  </div>
+  1188→  1188→                );
+  1189→  1189→              })}
+  1190→  1190→              {rawText && (
+  1191→  1191→                <details className="rounded-md border border-border bg-muted/30 p-3 text-xs">
+  1192→  1192→                  <summary className="cursor-pointer font-semibold text-muted-foreground">
+  1193→  1193→                    Show raw AI response
+  1194→  1194→                  </summary>
+  1195→  1195→                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
+  1196→  1196→                    {rawText}
+  1197→  1197→                  </pre>
+  1198→  1198→                </details>
+  1199→  1199→              )}
+  1200→  1200→            </div>
+  1201→  1201→          )}
+  1202→  1202→        </div>
+  1203→  1203→
+  1204→  1204→        <DialogFooter className="gap-2 pt-2">
+  1205→  1205→          <Button
+  1206→  1206→            type="button"
+  1207→  1207→            variant="outline"
+  1208→  1208→            onClick={() => void fetchSuggestions()}
+  1209→  1209→            disabled={loading}
+  1210→  1210→          >
+  1211→  1211→            {loading ? (
+  1212→  1212→              <Loader2 className="h-4 w-4 animate-spin" />
+  1213→  1213→            ) : (
+  1214→  1214→              <Sparkles className="h-4 w-4" />
+  1215→  1215→            )}
+  1216→  1216→            Regenerate
+  1217→  1217→          </Button>
+  1218→  1218→          <Button type="button" onClick={() => onOpenChange(false)}>
+  1219→  1219→            <X className="h-4 w-4" />
+  1220→  1220→            Close
+  1221→  1221→          </Button>
+  1222→  1222→        </DialogFooter>
+  1223→  1223→      </DialogContent>
+  1224→  1224→    </Dialog>
+  1225→  1225→  );
+  1226→  1226→}
+  1227→  1227→
+  1228→  1228→// ============================================================
+  1229→  1229→// Main component
+  1230→  1230→// ============================================================
+  1231→  1231→export function StrategicPlanning() {
+  1232→  1232→  const [data, setData] = useState<PlanningData | null>(null);
+  1233→  1233→  const [loading, setLoading] = useState(true);
+  1234→  1234→  const [error, setError] = useState<string | null>(null);
+  1235→  1235→  const [doneOverrides, setDoneOverrides] = useState<Record<string, boolean>>({});
+  1236→  1236→
+  1237→  1237→  // Task form / delete / plan-tasks dialog state
+  1238→  1238→  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  1239→  1239→  const [showCreate, setShowCreate] = useState(false);
+  1240→  1240→  const [showEdit, setShowEdit] = useState(false);
+  1241→  1241→  const [showPlanTasks, setShowPlanTasks] = useState(false);
+  1242→  1242→  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  1243→  1243→  const [deleting, setDeleting] = useState(false);
+  1244→  1244→
+  1245→  1245→  const reload = useCallback(async () => {
+  1246→  1246→    try {
+  1247→  1247→      const res = await fetch("/api/doz/planning", { cache: "no-store" });
+  1248→  1248→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1249→  1249→      const json = (await res.json()) as PlanningData;
+  1250→  1250→      setData(json);
+  1251→  1251→      setError(null);
+  1252→  1252→    } catch (e) {
+  1253→  1253→      // Don't overwrite data — just toast
+  1254→  1254→      toast.error(e instanceof Error ? e.message : "Failed to refresh");
+  1255→  1255→    }
+  1256→  1256→  }, []);
+  1257→  1257→
+  1258→  1258→  useEffect(() => {
+  1259→  1259→    let cancelled = false;
+  1260→  1260→    (async () => {
+  1261→  1261→      try {
+  1262→  1262→        const res = await fetch("/api/doz/planning", { cache: "no-store" });
+  1263→  1263→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1264→  1264→        const json = (await res.json()) as PlanningData;
+  1265→  1265→        if (!cancelled) {
+  1266→  1266→          setData(json);
+  1267→  1267→          setError(null);
+  1268→  1268→        }
+  1269→  1269→      } catch (e) {
+  1270→  1270→        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load planning data");
+  1271→  1271→      } finally {
+  1272→  1272→        if (!cancelled) setLoading(false);
+  1273→  1273→      }
+  1274→  1274→    })();
+  1275→  1275→    return () => {
+  1276→  1276→      cancelled = true;
+  1277→  1277→    };
+  1278→  1278→  }, []);
+  1279→  1279→
+  1280→  1280→  // Tasks with applied done overrides (visual toggle)
+  1281→  1281→  const tasksView = useMemo<Task[]>(() => {
+  1282→  1282→    if (!data) return [];
+  1283→  1283→    return data.tasks.map((t) =>
+  1284→  1284→      doneOverrides[t.id] !== undefined
+  1285→  1285→        ? { ...t, status: doneOverrides[t.id] ? "DONE" : t.status }
+  1286→  1286→        : t
+  1287→  1287→    );
+  1288→  1288→  }, [data, doneOverrides]);
+  1289→  1289→
+  1290→  1290→  const handleToggle = async (id: string) => {
+  1291→  1291→    const t = tasksView.find((x) => x.id === id);
+  1292→  1292→    if (!t) return;
+  1293→  1293→    const newDone = t.status !== "DONE";
+  1294→  1294→    // Optimistic update
+  1295→  1295→    setDoneOverrides((prev) => ({ ...prev, [id]: newDone }));
+  1296→  1296→    if (newDone) {
+  1297→  1297→      toast.success("Task marked done", { description: t.title });
+  1298→  1298→    } else {
+  1299→  1299→      toast.message("Task reopened", { description: t.title });
+  1300→  1300→    }
+  1301→  1301→    // Persist
+  1302→  1302→    try {
+  1303→  1303→      const res = await fetch("/api/doz/tasks", {
+  1304→  1304→        method: "PATCH",
+  1305→  1305→        headers: { "Content-Type": "application/json" },
+  1306→  1306→        body: JSON.stringify({ taskId: id, action: "toggle" }),
+  1307→  1307→      });
+  1308→  1308→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1309→  1309→    } catch (e) {
+  1310→  1310→      // Revert on failure
+  1311→  1311→      setDoneOverrides((prev) => ({ ...prev, [id]: !newDone }));
+  1312→  1312→      toast.error(e instanceof Error ? e.message : "Failed to toggle task");
+  1313→  1313→    }
+  1314→  1314→  };
+  1315→  1315→
+  1316→  1316→  const handleToggleDistraction = async (task: Task) => {
+  1317→  1317→    const next = !task.isDistraction;
+  1318→  1318→    // Optimistic
+  1319→  1319→    setData((prev) => {
+  1320→  1320→      if (!prev) return prev;
+  1321→  1321→      return {
+  1322→  1322→        ...prev,
+  1323→  1323→        tasks: prev.tasks.map((t) =>
+  1324→  1324→          t.id === task.id ? { ...t, isDistraction: next } : t
+  1325→  1325→        ),
+  1326→  1326→      };
+  1327→  1327→    });
+  1328→  1328→    toast.success(
+  1329→  1329→      next ? "Flagged as distraction" : "Removed distraction flag",
+  1330→  1330→      { description: task.title }
+  1331→  1331→    );
+  1332→  1332→    try {
+  1333→  1333→      const res = await fetch("/api/doz/tasks", {
+  1334→  1334→        method: "PATCH",
+  1335→  1335→        headers: { "Content-Type": "application/json" },
+  1336→  1336→        body: JSON.stringify({
+  1337→  1337→          taskId: task.id,
+  1338→  1338→          fields: { isDistraction: next },
+  1339→  1339→        }),
+  1340→  1340→      });
+  1341→  1341→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1342→  1342→    } catch (e) {
+  1343→  1343→      // Revert
+  1344→  1344→      setData((prev) => {
+  1345→  1345→        if (!prev) return prev;
+  1346→  1346→        return {
+  1347→  1347→          ...prev,
+  1348→  1348→          tasks: prev.tasks.map((t) =>
+  1349→  1349→            t.id === task.id ? { ...t, isDistraction: task.isDistraction } : t
+  1350→  1350→          ),
+  1351→  1351→        };
+  1352→  1352→      });
+  1353→  1353→      toast.error(e instanceof Error ? e.message : "Failed to toggle distraction");
+  1354→  1354→    }
+  1355→  1355→  };
+  1356→  1356→
+  1357→  1357→  const handleEdit = (task: Task) => {
+  1358→  1358→    setEditingTask(task);
+  1359→  1359→    setShowEdit(true);
+  1360→  1360→  };
+  1361→  1361→
+  1362→  1362→  const handleEditSubmit = async (payload: TaskFormPayload) => {
+  1363→  1363→    if (!editingTask) return;
+  1364→  1364→    const fields: Record<string, unknown> = {
+  1365→  1365→      title: payload.title.trim(),
+  1366→  1366→      description: payload.description.trim(),
+  1367→  1367→      priority: payload.priority,
+  1368→  1368→      category: payload.category === NONE ? null : payload.category,
+  1369→  1369→      assigneeId: payload.assigneeId === NONE ? null : payload.assigneeId,
+  1370→  1370→      goalId: payload.goalId === NONE ? null : payload.goalId,
+  1371→  1371→      projectId: payload.projectId === NONE ? null : payload.projectId,
+  1372→  1372→      isDistraction: payload.isDistraction,
+  1373→  1373→      dueDate: payload.dueDate || null,
+  1374→  1374→    };
+  1375→  1375→    const res = await fetch("/api/doz/tasks", {
+  1376→  1376→      method: "PATCH",
+  1377→  1377→      headers: { "Content-Type": "application/json" },
+  1378→  1378→      body: JSON.stringify({ taskId: editingTask.id, fields }),
+  1379→  1379→    });
+  1380→  1380→    if (!res.ok) {
+  1381→  1381→      const err = await res.json().catch(() => ({}));
+  1382→  1382→      throw new Error(err.detail ?? `HTTP ${res.status}`);
+  1383→  1383→    }
+  1384→  1384→    toast.success("Task updated", { description: payload.title });
+  1385→  1385→    await reload();
+  1386→  1386→    setEditingTask(null);
+  1387→  1387→  };
+  1388→  1388→
+  1389→  1389→  const handleCreateSubmit = async (payload: TaskFormPayload) => {
+  1390→  1390→    const body: Record<string, unknown> = {
+  1391→  1391→      title: payload.title.trim(),
+  1392→  1392→      description: payload.description.trim() || undefined,
+  1393→  1393→      priority: payload.priority,
+  1394→  1394→      category: payload.category === NONE ? undefined : payload.category,
+  1395→  1395→      assigneeId: payload.assigneeId === NONE ? undefined : payload.assigneeId,
+  1396→  1396→      goalId: payload.goalId === NONE ? undefined : payload.goalId,
+  1397→  1397→      projectId: payload.projectId === NONE ? undefined : payload.projectId,
+  1398→  1398→      dueDate: payload.dueDate || undefined,
+  1399→  1399→      isDistraction: payload.isDistraction,
+  1400→  1400→    };
+  1401→  1401→    const res = await fetch("/api/doz/tasks", {
+  1402→  1402→      method: "POST",
+  1403→  1403→      headers: { "Content-Type": "application/json" },
+  1404→  1404→      body: JSON.stringify(body),
+  1405→  1405→    });
+  1406→  1406→    if (!res.ok) {
+  1407→  1407→      const err = await res.json().catch(() => ({}));
+  1408→  1408→      throw new Error(err.detail ?? `HTTP ${res.status}`);
+  1409→  1409→    }
+  1410→  1410→    toast.success("Task created", { description: payload.title });
+  1411→  1411→    await reload();
+  1412→  1412→  };
+  1413→  1413→
+  1414→  1414→  const handleDeleteConfirm = async () => {
+  1415→  1415→    if (!deleteTarget) return;
+  1416→  1416→    setDeleting(true);
+  1417→  1417→    try {
+  1418→  1418→      const res = await fetch("/api/doz/tasks", {
+  1419→  1419→        method: "DELETE",
+  1420→  1420→        headers: { "Content-Type": "application/json" },
+  1421→  1421→        body: JSON.stringify({ taskId: deleteTarget.id }),
+  1422→  1422→      });
+  1423→  1423→      if (!res.ok) {
+  1424→  1424→        const err = await res.json().catch(() => ({}));
+  1425→  1425→        throw new Error(err.detail ?? `HTTP ${res.status}`);
+  1426→  1426→      }
+  1427→  1427→      toast.success("Task deleted", { description: deleteTarget.title });
+  1428→  1428→      setDeleteTarget(null);
+  1429→  1429→      await reload();
+  1430→  1430→    } catch (e) {
+  1431→  1431→      toast.error(e instanceof Error ? e.message : "Failed to delete task");
+  1432→  1432→    } finally {
+  1433→  1433→      setDeleting(false);
+  1434→  1434→    }
+  1435→  1435→  };
+  1436→  1436→
+  1437→  1437→  const handleAddSuggestion = async (s: PlanSuggestion): Promise<boolean> => {
+  1438→  1438→    // Map a DIDI suggestion onto a create-task POST.
+  1439→  1439→    // Try to resolve goalId by goalTitle fuzzy match against data.allGoals.
+  1440→  1440→    let goalId: string | undefined;
+  1441→  1441→    if (s.goalTitle && data?.allGoals) {
+  1442→  1442→      const match = data.allGoals.find(
+  1443→  1443→        (g) =>
+  1444→  1444→          g.title.toLowerCase().includes(s.goalTitle!.toLowerCase()) ||
+  1445→  1445→          s.goalTitle!.toLowerCase().includes(g.title.toLowerCase())
+  1446→  1446→      );
+  1447→  1447→      if (match) goalId = match.id;
+  1448→  1448→    }
+  1449→  1449→
+  1450→  1450→    // Try to resolve assigneeId by name match.
+  1451→  1451→    let assigneeId: string | undefined;
+  1452→  1452→    if (s.assigneeSuggestion && data?.users) {
+  1453→  1453→      const suggestion = s.assigneeSuggestion.toLowerCase();
+  1454→  1454→      const match = data.users.find(
+  1455→  1455→        (u) =>
+  1456→  1456→          u.name.toLowerCase().includes(suggestion) ||
+  1457→  1457→          suggestion.includes(u.name.toLowerCase().split(" ")[0])
+  1458→  1458→      );
+  1459→  1459→      if (match) assigneeId = match.id;
+  1460→  1460→      else if (suggestion.includes("founder") || suggestion.includes("kelvin") || suggestion.includes("adaeze")) {
+  1461→  1461→        // Founder = first FOUNDER role user
+  1462→  1462→        const founder = data.users.find((u) => u.role === "FOUNDER");
+  1463→  1463→        if (founder) assigneeId = founder.id;
+  1464→  1464→      }
+  1465→  1465→    }
+  1466→  1466→
+  1467→  1467→    const body: Record<string, unknown> = {
+  1468→  1468→      title: s.title,
+  1469→  1469→      priority: s.priority ?? "MEDIUM",
+  1470→  1470→      category: s.category,
+  1471→  1471→      goalId,
+  1472→  1472→      assigneeId,
+  1473→  1473→    };
+  1474→  1474→    try {
+  1475→  1475→      const res = await fetch("/api/doz/tasks", {
+  1476→  1476→        method: "POST",
+  1477→  1477→        headers: { "Content-Type": "application/json" },
+  1478→  1478→        body: JSON.stringify(body),
+  1479→  1479→      });
+  1480→  1480→      if (!res.ok) {
+  1481→  1481→        const err = await res.json().catch(() => ({}));
+  1482→  1482→        throw new Error(err.detail ?? `HTTP ${res.status}`);
+  1483→  1483→      }
+  1484→  1484→      toast.success("Task added", { description: s.title });
+  1485→  1485→      await reload();
+  1486→  1486→      return true;
+  1487→  1487→    } catch (e) {
+  1488→  1488→      toast.error(e instanceof Error ? e.message : "Failed to add task");
+  1489→  1489→      return false;
+  1490→  1490→    }
+  1491→  1491→  };
+  1492→  1492→
+  1493→  1493→  // ============================================================
+  1494→  1494→  // Task filters
+  1495→  1495→  // ============================================================
+  1496→  1496→  const todayTasks = useMemo(() => {
+  1497→  1497→    return tasksView
+  1498→  1498→      .filter((t) => t.dueDate && isSameDay(new Date(t.dueDate), new Date()))
+  1499→  1499→      .sort(
+  1500→  1500→        (a, b) =>
+  1501→  1501→          (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+  1502→  1502→      );
+  1503→  1503→  }, [tasksView]);
+  1504→  1504→
+  1505→  1505→  const weekTasks = useMemo(() => {
+  1506→  1506→    return tasksView
+  1507→  1507→      .filter((t) => t.dueDate && isThisWeek(new Date(t.dueDate)))
+  1508→  1508→      .sort(
+  1509→  1509→        (a, b) =>
+  1510→  1510→          (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+  1511→  1511→      );
+  1512→  1512→  }, [tasksView]);
+  1513→  1513→
+  1514→  1514→  const allTasks = useMemo(() => {
+  1515→  1515→    return [...tasksView].sort((a, b) => {
+  1516→  1516→      const pa = PRIORITY_ORDER[a.priority] ?? 9;
+  1517→  1517→      const pb = PRIORITY_ORDER[b.priority] ?? 9;
+  1518→  1518→      if (pa !== pb) return pa - pb;
+  1519→  1519→      const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+  1520→  1520→      const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+  1521→  1521→      return da - db;
+  1522→  1522→    });
+  1523→  1523→  }, [tasksView]);
+  1524→  1524→
+  1525→  1525→  const distractionTasks = useMemo(() => {
+  1526→  1526→    return tasksView.filter((t) => t.isDistraction && t.status !== "DONE");
+  1527→  1527→  }, [tasksView]);
+  1528→  1528→
+  1529→  1529→  // Today grouped by priority
+  1530→  1530→  const todayGrouped = useMemo(() => {
+  1531→  1531→    const groups: Record<string, Task[]> = {};
+  1532→  1532→    for (const t of todayTasks) {
+  1533→  1533→      const key = t.priority;
+  1534→  1534→      if (!groups[key]) groups[key] = [];
+  1535→  1535→      groups[key].push(t);
+  1536→  1536→    }
+  1537→  1537→    return Object.keys(groups)
+  1538→  1538→      .sort((a, b) => (PRIORITY_ORDER[a] ?? 9) - (PRIORITY_ORDER[b] ?? 9))
+  1539→  1539→      .map((k) => ({ priority: k, tasks: groups[k] }));
+  1540→  1540→  }, [todayTasks]);
+  1541→  1541→
+  1542→  1542→  // ============================================================
+  1543→  1543→  // Cascade goals — flatten from goalsByType in cascade order
+  1544→  1544→  // ============================================================
+  1545→  1545→  const cascade = useMemo(() => {
+  1546→  1546→    if (!data) return [];
+  1547→  1547→    const g = data.goalsByType;
+  1548→  1548→    return [
+  1549→  1549→      ...g.ANNUAL.map((x) => ({ ...x, type: "ANNUAL", level: 0 })),
+  1550→  1550→      ...g.QUARTERLY.map((x) => ({ ...x, type: "QUARTERLY", level: 1 })),
+  1551→  1551→      ...g.MONTHLY.map((x) => ({ ...x, type: "MONTHLY", level: 2 })),
+  1552→  1552→      ...g.WEEKLY.map((x) => ({ ...x, type: "WEEKLY", level: 3 })),
+  1553→  1553→    ];
+  1554→  1554→  }, [data]);
+  1555→  1555→
+  1556→  1556→  // ============================================================
+  1557→  1557→  // Weekly focus
+  1558→  1558→  // ============================================================
+  1559→  1559→  const weeklyGoal = data?.goalsByType.WEEKLY[0] ?? null;
+  1560→  1560→  const weeklyTasks = useMemo(() => {
+  1561→  1561→    if (!data) return [];
+  1562→  1562→    return data.tasks.filter(
+  1563→  1563→      (t) => t.goal?.type === "WEEKLY" && t.status !== "DONE"
+  1564→  1564→    );
+  1565→  1565→  }, [data]);
+  1566→  1566→
+  1567→  1567→  if (loading) {
+  1568→  1568→    return (
+  1569→  1569→      <div className="p-4 md:p-6">
+  1570→  1570→        <SkeletonGrid />
+  1571→  1571→      </div>
+  1572→  1572→    );
+  1573→  1573→  }
+  1574→  1574→
+  1575→  1575→  if (error || !data) {
+  1576→  1576→    return (
+  1577→  1577→      <div className="p-4 md:p-6">
+  1578→  1578→        <EmptyState
+  1579→  1579→          icon={<AlertTriangle className="h-8 w-8" />}
+  1580→  1580→          title="Could not load planning data"
+  1581→  1581→          hint={error ?? "Please try again later."}
+  1582→  1582→        />
+  1583→  1583→      </div>
+  1584→  1584→    );
+  1585→  1585→  }
+  1586→  1586→
+  1587→  1587→  const s = data.stats;
+  1588→  1588→
+  1589→  1589→  return (
+  1590→  1590→    <div className="space-y-6 p-4 md:p-6">
+  1591→  1591→      {/* ============================================================ */}
+  1592→  1592→      {/* Header                                                       */}
+  1593→  1593→      {/* ============================================================ */}
+  1594→  1594→      <SectionHeader
+  1595→  1595→        icon={<Target className="h-5 w-5" />}
+  1596→  1596→        title="Strategic Planning"
+  1597→  1597→        description="Connect daily execution to annual ambition. Cascade Annual → Quarterly → Monthly → Weekly."
+  1598→  1598→      />
+  1599→  1599→
+  1600→  1600→      {/* ============================================================ */}
+  1601→  1601→      {/* FOCUS & ALIGNMENT SCORE                                     */}
+  1602→  1602→      {/* ============================================================ */}
+  1603→  1603→      <FocusScoreCard />
+  1604→  1604→
+  1605→  1605→      {/* ============================================================ */}
+  1606→  1606→      {/* KPI ROW                                                      */}
+  1607→  1607→      {/* ============================================================ */}
+  1608→  1608→      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+  1609→  1609→        <StatCard
+  1610→  1610→          label="Active Goals"
+  1611→  1611→          value={s.activeGoals}
+  1612→  1612→          sub={`${s.achievedGoals} achieved · ${s.missedGoals} missed`}
+  1613→  1613→          icon={<Target className="h-4 w-4" />}
+  1614→  1614→          accent="primary"
+  1615→  1615→        />
+  1616→  1616→        <StatCard
+  1617→  1617→          label="Avg Goal Progress"
+  1618→  1618→          value={`${s.avgGoalProgress}%`}
+  1619→  1619→          sub="Across all goals"
+  1620→  1620→          icon={<TrendingUp className="h-4 w-4" />}
+  1621→  1621→        />
+  1622→  1622→        <StatCard
+  1623→  1623→          label="Due Today"
+  1624→  1624→          value={s.dueToday}
+  1625→  1625→          sub="Tasks needing action"
+  1626→  1626→          icon={<Clock className="h-4 w-4" />}
+  1627→  1627→        />
+  1628→  1628→        <StatCard
+  1629→  1629→          label="Overdue Tasks"
+  1630→  1630→          value={s.overdueTasks}
+  1631→  1631→          sub="Past due date"
+  1632→  1632→          icon={<AlertTriangle className="h-4 w-4" />}
+  1633→  1633→          accent="danger"
+  1634→  1634→        />
+  1635→  1635→        <StatCard
+  1636→  1636→          label="Distractions"
+  1637→  1637→          value={s.distractions}
+  1638→  1638→          sub="Batch & defer"
+  1639→  1639→          icon={<CircleDot className="h-4 w-4" />}
+  1640→  1640→          accent="warning"
+  1641→  1641→        />
+  1642→  1642→        <StatCard
+  1643→  1643→          label="Completion Rate"
+  1644→  1644→          value={`${s.completionRate}%`}
+  1645→  1645→          sub={`${s.completedThisWeek} done this week`}
+  1646→  1646→          icon={<CheckCircle2 className="h-4 w-4" />}
+  1647→  1647→          accent="primary"
+  1648→  1648→        />
+  1649→  1649→      </div>
+  1650→  1650→
+  1651→  1651→      {/* ============================================================ */}
+  1652→  1652→      {/* MAIN GRID                                                    */}
+  1653→  1653→      {/* ============================================================ */}
+  1654→  1654→      <div className="grid gap-6 lg:grid-cols-3">
+  1655→  1655→        {/* =============== LEFT COLUMN =============== */}
+  1656→  1656→        <div className="space-y-6 lg:col-span-2">
+  1657→  1657→          {/* ---------- GOAL CASCADE ---------- */}
+  1658→  1658→          <Card className="p-5">
+  1659→  1659→            <SectionHeader
+  1660→  1660→              icon={<Target className="h-5 w-5" />}
+  1661→  1661→              title="Goal Cascade"
+  1662→  1662→              description="Every task must trace back to an annual goal."
+  1663→  1663→            />
+  1664→  1664→            <div className="mt-4 space-y-3">
+  1665→  1665→              {cascade.length === 0 ? (
+  1666→  1666→                <EmptyState
+  1667→  1667→                  icon={<Target className="h-6 w-6" />}
+  1668→  1668→                  title="No goals yet"
+  1669→  1669→                  hint="Define an annual goal to start the cascade."
+  1670→  1670→                />
+  1671→  1671→              ) : (
+  1672→  1672→                cascade.map((g) => (
+  1673→  1673→                  <CascadeRow key={g.id} goal={g} level={g.level} />
+  1674→  1674→                ))
+  1675→  1675→              )}
+  1676→  1676→            </div>
+  1677→  1677→          </Card>
+  1678→  1678→
+  1679→  1679→          {/* ---------- TASK LIST ---------- */}
+  1680→  1680→          <Card className="p-5">
+  1681→  1681→            <SectionHeader
+  1682→  1682→              icon={<CheckCircle2 className="h-5 w-5" />}
+  1683→  1683→              title="Tasks"
+  1684→  1684→              description="Connect every task to a goal. Triage distractions."
+  1685→  1685→              action={
+  1686→  1686→                <div className="flex flex-wrap items-center gap-2">
+  1687→  1687→                  <Button
+  1688→  1688→                    type="button"
+  1689→  1689→                    size="sm"
+  1690→  1690→                    variant="default"
+  1691→  1691→                    onClick={() => setShowPlanTasks(true)}
+  1692→  1692→                    className="bg-primary"
+  1693→  1693→                  >
+  1694→  1694→                    <Sparkles className="h-3.5 w-3.5" />
+  1695→  1695→                    Plan Tasks with DIDI
+  1696→  1696→                  </Button>
+  1697→  1697→                  <Button
+  1698→  1698→                    type="button"
+  1699→  1699→                    size="sm"
+  1700→  1700→                    variant="outline"
+  1701→  1701→                    onClick={() => setShowCreate(true)}
+  1702→  1702→                  >
+  1703→  1703→                    <Plus className="h-3.5 w-3.5" />
+  1704→  1704→                    New Task
+  1705→  1705→                  </Button>
+  1706→  1706→                </div>
+  1707→  1707→              }
+  1708→  1708→            />
+  1709→  1709→            <Tabs defaultValue="today" className="mt-4">
+  1710→  1710→              <TabsList className="grid w-full grid-cols-4">
+  1711→  1711→                <TabsTrigger value="today">
+  1712→  1712→                  Today
+  1713→  1713→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+  1714→  1714→                    {todayTasks.length}
+  1715→  1715→                  </Badge>
+  1716→  1716→                </TabsTrigger>
+  1717→  1717→                <TabsTrigger value="week">
+  1718→  1718→                  This Week
+  1719→  1719→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+  1720→  1720→                    {weekTasks.length}
+  1721→  1721→                  </Badge>
+  1722→  1722→                </TabsTrigger>
+  1723→  1723→                <TabsTrigger value="all">
+  1724→  1724→                  All
+  1725→  1725→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+  1726→  1726→                    {allTasks.length}
+  1727→  1727→                  </Badge>
+  1728→  1728→                </TabsTrigger>
+  1729→  1729→                <TabsTrigger value="distractions">
+  1730→  1730→                  Distractions
+  1731→  1731→                  <Badge
+  1732→  1732→                    variant="secondary"
+  1733→  1733→                    className={cn(
+  1734→  1734→                      "ml-1.5 h-4 px-1 text-[9px]",
+  1735→  1735→                      distractionTasks.length > 0 && "bg-amber-500/20 text-amber-400"
+  1736→  1736→                    )}
+  1737→  1737→                  >
+  1738→  1738→                    {distractionTasks.length}
+  1739→  1739→                  </Badge>
+  1740→  1740→                </TabsTrigger>
+  1741→  1741→              </TabsList>
+  1742→  1742→
+  1743→  1743→              {/* TODAY */}
+  1744→  1744→              <TabsContent value="today" className="mt-4">
+  1745→  1745→                {todayGrouped.length === 0 ? (
+  1746→  1746→                  <EmptyState
+  1747→  1747→                    icon={<CheckCircle2 className="h-6 w-6" />}
+  1748→  1748→                    title="Nothing due today"
+  1749→  1749→                    hint="Plan tomorrow's tasks before EOD."
+  1750→  1750→                  />
+  1751→  1751→                ) : (
+  1752→  1752→                  <div className="max-h-96 space-y-4 overflow-y-auto pr-1 scroll-thin">
+  1753→  1753→                    {todayGrouped.map((group) => (
+  1754→  1754→                      <div key={group.priority} className="space-y-2">
+  1755→  1755→                        <div className="flex items-center gap-2">
+  1756→  1756→                          <PriorityDot priority={group.priority} />
+  1757→  1757→                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+  1758→  1758→                            {PRIORITY_LABEL[group.priority] ?? group.priority}
+  1759→  1759→                          </p>
+  1760→  1760→                          <span className="text-[10px] text-muted-foreground">
+  1761→  1761→                            ({group.tasks.length})
+  1762→  1762→                          </span>
+  1763→  1763→                        </div>
+  1764→  1764→                        <div className="space-y-2">
+  1765→  1765→                          {group.tasks.map((t) => (
+  1766→  1766→                            <TaskRow
+  1767→  1767→                              key={t.id}
+  1768→  1768→                              task={t}
+  1769→  1769→                              onToggle={handleToggle}
+  1770→  1770→                              onEdit={handleEdit}
+  1771→  1771→                              onDelete={(task) => setDeleteTarget(task)}
+  1772→  1772→                              onToggleDistraction={handleToggleDistraction}
+  1773→  1773→                            />
+  1774→  1774→                          ))}
+  1775→  1775→                        </div>
+  1776→  1776→                      </div>
+  1777→  1777→                    ))}
+  1778→  1778→                  </div>
+  1779→  1779→                )}
+  1780→  1780→              </TabsContent>
+  1781→  1781→
+  1782→  1782→              {/* THIS WEEK */}
+  1783→  1783→              <TabsContent value="week" className="mt-4">
+  1784→  1784→                {weekTasks.length === 0 ? (
+  1785→  1785→                  <EmptyState
+  1786→  1786→                    icon={<Calendar className="h-6 w-6" />}
+  1787→  1787→                    title="No tasks scheduled this week"
+  1788→  1788→                    hint="Plan your week to hit the weekly goal."
+  1789→  1789→                  />
+  1790→  1790→                ) : (
+  1791→  1791→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+  1792→  1792→                    {weekTasks.map((t) => (
+  1793→  1793→                      <TaskRow
+  1794→  1794→                        key={t.id}
+  1795→  1795→                        task={t}
+  1796→  1796→                        onToggle={handleToggle}
+  1797→  1797→                        onEdit={handleEdit}
+  1798→  1798→                        onDelete={(task) => setDeleteTarget(task)}
+  1799→  1799→                        onToggleDistraction={handleToggleDistraction}
+  1800→  1800→                      />
+  1801→  1801→                    ))}
+  1802→  1802→                  </div>
+  1803→  1803→                )}
+  1804→  1804→              </TabsContent>
+  1805→  1805→
+  1806→  1806→              {/* ALL */}
+  1807→  1807→              <TabsContent value="all" className="mt-4">
+  1808→  1808→                {allTasks.length === 0 ? (
+  1809→  1809→                  <EmptyState
+  1810→  1810→                    icon={<CheckCircle2 className="h-6 w-6" />}
+  1811→  1811→                    title="No tasks"
+  1812→  1812→                    hint="Tasks appear here once created."
+  1813→  1813→                  />
+  1814→  1814→                ) : (
+  1815→  1815→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+  1816→  1816→                    {allTasks.map((t) => (
+  1817→  1817→                      <TaskRow
+  1818→  1818→                        key={t.id}
+  1819→  1819→                        task={t}
+  1820→  1820→                        onToggle={handleToggle}
+  1821→  1821→                        onEdit={handleEdit}
+  1822→  1822→                        onDelete={(task) => setDeleteTarget(task)}
+  1823→  1823→                        onToggleDistraction={handleToggleDistraction}
+  1824→  1824→                      />
+  1825→  1825→                    ))}
+  1826→  1826→                  </div>
+  1827→  1827→                )}
+  1828→  1828→              </TabsContent>
+  1829→  1829→
+  1830→  1830→              {/* DISTRACTIONS */}
+  1831→  1831→              <TabsContent value="distractions" className="mt-4">
+  1832→  1832→                {distractionTasks.length === 0 ? (
+  1833→  1833→                  <EmptyState
+  1834→  1834→                    icon={<CheckCircle2 className="h-6 w-6" />}
+  1835→  1835→                    title="No distractions detected"
+  1836→  1836→                    hint="Stay focused on the goal cascade."
+  1837→  1837→                  />
+  1838→  1838→                ) : (
+  1839→  1839→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+  1840→  1840→                    {distractionTasks.map((t) => (
+  1841→  1841→                      <TaskRow
+  1842→  1842→                        key={t.id}
+  1843→  1843→                        task={t}
+  1844→  1844→                        onToggle={handleToggle}
+  1845→  1845→                        onEdit={handleEdit}
+  1846→  1846→                        onDelete={(task) => setDeleteTarget(task)}
+  1847→  1847→                        onToggleDistraction={handleToggleDistraction}
+  1848→  1848→                      />
+  1849→  1849→                    ))}
+  1850→  1850→                  </div>
+  1851→  1851→                )}
+  1852→  1852→              </TabsContent>
+  1853→  1853→            </Tabs>
+  1854→  1854→          </Card>
+  1855→  1855→        </div>
+  1856→  1856→
+  1857→  1857→        {/* =============== RIGHT COLUMN =============== */}
+  1858→  1858→        <div className="space-y-6">
+  1859→  1859→          {/* ---------- DISTRACTION DETECTOR ---------- */}
+  1860→  1860→          <Card className="border-amber-500/40 bg-amber-500/5 p-5">
+  1861→  1861→            <div className="flex items-start gap-3">
+  1862→  1862→              <div className="rounded-md bg-amber-500/15 p-2 text-amber-400">
+  1863→  1863→                <AlertTriangle className="h-5 w-5" />
+  1864→  1864→              </div>
+  1865→  1865→              <div className="min-w-0 flex-1">
+  1866→  1866→                <h3 className="text-sm font-semibold">Distraction Detector</h3>
+  1867→  1867→                <p className="text-xs text-muted-foreground">
+  1868→  1868→                  {distractionTasks.length === 0
+  1869→  1869→                    ? "All clear — you're focused."
+  1870→  1870→                    : `${distractionTasks.length} ${distractionTasks.length === 1 ? "task" : "tasks"} flagged as distractions.`}
+  1871→  1871→                </p>
+  1872→  1872→              </div>
+  1873→  1873→              {distractionTasks.length > 0 && (
+  1874→  1874→                <Badge
+  1875→  1875→                  variant="outline"
+  1876→  1876→                  className="border-amber-500/40 bg-amber-500/10 text-amber-400"
+  1877→  1877→                >
+  1878→  1878→                  {distractionTasks.length}
+  1879→  1879→                </Badge>
+  1880→  1880→              )}
+  1881→  1881→            </div>
+  1882→  1882→
+  1883→  1883→            {distractionTasks.length > 0 ? (
+  1884→  1884→              <>
+  1885→  1885→                <div className="mt-3 space-y-1.5">
+  1886→  1886→                  {distractionTasks.slice(0, 4).map((t) => (
+  1887→  1887→                    <div
+  1888→  1888→                      key={t.id}
+  1889→  1889→                      className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5"
+  1890→  1890→                    >
+  1891→  1891→                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+  1892→  1892→                      <p className="truncate text-xs">{t.title}</p>
+  1893→  1893→                    </div>
+  1894→  1894→                  ))}
+  1895→  1895→                  {distractionTasks.length > 4 && (
+  1896→  1896→                    <p className="text-center text-[10px] text-muted-foreground">
+  1897→  1897→                      +{distractionTasks.length - 4} more
+  1898→  1898→                    </p>
+  1899→  1899→                  )}
+  1900→  1900→                </div>
+  1901→  1901→                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5">
+  1902→  1902→                  <p className="text-[11px] font-medium text-amber-400">
+  1903→  1903→                    Recommendation
+  1904→  1904→                  </p>
+  1905→  1905→                  <p className="mt-0.5 text-xs text-amber-300/90">
+  1906→  1906→                    Batch these into a single 30-min block at 4 PM. Don&apos;t
+  1907→  1907→                    let them fracture deep work.
+  1908→  1908→                  </p>
+  1909→  1909→                </div>
+  1910→  1910→              </>
+  1911→  1911→            ) : (
+  1912→  1912→              <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-2.5">
+  1913→  1913→                <p className="text-xs text-primary">
+  1914→  1914→                  Stay on the cascade. Today&apos;s work connects directly to
+  1915→  1915→                  this week&apos;s goal.
+  1916→  1916→                </p>
+  1917→  1917→              </div>
+  1918→  1918→            )}
+  1919→  1919→          </Card>
+  1920→  1920→
+  1921→  1921→          {/* ---------- WEEKLY FOCUS ---------- */}
+  1922→  1922→          <Card className="p-5">
+  1923→  1923→            <SectionHeader
+  1924→  1924→              icon={<Calendar className="h-5 w-5" />}
+  1925→  1925→              title="Weekly Focus"
+  1926→  1926→              description={weeklyGoal ? undefined : "No weekly goal set"}
+  1927→  1927→            />
+  1928→  1928→            {weeklyGoal ? (
+  1929→  1929→              <div className="mt-4 space-y-4">
+  1930→  1930→                <div>
+  1931→  1931→                  <p className="text-sm font-medium leading-snug">
+  1932→  1932→                    {weeklyGoal.title}
+  1933→  1933→                  </p>
+  1934→  1934→                  <div className="mt-2 flex items-center gap-2">
+  1935→  1935→                    <Progress value={weeklyGoal.progress} className="h-2 flex-1" />
+  1936→  1936→                    <span className="text-xs font-semibold">
+  1937→  1937→                      {weeklyGoal.progress}%
+  1938→  1938→                    </span>
+  1939→  1939→                  </div>
+  1940→  1940→                </div>
+  1941→  1941→
+  1942→  1942→                <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
+  1943→  1943→                  <div className="flex items-center gap-2">
+  1944→  1944→                    <Clock className="h-4 w-4 text-muted-foreground" />
+  1945→  1945→                    <span className="text-xs text-muted-foreground">
+  1946→  1946→                      Days remaining
+  1947→  1947→                    </span>
+  1948→  1948→                  </div>
+  1949→  1949→                  <span
+  1950→  1950→                    className={cn(
+  1951→  1951→                      "text-sm font-semibold",
+  1952→  1952→                      daysUntil(weeklyGoal.dueDate) < 0
+  1953→  1953→                        ? "text-destructive"
+  1954→  1954→                        : daysUntil(weeklyGoal.dueDate) <= 1
+  1955→  1955→                        ? "text-amber-400"
+  1956→  1956→                        : "text-foreground"
+  1957→  1957→                    )}
+  1958→  1958→                  >
+  1959→  1959→                    {(() => {
+  1960→  1960→                      const d = daysUntil(weeklyGoal.dueDate);
+  1961→  1961→                      if (d < 0) return `${Math.abs(d)}d overdue`;
+  1962→  1962→                      if (d === 0) return "Due today";
+  1963→  1963→                      return `${d} day${d === 1 ? "" : "s"}`;
+  1964→  1964→                    })()}
+  1965→  1965→                  </span>
+  1966→  1966→                </div>
+  1967→  1967→
+  1968→  1968→                <div>
+  1969→  1969→                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+  1970→  1970→                    This week&apos;s key tasks
+  1971→  1971→                  </p>
+  1972→  1972→                  {weeklyTasks.length === 0 ? (
+  1973→  1973→                    <p className="rounded-md border border-dashed border-border px-3 py-3 text-center text-xs text-muted-foreground">
+  1974→  1974→                      All weekly tasks complete
+  1975→  1975→                    </p>
+  1976→  1976→                  ) : (
+  1977→  1977→                    <div className="space-y-1.5">
+  1978→  1978→                      {weeklyTasks.slice(0, 5).map((t) => (
+  1979→  1979→                        <button
+  1980→  1980→                          key={t.id}
+  1981→  1981→                          type="button"
+  1982→  1982→                          onClick={() => handleToggle(t.id)}
+  1983→  1983→                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/30"
+  1984→  1984→                        >
+  1985→  1985→                          <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1986→  1986→                          <span className="truncate text-xs">{t.title}</span>
+  1987→  1987→                          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+  1988→  1988→                            {t.dueDate ? relativeTime(t.dueDate) : ""}
+  1989→  1989→                          </span>
+  1990→  1990→                        </button>
+  1991→  1991→                      ))}
+  1992→  1992→                      {weeklyTasks.length > 5 && (
+  1993→  1993→                        <p className="text-center text-[10px] text-muted-foreground">
+  1994→  1994→                          +{weeklyTasks.length - 5} more
+  1995→  1995→                        </p>
+  1996→  1996→                      )}
+  1997→  1997→                    </div>
+  1998→  1998→                  )}
+  1999→  1999→                </div>
+  2000→  2000→              </div>
+
+[showing lines 1-2000 of 2002; use offset=2001 with limit to continue reading]

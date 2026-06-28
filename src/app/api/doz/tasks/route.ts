@@ -16,10 +16,15 @@ import { getSessionUser } from "@/lib/auth";
 //           Body: { title, description?, priority?, category?,
 //                   assigneeId, dueDate?, goalId?, projectId? }
 //
-// PATCH  -> toggle task status. Body: { taskId, action: "toggle"|"complete"|"reopen" }
-//           - toggle: flip between DONE/TODO
-//           - complete: force DONE
-//           - reopen: force TODO
+// PATCH has TWO modes:
+//   1) Status toggle (legacy):
+//        Body: { taskId, action: "toggle"|"complete"|"reopen" }
+//   2) Field update (new):
+//        Body: { taskId, fields: { title?, description?, priority?, category?,
+//                                  assigneeId?, dueDate?, goalId?, projectId?,
+//                                  isDistraction? } }
+//      - dueDate may be null (clears), a Date string, or special "tomorrow"|"today"|"next-week".
+//      - goalId/projectId/assigneeId may be null to clear.
 // ============================================================
 
 // ---------------------------------------------------------------
@@ -47,6 +52,33 @@ function endOfWeek(): Date {
   sunday.setDate(monday.getDate() + 6);
   sunday.setHours(23, 59, 59, 999);
   return sunday;
+}
+
+// Parse a date input that may be: an ISO string, null/undefined (clear),
+// or one of the words "today" | "tomorrow" | "next-week" | "end-of-week".
+function parseDueDate(input: unknown): Date | null | undefined {
+  if (input === undefined) return undefined; // no change
+  if (input === null) return null; // clear
+  if (typeof input === "string") {
+    const lower = input.trim().toLowerCase();
+    if (lower === "" || lower === "null" || lower === "clear") return null;
+    if (lower === "today") return endOfToday();
+    if (lower === "tomorrow") {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      t.setHours(17, 0, 0, 0);
+      return t;
+    }
+    if (lower === "next-week" || lower === "end-of-week") return endOfWeek();
+    const d = new Date(input);
+    if (!isNaN(d.getTime())) return d;
+    return undefined; // unrecognized string -> ignore
+  }
+  if (typeof input === "number" || (input as any) instanceof Date) {
+    const d = new Date(input as any);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------
@@ -166,11 +198,12 @@ export async function POST(req: Request) {
     const finalPriority =
       priority && validPriorities.includes(priority) ? priority : "MEDIUM";
 
-    // Parse dueDate if provided
+    // Parse dueDate if provided — accepts YYYY-MM-DD, ISO, and the words
+    // "today" / "tomorrow" / "next-week" / "end-of-week".
     let dueDateParsed: Date | null = null;
-    if (dueDate) {
-      const d = new Date(dueDate);
-      if (!isNaN(d.getTime())) dueDateParsed = d;
+    if (dueDate !== undefined && dueDate !== null && dueDate !== "") {
+      const parsed = parseDueDate(dueDate);
+      if (parsed !== undefined) dueDateParsed = parsed;
     }
 
     const created = await db.task.create({
@@ -214,7 +247,7 @@ export async function POST(req: Request) {
 }
 
 // ---------------------------------------------------------------
-// PATCH — toggle task status
+// PATCH — toggle task status OR update task fields
 // ---------------------------------------------------------------
 export async function PATCH(req: Request) {
   try {
@@ -230,15 +263,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "invalid_json" }, { status: 400 });
     }
 
-    const { taskId, action } = body ?? {};
+    const { taskId } = body ?? {};
     if (!taskId || typeof taskId !== "string") {
       return NextResponse.json({ error: "missing_taskId" }, { status: 400 });
-    }
-    if (!["toggle", "complete", "reopen"].includes(action)) {
-      return NextResponse.json(
-        { error: "invalid_action", detail: "action must be toggle|complete|reopen" },
-        { status: 400 },
-      );
     }
 
     const existing = await db.task.findUnique({
@@ -247,6 +274,129 @@ export async function PATCH(req: Request) {
     });
     if (!existing) {
       return NextResponse.json({ error: "task_not_found" }, { status: 404 });
+    }
+
+    // ============================================================
+    // MODE 2 — field update
+    // ============================================================
+    if (body.fields && typeof body.fields === "object") {
+      const f = body.fields;
+      const data: any = {};
+
+      if (typeof f.title === "string") {
+        if (f.title.trim().length === 0) {
+          return NextResponse.json({ error: "title_cannot_be_empty" }, { status: 400 });
+        }
+        data.title = f.title.trim();
+      }
+      if (f.description !== undefined) {
+        data.description =
+          typeof f.description === "string" && f.description.trim().length > 0
+            ? f.description.trim()
+            : null;
+      }
+      if (typeof f.priority === "string") {
+        const validPriorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
+        if (!validPriorities.includes(f.priority)) {
+          return NextResponse.json(
+            { error: "invalid_priority", detail: `must be one of ${validPriorities.join("|")}` },
+            { status: 400 }
+          );
+        }
+        data.priority = f.priority;
+      }
+      if (f.category !== undefined) {
+        const validCategories = ["STRATEGIC", "OPERATIONAL", "ADMIN", "DISTRACTION"];
+        if (f.category === null || f.category === "") {
+          data.category = null;
+        } else if (typeof f.category === "string" && validCategories.includes(f.category)) {
+          data.category = f.category;
+        } else {
+          return NextResponse.json(
+            { error: "invalid_category", detail: `must be one of ${validCategories.join("|")} or null` },
+            { status: 400 }
+          );
+        }
+      }
+      if (f.assigneeId !== undefined) {
+        if (f.assigneeId === null || f.assigneeId === "") {
+          data.assigneeId = null;
+        } else if (typeof f.assigneeId === "string") {
+          // Verify the user exists
+          const u = await db.user.findUnique({ where: { id: f.assigneeId }, select: { id: true } });
+          if (!u) {
+            return NextResponse.json({ error: "assignee_not_found" }, { status: 400 });
+          }
+          data.assigneeId = f.assigneeId;
+        }
+      }
+      if (f.goalId !== undefined) {
+        if (f.goalId === null || f.goalId === "") {
+          data.goalId = null;
+        } else if (typeof f.goalId === "string") {
+          const g = await db.goal.findUnique({ where: { id: f.goalId }, select: { id: true } });
+          if (!g) {
+            return NextResponse.json({ error: "goal_not_found" }, { status: 400 });
+          }
+          data.goalId = f.goalId;
+        }
+      }
+      if (f.projectId !== undefined) {
+        if (f.projectId === null || f.projectId === "") {
+          data.projectId = null;
+        } else if (typeof f.projectId === "string") {
+          const p = await db.project.findUnique({ where: { id: f.projectId }, select: { id: true } });
+          if (!p) {
+            return NextResponse.json({ error: "project_not_found" }, { status: 400 });
+          }
+          data.projectId = f.projectId;
+        }
+      }
+      if (f.dueDate !== undefined) {
+        const parsed = parseDueDate(f.dueDate);
+        if (parsed !== undefined) data.dueDate = parsed;
+      }
+      if (typeof f.isDistraction === "boolean") {
+        data.isDistraction = f.isDistraction;
+      }
+
+      if (Object.keys(data).length === 0) {
+        return NextResponse.json(
+          { error: "no_fields_to_update", detail: "fields object was empty or contained only unknown keys" },
+          { status: 400 }
+        );
+      }
+
+      const updated = await db.task.update({
+        where: { id: taskId },
+        data,
+        include: TASK_INCLUDE,
+      });
+
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: user.id,
+            action: "UPDATED_TASK",
+            detail: `Edited "${updated.title}" (${Object.keys(data).join(", ")})`,
+          },
+        });
+      } catch {
+        // Non-blocking
+      }
+
+      return NextResponse.json({ task: shapeTask(updated) });
+    }
+
+    // ============================================================
+    // MODE 1 — status toggle (legacy)
+    // ============================================================
+    const { action } = body ?? {};
+    if (!["toggle", "complete", "reopen"].includes(action)) {
+      return NextResponse.json(
+        { error: "invalid_action", detail: "provide {action: toggle|complete|reopen} OR {fields: {...}}" },
+        { status: 400 },
+      );
     }
 
     const isDone = existing.status === "DONE";
@@ -289,6 +439,68 @@ export async function PATCH(req: Request) {
     console.error("[PATCH /api/doz/tasks] error", e);
     return NextResponse.json(
       { error: "failed_to_update_task", detail: e instanceof Error ? e.message : String(e) },
+      { status: 500 },
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// DELETE — remove a task
+// Body: { taskId } OR query param ?taskId=
+// ---------------------------------------------------------------
+export async function DELETE(req: Request) {
+  try {
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    let taskId: string | undefined;
+    const url = new URL(req.url);
+    const queryTaskId = url.searchParams.get("taskId");
+    if (queryTaskId) {
+      taskId = queryTaskId;
+    } else {
+      let body: any;
+      try {
+        body = await req.json();
+      } catch {
+        return NextResponse.json({ error: "invalid_json_or_missing_taskId" }, { status: 400 });
+      }
+      taskId = body?.taskId;
+    }
+
+    if (!taskId || typeof taskId !== "string") {
+      return NextResponse.json({ error: "missing_taskId" }, { status: 400 });
+    }
+
+    const existing = await db.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, title: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "task_not_found" }, { status: 404 });
+    }
+
+    await db.task.delete({ where: { id: taskId } });
+
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: "DELETED_TASK",
+          detail: `"${existing.title}"`,
+        },
+      });
+    } catch {
+      // Non-blocking
+    }
+
+    return NextResponse.json({ ok: true, id: taskId });
+  } catch (e) {
+    console.error("[DELETE /api/doz/tasks] error", e);
+    return NextResponse.json(
+      { error: "failed_to_delete_task", detail: e instanceof Error ? e.message : String(e) },
       { status: 500 },
     );
   }

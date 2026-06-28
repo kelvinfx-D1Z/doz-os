@@ -955,7 +955,7 @@ export function Procurement() {
     load();
   }, []);
 
-  // acting user for approve/pay — pick the Founder (Adaeze Okonkwo) by default
+  // acting user for approve/pay — pick the Founder (Kelvin Keshy) by default
   // resolved from any existing payment request where she acted as approver.
   const actingApproverId = useMemo(() => {
     if (!data) return null;

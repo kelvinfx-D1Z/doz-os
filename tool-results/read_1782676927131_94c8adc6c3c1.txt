@@ -1,0 +1,1138 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useMemo } from "react";
+     4→import {
+     5→  Target,
+     6→  Flag,
+     7→  AlertTriangle,
+     8→  CheckCircle2,
+     9→  Clock,
+    10→  TrendingUp,
+    11→  Calendar,
+    12→  ChevronRight,
+    13→  Circle,
+    14→  CircleDot,
+    15→} from "lucide-react";
+    16→import { Card } from "@/components/ui/card";
+    17→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    18→import {
+    19→  StatCard,
+    20→  StatusBadge,
+    21→  SectionHeader,
+    22→  EmptyState,
+    23→  MiniBar,
+    24→  PriorityDot,
+    25→} from "@/components/doz/ui-primitives";
+    26→import {
+    27→  formatDate,
+    28→  relativeTime,
+    29→  daysUntil,
+    30→  avatarColor,
+    31→  initials,
+    32→} from "@/lib/format";
+    33→import { Skeleton } from "@/components/ui/skeleton";
+    34→import { Badge } from "@/components/ui/badge";
+    35→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    36→import { Progress } from "@/components/ui/progress";
+    37→import { toast } from "sonner";
+    38→import { cn } from "@/lib/utils";
+    39→import { FocusScoreCard } from "@/components/doz/focus-score-card";
+    40→
+    41→// ============================================================
+    42→// Types
+    43→// ============================================================
+    44→interface Stats {
+    45→  activeGoals: number;
+    46→  achievedGoals: number;
+    47→  missedGoals: number;
+    48→  overdueTasks: number;
+    49→  dueToday: number;
+    50→  distractions: number;
+    51→  completedThisWeek: number;
+    52→  completionRate: number;
+    53→  avgGoalProgress: number;
+    54→}
+    55→
+    56→interface GoalChild {
+    57→  id: string;
+    58→  title: string;
+    59→  type: string;
+    60→  progress: number;
+    61→  status: string;
+    62→  dueDate: string;
+    63→}
+    64→
+    65→interface Goal {
+    66→  id: string;
+    67→  title: string;
+    68→  description: string | null;
+    69→  type: string;
+    70→  status: string;
+    71→  progress: number;
+    72→  quarter: string | null;
+    73→  startDate: string;
+    74→  dueDate: string;
+    75→  ownerId: string;
+    76→  owner: { name: string };
+    77→  parentId: string | null;
+    78→  children: GoalChild[];
+    79→}
+    80→
+    81→interface Task {
+    82→  id: string;
+    83→  title: string;
+    84→  description: string | null;
+    85→  status: string;
+    86→  priority: string;
+    87→  category: string | null;
+    88→  isDistraction: boolean;
+    89→  dueDate: string | null;
+    90→  estimatedHrs: number | null;
+    91→  actualHrs: number | null;
+    92→  completedAt: string | null;
+    93→  assignee: { name: string; role: string } | null;
+    94→  goal: { title: string; type: string } | null;
+    95→  project: { name: string } | null;
+    96→}
+    97→
+    98→interface GoalLite {
+    99→  id: string;
+   100→  title: string;
+   101→  status: string;
+   102→  progress: number;
+   103→  dueDate: string;
+   104→  quarter?: string | null;
+   105→  owner: { name: string };
+   106→  parentId: string | null;
+   107→}
+   108→
+   109→interface PlanningData {
+   110→  stats: Stats;
+   111→  goals: Goal[];
+   112→  tasks: Task[];
+   113→  goalsByType: {
+   114→    ANNUAL: GoalLite[];
+   115→    QUARTERLY: GoalLite[];
+   116→    MONTHLY: GoalLite[];
+   117→    WEEKLY: GoalLite[];
+   118→  };
+   119→}
+   120→
+   121→// ============================================================
+   122→// Helpers
+   123→// ============================================================
+   124→const CATEGORY_STYLE: Record<string, string> = {
+   125→  STRATEGIC: "bg-emerald-500/15 text-emerald-400",
+   126→  OPERATIONAL: "bg-teal-500/15 text-teal-300",
+   127→  ADMIN: "bg-muted text-muted-foreground",
+   128→  DISTRACTION: "bg-amber-500/15 text-amber-400",
+   129→};
+   130→
+   131→const PRIORITY_LABEL: Record<string, string> = {
+   132→  URGENT: "Urgent",
+   133→  HIGH: "High Priority",
+   134→  MEDIUM: "Medium Priority",
+   135→  LOW: "Low Priority",
+   136→};
+   137→
+   138→const PRIORITY_ORDER: Record<string, number> = {
+   139→  URGENT: 0,
+   140→  HIGH: 1,
+   141→  MEDIUM: 2,
+   142→  LOW: 3,
+   143→};
+   144→
+   145→function isSameDay(a: Date, b: Date): boolean {
+   146→  return (
+   147→    a.getFullYear() === b.getFullYear() &&
+   148→    a.getMonth() === b.getMonth() &&
+   149→    a.getDate() === b.getDate()
+   150→  );
+   151→}
+   152→
+   153→function isThisWeek(d: Date): boolean {
+   154→  const now = new Date();
+   155→  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+   156→  const end = new Date(start.getTime() + 7 * 86400000);
+   157→  const t = d.getTime();
+   158→  return t >= start.getTime() && t < end.getTime();
+   159→}
+   160→
+   161→// ============================================================
+   162→// Category badge
+   163→// ============================================================
+   164→function CategoryBadge({ category }: { category: string | null }) {
+   165→  if (!category) return null;
+   166→  return (
+   167→    <span
+   168→      className={cn(
+   169→        "inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+   170→        CATEGORY_STYLE[category] ?? "bg-muted text-muted-foreground"
+   171→      )}
+   172→    >
+   173→      {category}
+   174→    </span>
+   175→  );
+   176→}
+   177→
+   178→// ============================================================
+   179→// Cascade goal row
+   180→// ============================================================
+   181→const LEVEL_LABEL = ["Annual", "Quarterly", "Monthly", "Weekly"];
+   182→
+   183→function CascadeRow({
+   184→  goal,
+   185→  level,
+   186→}: {
+   187→  goal: {
+   188→    id: string;
+   189→    title: string;
+   190→    status: string;
+   191→    progress: number;
+   192→    dueDate: string;
+   193→    owner: { name: string };
+   194→    quarter?: string | null;
+   195→  };
+   196→  level: number;
+   197→}) {
+   198→  const days = daysUntil(goal.dueDate);
+   199→  const isOverdue = days < 0 && goal.status !== "ACHIEVED";
+   200→  const isAchieved = goal.status === "ACHIEVED";
+   201→  const levelLabel = LEVEL_LABEL[level] ?? "Goal";
+   202→
+   203→  return (
+   204→    <div
+   205→      className={cn(
+   206→        level > 0 && "border-l-2 border-primary/40 pl-4",
+   207→        level === 1 && "ml-0",
+   208→        level === 2 && "ml-4",
+   209→        level === 3 && "ml-8",
+   210→        level === 0 && "border-l-0 pl-0"
+   211→      )}
+   212→    >
+   213→      <Card
+   214→        className={cn(
+   215→          "p-4 transition-colors hover:bg-accent/30",
+   216→          level === 0 && "ring-1 ring-primary/30",
+   217→          isAchieved && "bg-primary/5",
+   218→          isOverdue && "border-red-500/40"
+   219→        )}
+   220→      >
+   221→        <div className="flex flex-wrap items-start justify-between gap-2">
+   222→          <div className="min-w-0 flex-1">
+   223→            <div className="flex items-center gap-2">
+   224→              <span className="text-primary">
+   225→                {level === 0 ? (
+   226→                  <Target className="h-3.5 w-3.5" />
+   227→                ) : level === 1 ? (
+   228→                  <Flag className="h-3.5 w-3.5" />
+   229→                ) : level === 2 ? (
+   230→                  <Calendar className="h-3.5 w-3.5" />
+   231→                ) : (
+   232→                  <CircleDot className="h-3.5 w-3.5" />
+   233→                )}
+   234→              </span>
+   235→              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   236→                {levelLabel}
+   237→                {goal.quarter ? ` · ${goal.quarter}` : ""}
+   238→              </span>
+   239→              <StatusBadge status={goal.status} />
+   240→            </div>
+   241→            <p className="mt-1.5 line-clamp-2 text-sm font-medium leading-snug">
+   242→              {goal.title}
+   243→            </p>
+   244→          </div>
+   245→          <div className="text-right">
+   246→            <p
+   247→              className={cn(
+   248→                "text-xs font-medium",
+   249→                isOverdue
+   250→                  ? "text-destructive"
+   251→                  : isAchieved
+   252→                  ? "text-primary"
+   253→                  : "text-muted-foreground"
+   254→              )}
+   255→            >
+   256→              {isOverdue
+   257→                ? `${Math.abs(days)}d overdue`
+   258→                : isAchieved
+   259→                ? "Achieved"
+   260→                : relativeTime(goal.dueDate)}
+   261→            </p>
+   262→            <p className="mt-0.5 text-[10px] text-muted-foreground">
+   263→              {formatDate(goal.dueDate)}
+   264→            </p>
+   265→          </div>
+   266→        </div>
+   267→        <div className="mt-3 flex items-center gap-3">
+   268→          <div className="flex-1">
+   269→            <MiniBar
+   270→              value={goal.progress}
+   271→              max={100}
+   272→              color={
+   273→                isAchieved
+   274→                  ? "bg-primary"
+   275→                  : isOverdue
+   276→                  ? "bg-red-500"
+   277→                  : "bg-primary"
+   278→              }
+   279→            />
+   280→          </div>
+   281→          <span className="w-10 text-right text-xs font-semibold">
+   282→            {goal.progress}%
+   283→          </span>
+   284→          <span className="text-[10px] text-muted-foreground">
+   285→            · {goal.owner.name.split(" ")[0]}
+   286→          </span>
+   287→        </div>
+   288→      </Card>
+   289→    </div>
+   290→  );
+   291→}
+   292→
+   293→// ============================================================
+   294→// Task row
+   295→// ============================================================
+   296→function TaskRow({
+   297→  task,
+   298→  onToggle,
+   299→}: {
+   300→  task: Task;
+   301→  onToggle: (id: string) => void;
+   302→}) {
+   303→  const isDone = task.status === "DONE";
+   304→  const isOverdue =
+   305→    !isDone &&
+   306→    task.dueDate &&
+   307→    new Date(task.dueDate).getTime() < new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+   308→  const isDistraction = task.isDistraction && !isDone;
+   309→
+   310→  return (
+   311→    <div
+   312→      className={cn(
+   313→        "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/30",
+   314→        isDistraction
+   315→          ? "border-amber-500/40 bg-amber-500/5"
+   316→          : "border-border bg-card",
+   317→        isDone && "opacity-60"
+   318→      )}
+   319→    >
+   320→      {/* Toggle */}
+   321→      <button
+   322→        type="button"
+   323→        onClick={() => onToggle(task.id)}
+   324→        className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+   325→        aria-label={isDone ? "Mark not done" : "Mark done"}
+   326→      >
+   327→        {isDone ? (
+   328→          <CheckCircle2 className="h-5 w-5 text-primary" />
+   329→        ) : (
+   330→          <Circle className="h-5 w-5" />
+   331→        )}
+   332→      </button>
+   333→
+   334→      {/* Priority dot */}
+   335→      <PriorityDot priority={task.priority} />
+   336→
+   337→      {/* Title + meta */}
+   338→      <div className="min-w-0 flex-1">
+   339→        <div className="flex flex-wrap items-center gap-2">
+   340→          <p
+   341→            className={cn(
+   342→              "text-sm font-medium leading-snug",
+   343→              isDone && "text-muted-foreground line-through"
+   344→            )}
+   345→          >
+   346→            {task.title}
+   347→          </p>
+   348→          {isDistraction && (
+   349→            <Badge
+   350→              variant="outline"
+   351→              className="border-amber-500/40 bg-amber-500/10 text-[9px] font-bold uppercase tracking-wide text-amber-400"
+   352→            >
+   353→              Distraction
+   354→            </Badge>
+   355→          )}
+   356→          {isOverdue && (
+   357→            <Badge
+   358→              variant="outline"
+   359→              className="border-red-500/40 bg-red-500/10 text-[9px] font-bold uppercase tracking-wide text-destructive"
+   360→            >
+   361→              Overdue
+   362→            </Badge>
+   363→          )}
+   364→        </div>
+   365→        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+   366→          <CategoryBadge category={task.category} />
+   367→          {task.goal && (
+   368→            <span className="inline-flex items-center gap-1">
+   369→              <ChevronRight className="h-3 w-3" />
+   370→              <span className="truncate">{task.goal.title}</span>
+   371→            </span>
+   372→          )}
+   373→          {task.project && (
+   374→            <span className="inline-flex items-center gap-1">
+   375→              <span className="text-muted-foreground/60">·</span>
+   376→              <span className="truncate">{task.project.name}</span>
+   377→            </span>
+   378→          )}
+   379→        </div>
+   380→      </div>
+   381→
+   382→      {/* Assignee */}
+   383→      {task.assignee && (
+   384→        <div className="hidden shrink-0 items-center gap-2 sm:flex">
+   385→          <Avatar className="h-7 w-7">
+   386→            <AvatarFallback
+   387→              className={cn("text-[10px] font-semibold", avatarColor(task.assignee.name))}
+   388→            >
+   389→              {initials(task.assignee.name)}
+   390→            </AvatarFallback>
+   391→          </Avatar>
+   392→          <span className="text-[11px] text-muted-foreground">
+   393→            {task.assignee.name.split(" ")[0]}
+   394→          </span>
+   395→        </div>
+   396→      )}
+   397→
+   398→      {/* Due date */}
+   399→      <div className="shrink-0 text-right">
+   400→        {task.dueDate ? (
+   401→          <>
+   402→            <p
+   403→              className={cn(
+   404→                "text-[11px] font-medium",
+   405→                isOverdue
+   406→                  ? "text-destructive"
+   407→                  : isDone
+   408→                  ? "text-muted-foreground"
+   409→                  : "text-foreground"
+   410→              )}
+   411→            >
+   412→              {relativeTime(task.dueDate)}
+   413→            </p>
+   414→            <p className="text-[9px] text-muted-foreground">
+   415→              {formatDate(task.dueDate)}
+   416→            </p>
+   417→          </>
+   418→        ) : (
+   419→          <p className="text-[11px] text-muted-foreground">—</p>
+   420→        )}
+   421→      </div>
+   422→
+   423→      {/* Status */}
+   424→      <div className="hidden shrink-0 md:block">
+   425→        <StatusBadge status={task.status} />
+   426→      </div>
+   427→    </div>
+   428→  );
+   429→}
+   430→
+   431→// ============================================================
+   432→// Goal Health donut (SVG)
+   433→// ============================================================
+   434→function HealthDonut({
+   435→  active,
+   436→  achieved,
+   437→  missed,
+   438→}: {
+   439→  active: number;
+   440→  achieved: number;
+   441→  missed: number;
+   442→}) {
+   443→  const total = active + achieved + missed;
+   444→  const r = 54;
+   445→  const c = 2 * Math.PI * r;
+   446→  const activePct = total > 0 ? active / total : 0;
+   447→  const achievedPct = total > 0 ? achieved / total : 0;
+   448→  const missedPct = total > 0 ? missed / total : 0;
+   449→
+   450→  // arc helper
+   451→  const arc = (pct: number, offset: number) =>
+   452→    `${(pct * c).toFixed(2)} ${c.toFixed(2)}`;
+   453→
+   454→  return (
+   455→    <div className="flex items-center gap-5">
+   456→      <div className="relative h-32 w-32 shrink-0">
+   457→        <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90">
+   458→          <circle cx="70" cy="70" r={r} fill="none" stroke="currentColor" strokeWidth="14" className="text-muted" />
+   459→          {achievedPct > 0 && (
+   460→            <circle
+   461→              cx="70"
+   462→              cy="70"
+   463→              r={r}
+   464→              fill="none"
+   465→              stroke="currentColor"
+   466→              strokeWidth="14"
+   467→              className="text-primary"
+   468→              strokeDasharray={arc(achievedPct, 0)}
+   469→              strokeDashoffset={0}
+   470→            />
+   471→          )}
+   472→          {activePct > 0 && (
+   473→            <circle
+   474→              cx="70"
+   475→              cy="70"
+   476→              r={r}
+   477→              fill="none"
+   478→              stroke="currentColor"
+   479→              strokeWidth="14"
+   480→              className="text-teal-400"
+   481→              strokeDasharray={arc(activePct, 0)}
+   482→              strokeDashoffset={`${(-achievedPct * c).toFixed(2)}`}
+   483→            />
+   484→          )}
+   485→          {missedPct > 0 && (
+   486→            <circle
+   487→              cx="70"
+   488→              cy="70"
+   489→              r={r}
+   490→              fill="none"
+   491→              stroke="currentColor"
+   492→              strokeWidth="14"
+   493→              className="text-destructive"
+   494→              strokeDasharray={arc(missedPct, 0)}
+   495→              strokeDashoffset={`${(-((achievedPct + activePct) * c)).toFixed(2)}`}
+   496→            />
+   497→          )}
+   498→        </svg>
+   499→        <div className="absolute inset-0 flex flex-col items-center justify-center">
+   500→          <p className="text-2xl font-semibold">{total}</p>
+   501→          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Goals</p>
+   502→        </div>
+   503→      </div>
+   504→      <div className="flex-1 space-y-2">
+   505→        <div className="flex items-center justify-between text-sm">
+   506→          <span className="flex items-center gap-2">
+   507→            <span className="h-2.5 w-2.5 rounded-full bg-primary" />
+   508→            Achieved
+   509→          </span>
+   510→          <span className="font-semibold">{achieved}</span>
+   511→        </div>
+   512→        <div className="flex items-center justify-between text-sm">
+   513→          <span className="flex items-center gap-2">
+   514→            <span className="h-2.5 w-2.5 rounded-full bg-teal-400" />
+   515→            Active
+   516→          </span>
+   517→          <span className="font-semibold">{active}</span>
+   518→        </div>
+   519→        <div className="flex items-center justify-between text-sm">
+   520→          <span className="flex items-center gap-2">
+   521→            <span className="h-2.5 w-2.5 rounded-full bg-destructive" />
+   522→            Missed
+   523→          </span>
+   524→          <span className="font-semibold">{missed}</span>
+   525→        </div>
+   526→      </div>
+   527→    </div>
+   528→  );
+   529→}
+   530→
+   531→// ============================================================
+   532→// Skeleton
+   533→// ============================================================
+   534→function SkeletonGrid() {
+   535→  return (
+   536→    <div className="space-y-6">
+   537→      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+   538→        {Array.from({ length: 6 }).map((_, i) => (
+   539→          <Skeleton key={i} className="h-24 w-full" />
+   540→        ))}
+   541→      </div>
+   542→      <div className="grid gap-6 lg:grid-cols-3">
+   543→        <div className="space-y-6 lg:col-span-2">
+   544→          <Skeleton className="h-80 w-full" />
+   545→          <Skeleton className="h-96 w-full" />
+   546→        </div>
+   547→        <div className="space-y-6">
+   548→          <Skeleton className="h-64 w-full" />
+   549→          <Skeleton className="h-64 w-full" />
+   550→          <Skeleton className="h-64 w-full" />
+   551→        </div>
+   552→      </div>
+   553→    </div>
+   554→  );
+   555→}
+   556→
+   557→// ============================================================
+   558→// Main component
+   559→// ============================================================
+   560→export function StrategicPlanning() {
+   561→  const [data, setData] = useState<PlanningData | null>(null);
+   562→  const [loading, setLoading] = useState(true);
+   563→  const [error, setError] = useState<string | null>(null);
+   564→  const [doneOverrides, setDoneOverrides] = useState<Record<string, boolean>>({});
+   565→
+   566→  useEffect(() => {
+   567→    let cancelled = false;
+   568→    (async () => {
+   569→      try {
+   570→        const res = await fetch("/api/doz/planning", { cache: "no-store" });
+   571→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   572→        const json = (await res.json()) as PlanningData;
+   573→        if (!cancelled) {
+   574→          setData(json);
+   575→          setError(null);
+   576→        }
+   577→      } catch (e) {
+   578→        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load planning data");
+   579→      } finally {
+   580→        if (!cancelled) setLoading(false);
+   581→      }
+   582→    })();
+   583→    return () => {
+   584→      cancelled = true;
+   585→    };
+   586→  }, []);
+   587→
+   588→  // Tasks with applied done overrides (visual toggle)
+   589→  const tasksView = useMemo<Task[]>(() => {
+   590→    if (!data) return [];
+   591→    return data.tasks.map((t) =>
+   592→      doneOverrides[t.id] !== undefined
+   593→        ? { ...t, status: doneOverrides[t.id] ? "DONE" : t.status }
+   594→        : t
+   595→    );
+   596→  }, [data, doneOverrides]);
+   597→
+   598→  const handleToggle = (id: string) => {
+   599→    const t = tasksView.find((x) => x.id === id);
+   600→    if (!t) return;
+   601→    const newDone = t.status !== "DONE";
+   602→    setDoneOverrides((prev) => ({ ...prev, [id]: newDone }));
+   603→    if (newDone) {
+   604→      toast.success("Task marked done", { description: t.title });
+   605→    } else {
+   606→      toast.message("Task reopened", { description: t.title });
+   607→    }
+   608→  };
+   609→
+   610→  // ============================================================
+   611→  // Task filters
+   612→  // ============================================================
+   613→  const todayTasks = useMemo(() => {
+   614→    return tasksView
+   615→      .filter((t) => t.dueDate && isSameDay(new Date(t.dueDate), new Date()))
+   616→      .sort(
+   617→        (a, b) =>
+   618→          (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+   619→      );
+   620→  }, [tasksView]);
+   621→
+   622→  const weekTasks = useMemo(() => {
+   623→    return tasksView
+   624→      .filter((t) => t.dueDate && isThisWeek(new Date(t.dueDate)))
+   625→      .sort(
+   626→        (a, b) =>
+   627→          (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
+   628→      );
+   629→  }, [tasksView]);
+   630→
+   631→  const allTasks = useMemo(() => {
+   632→    return [...tasksView].sort((a, b) => {
+   633→      const pa = PRIORITY_ORDER[a.priority] ?? 9;
+   634→      const pb = PRIORITY_ORDER[b.priority] ?? 9;
+   635→      if (pa !== pb) return pa - pb;
+   636→      const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+   637→      const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+   638→      return da - db;
+   639→    });
+   640→  }, [tasksView]);
+   641→
+   642→  const distractionTasks = useMemo(() => {
+   643→    return tasksView.filter((t) => t.isDistraction && t.status !== "DONE");
+   644→  }, [tasksView]);
+   645→
+   646→  // Today grouped by priority
+   647→  const todayGrouped = useMemo(() => {
+   648→    const groups: Record<string, Task[]> = {};
+   649→    for (const t of todayTasks) {
+   650→      const key = t.priority;
+   651→      if (!groups[key]) groups[key] = [];
+   652→      groups[key].push(t);
+   653→    }
+   654→    return Object.keys(groups)
+   655→      .sort((a, b) => (PRIORITY_ORDER[a] ?? 9) - (PRIORITY_ORDER[b] ?? 9))
+   656→      .map((k) => ({ priority: k, tasks: groups[k] }));
+   657→  }, [todayTasks]);
+   658→
+   659→  // ============================================================
+   660→  // Cascade goals — flatten from goalsByType in cascade order
+   661→  // ============================================================
+   662→  const cascade = useMemo(() => {
+   663→    if (!data) return [];
+   664→    const g = data.goalsByType;
+   665→    return [
+   666→      ...g.ANNUAL.map((x) => ({ ...x, type: "ANNUAL", level: 0 })),
+   667→      ...g.QUARTERLY.map((x) => ({ ...x, type: "QUARTERLY", level: 1 })),
+   668→      ...g.MONTHLY.map((x) => ({ ...x, type: "MONTHLY", level: 2 })),
+   669→      ...g.WEEKLY.map((x) => ({ ...x, type: "WEEKLY", level: 3 })),
+   670→    ];
+   671→  }, [data]);
+   672→
+   673→  // ============================================================
+   674→  // Weekly focus
+   675→  // ============================================================
+   676→  const weeklyGoal = data?.goalsByType.WEEKLY[0] ?? null;
+   677→  const weeklyTasks = useMemo(() => {
+   678→    if (!data) return [];
+   679→    return data.tasks.filter(
+   680→      (t) => t.goal?.type === "WEEKLY" && t.status !== "DONE"
+   681→    );
+   682→  }, [data]);
+   683→
+   684→  if (loading) {
+   685→    return (
+   686→      <div className="p-4 md:p-6">
+   687→        <SkeletonGrid />
+   688→      </div>
+   689→    );
+   690→  }
+   691→
+   692→  if (error || !data) {
+   693→    return (
+   694→      <div className="p-4 md:p-6">
+   695→        <EmptyState
+   696→          icon={<AlertTriangle className="h-8 w-8" />}
+   697→          title="Could not load planning data"
+   698→          hint={error ?? "Please try again later."}
+   699→        />
+   700→      </div>
+   701→    );
+   702→  }
+   703→
+   704→  const s = data.stats;
+   705→
+   706→  return (
+   707→    <div className="space-y-6 p-4 md:p-6">
+   708→      {/* ============================================================ */}
+   709→      {/* Header                                                       */}
+   710→      {/* ============================================================ */}
+   711→      <SectionHeader
+   712→        icon={<Target className="h-5 w-5" />}
+   713→        title="Strategic Planning"
+   714→        description="Connect daily execution to annual ambition. Cascade Annual → Quarterly → Monthly → Weekly."
+   715→      />
+   716→
+   717→      {/* ============================================================ */}
+   718→      {/* FOCUS & ALIGNMENT SCORE                                     */}
+   719→      {/* ============================================================ */}
+   720→      <FocusScoreCard />
+   721→
+   722→      {/* ============================================================ */}
+   723→      {/* KPI ROW                                                      */}
+   724→      {/* ============================================================ */}
+   725→      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+   726→        <StatCard
+   727→          label="Active Goals"
+   728→          value={s.activeGoals}
+   729→          sub={`${s.achievedGoals} achieved · ${s.missedGoals} missed`}
+   730→          icon={<Target className="h-4 w-4" />}
+   731→          accent="primary"
+   732→        />
+   733→        <StatCard
+   734→          label="Avg Goal Progress"
+   735→          value={`${s.avgGoalProgress}%`}
+   736→          sub="Across all goals"
+   737→          icon={<TrendingUp className="h-4 w-4" />}
+   738→        />
+   739→        <StatCard
+   740→          label="Due Today"
+   741→          value={s.dueToday}
+   742→          sub="Tasks needing action"
+   743→          icon={<Clock className="h-4 w-4" />}
+   744→        />
+   745→        <StatCard
+   746→          label="Overdue Tasks"
+   747→          value={s.overdueTasks}
+   748→          sub="Past due date"
+   749→          icon={<AlertTriangle className="h-4 w-4" />}
+   750→          accent="danger"
+   751→        />
+   752→        <StatCard
+   753→          label="Distractions"
+   754→          value={s.distractions}
+   755→          sub="Batch & defer"
+   756→          icon={<CircleDot className="h-4 w-4" />}
+   757→          accent="warning"
+   758→        />
+   759→        <StatCard
+   760→          label="Completion Rate"
+   761→          value={`${s.completionRate}%`}
+   762→          sub={`${s.completedThisWeek} done this week`}
+   763→          icon={<CheckCircle2 className="h-4 w-4" />}
+   764→          accent="primary"
+   765→        />
+   766→      </div>
+   767→
+   768→      {/* ============================================================ */}
+   769→      {/* MAIN GRID                                                    */}
+   770→      {/* ============================================================ */}
+   771→      <div className="grid gap-6 lg:grid-cols-3">
+   772→        {/* =============== LEFT COLUMN =============== */}
+   773→        <div className="space-y-6 lg:col-span-2">
+   774→          {/* ---------- GOAL CASCADE ---------- */}
+   775→          <Card className="p-5">
+   776→            <SectionHeader
+   777→              icon={<Target className="h-5 w-5" />}
+   778→              title="Goal Cascade"
+   779→              description="Every task must trace back to an annual goal."
+   780→            />
+   781→            <div className="mt-4 space-y-3">
+   782→              {cascade.length === 0 ? (
+   783→                <EmptyState
+   784→                  icon={<Target className="h-6 w-6" />}
+   785→                  title="No goals yet"
+   786→                  hint="Define an annual goal to start the cascade."
+   787→                />
+   788→              ) : (
+   789→                cascade.map((g) => (
+   790→                  <CascadeRow key={g.id} goal={g} level={g.level} />
+   791→                ))
+   792→              )}
+   793→            </div>
+   794→          </Card>
+   795→
+   796→          {/* ---------- TASK LIST ---------- */}
+   797→          <Card className="p-5">
+   798→            <SectionHeader
+   799→              icon={<CheckCircle2 className="h-5 w-5" />}
+   800→              title="Tasks"
+   801→              description="Connect every task to a goal. Triage distractions."
+   802→            />
+   803→            <Tabs defaultValue="today" className="mt-4">
+   804→              <TabsList className="grid w-full grid-cols-4">
+   805→                <TabsTrigger value="today">
+   806→                  Today
+   807→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+   808→                    {todayTasks.length}
+   809→                  </Badge>
+   810→                </TabsTrigger>
+   811→                <TabsTrigger value="week">
+   812→                  This Week
+   813→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+   814→                    {weekTasks.length}
+   815→                  </Badge>
+   816→                </TabsTrigger>
+   817→                <TabsTrigger value="all">
+   818→                  All
+   819→                  <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[9px]">
+   820→                    {allTasks.length}
+   821→                  </Badge>
+   822→                </TabsTrigger>
+   823→                <TabsTrigger value="distractions">
+   824→                  Distractions
+   825→                  <Badge
+   826→                    variant="secondary"
+   827→                    className={cn(
+   828→                      "ml-1.5 h-4 px-1 text-[9px]",
+   829→                      distractionTasks.length > 0 && "bg-amber-500/20 text-amber-400"
+   830→                    )}
+   831→                  >
+   832→                    {distractionTasks.length}
+   833→                  </Badge>
+   834→                </TabsTrigger>
+   835→              </TabsList>
+   836→
+   837→              {/* TODAY */}
+   838→              <TabsContent value="today" className="mt-4">
+   839→                {todayGrouped.length === 0 ? (
+   840→                  <EmptyState
+   841→                    icon={<CheckCircle2 className="h-6 w-6" />}
+   842→                    title="Nothing due today"
+   843→                    hint="Plan tomorrow's tasks before EOD."
+   844→                  />
+   845→                ) : (
+   846→                  <div className="max-h-96 space-y-4 overflow-y-auto pr-1 scroll-thin">
+   847→                    {todayGrouped.map((group) => (
+   848→                      <div key={group.priority} className="space-y-2">
+   849→                        <div className="flex items-center gap-2">
+   850→                          <PriorityDot priority={group.priority} />
+   851→                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+   852→                            {PRIORITY_LABEL[group.priority] ?? group.priority}
+   853→                          </p>
+   854→                          <span className="text-[10px] text-muted-foreground">
+   855→                            ({group.tasks.length})
+   856→                          </span>
+   857→                        </div>
+   858→                        <div className="space-y-2">
+   859→                          {group.tasks.map((t) => (
+   860→                            <TaskRow
+   861→                              key={t.id}
+   862→                              task={t}
+   863→                              onToggle={handleToggle}
+   864→                            />
+   865→                          ))}
+   866→                        </div>
+   867→                      </div>
+   868→                    ))}
+   869→                  </div>
+   870→                )}
+   871→              </TabsContent>
+   872→
+   873→              {/* THIS WEEK */}
+   874→              <TabsContent value="week" className="mt-4">
+   875→                {weekTasks.length === 0 ? (
+   876→                  <EmptyState
+   877→                    icon={<Calendar className="h-6 w-6" />}
+   878→                    title="No tasks scheduled this week"
+   879→                    hint="Plan your week to hit the weekly goal."
+   880→                  />
+   881→                ) : (
+   882→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+   883→                    {weekTasks.map((t) => (
+   884→                      <TaskRow
+   885→                        key={t.id}
+   886→                        task={t}
+   887→                        onToggle={handleToggle}
+   888→                      />
+   889→                    ))}
+   890→                  </div>
+   891→                )}
+   892→              </TabsContent>
+   893→
+   894→              {/* ALL */}
+   895→              <TabsContent value="all" className="mt-4">
+   896→                {allTasks.length === 0 ? (
+   897→                  <EmptyState
+   898→                    icon={<CheckCircle2 className="h-6 w-6" />}
+   899→                    title="No tasks"
+   900→                    hint="Tasks appear here once created."
+   901→                  />
+   902→                ) : (
+   903→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+   904→                    {allTasks.map((t) => (
+   905→                      <TaskRow
+   906→                        key={t.id}
+   907→                        task={t}
+   908→                        onToggle={handleToggle}
+   909→                      />
+   910→                    ))}
+   911→                  </div>
+   912→                )}
+   913→              </TabsContent>
+   914→
+   915→              {/* DISTRACTIONS */}
+   916→              <TabsContent value="distractions" className="mt-4">
+   917→                {distractionTasks.length === 0 ? (
+   918→                  <EmptyState
+   919→                    icon={<CheckCircle2 className="h-6 w-6" />}
+   920→                    title="No distractions detected"
+   921→                    hint="Stay focused on the goal cascade."
+   922→                  />
+   923→                ) : (
+   924→                  <div className="max-h-96 space-y-2 overflow-y-auto pr-1 scroll-thin">
+   925→                    {distractionTasks.map((t) => (
+   926→                      <TaskRow
+   927→                        key={t.id}
+   928→                        task={t}
+   929→                        onToggle={handleToggle}
+   930→                      />
+   931→                    ))}
+   932→                  </div>
+   933→                )}
+   934→              </TabsContent>
+   935→            </Tabs>
+   936→          </Card>
+   937→        </div>
+   938→
+   939→        {/* =============== RIGHT COLUMN =============== */}
+   940→        <div className="space-y-6">
+   941→          {/* ---------- DISTRACTION DETECTOR ---------- */}
+   942→          <Card className="border-amber-500/40 bg-amber-500/5 p-5">
+   943→            <div className="flex items-start gap-3">
+   944→              <div className="rounded-md bg-amber-500/15 p-2 text-amber-400">
+   945→                <AlertTriangle className="h-5 w-5" />
+   946→              </div>
+   947→              <div className="min-w-0 flex-1">
+   948→                <h3 className="text-sm font-semibold">Distraction Detector</h3>
+   949→                <p className="text-xs text-muted-foreground">
+   950→                  {distractionTasks.length === 0
+   951→                    ? "All clear — you're focused."
+   952→                    : `${distractionTasks.length} ${distractionTasks.length === 1 ? "task" : "tasks"} flagged as distractions.`}
+   953→                </p>
+   954→              </div>
+   955→              {distractionTasks.length > 0 && (
+   956→                <Badge
+   957→                  variant="outline"
+   958→                  className="border-amber-500/40 bg-amber-500/10 text-amber-400"
+   959→                >
+   960→                  {distractionTasks.length}
+   961→                </Badge>
+   962→              )}
+   963→            </div>
+   964→
+   965→            {distractionTasks.length > 0 ? (
+   966→              <>
+   967→                <div className="mt-3 space-y-1.5">
+   968→                  {distractionTasks.slice(0, 4).map((t) => (
+   969→                    <div
+   970→                      key={t.id}
+   971→                      className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5"
+   972→                    >
+   973→                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+   974→                      <p className="truncate text-xs">{t.title}</p>
+   975→                    </div>
+   976→                  ))}
+   977→                  {distractionTasks.length > 4 && (
+   978→                    <p className="text-center text-[10px] text-muted-foreground">
+   979→                      +{distractionTasks.length - 4} more
+   980→                    </p>
+   981→                  )}
+   982→                </div>
+   983→                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5">
+   984→                  <p className="text-[11px] font-medium text-amber-400">
+   985→                    Recommendation
+   986→                  </p>
+   987→                  <p className="mt-0.5 text-xs text-amber-300/90">
+   988→                    Batch these into a single 30-min block at 4 PM. Don&apos;t
+   989→                    let them fracture deep work.
+   990→                  </p>
+   991→                </div>
+   992→              </>
+   993→            ) : (
+   994→              <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-2.5">
+   995→                <p className="text-xs text-primary">
+   996→                  Stay on the cascade. Today&apos;s work connects directly to
+   997→                  this week&apos;s goal.
+   998→                </p>
+   999→              </div>
+  1000→            )}
+  1001→          </Card>
+  1002→
+  1003→          {/* ---------- WEEKLY FOCUS ---------- */}
+  1004→          <Card className="p-5">
+  1005→            <SectionHeader
+  1006→              icon={<Calendar className="h-5 w-5" />}
+  1007→              title="Weekly Focus"
+  1008→              description={weeklyGoal ? undefined : "No weekly goal set"}
+  1009→            />
+  1010→            {weeklyGoal ? (
+  1011→              <div className="mt-4 space-y-4">
+  1012→                <div>
+  1013→                  <p className="text-sm font-medium leading-snug">
+  1014→                    {weeklyGoal.title}
+  1015→                  </p>
+  1016→                  <div className="mt-2 flex items-center gap-2">
+  1017→                    <Progress value={weeklyGoal.progress} className="h-2 flex-1" />
+  1018→                    <span className="text-xs font-semibold">
+  1019→                      {weeklyGoal.progress}%
+  1020→                    </span>
+  1021→                  </div>
+  1022→                </div>
+  1023→
+  1024→                <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
+  1025→                  <div className="flex items-center gap-2">
+  1026→                    <Clock className="h-4 w-4 text-muted-foreground" />
+  1027→                    <span className="text-xs text-muted-foreground">
+  1028→                      Days remaining
+  1029→                    </span>
+  1030→                  </div>
+  1031→                  <span
+  1032→                    className={cn(
+  1033→                      "text-sm font-semibold",
+  1034→                      daysUntil(weeklyGoal.dueDate) < 0
+  1035→                        ? "text-destructive"
+  1036→                        : daysUntil(weeklyGoal.dueDate) <= 1
+  1037→                        ? "text-amber-400"
+  1038→                        : "text-foreground"
+  1039→                    )}
+  1040→                  >
+  1041→                    {(() => {
+  1042→                      const d = daysUntil(weeklyGoal.dueDate);
+  1043→                      if (d < 0) return `${Math.abs(d)}d overdue`;
+  1044→                      if (d === 0) return "Due today";
+  1045→                      return `${d} day${d === 1 ? "" : "s"}`;
+  1046→                    })()}
+  1047→                  </span>
+  1048→                </div>
+  1049→
+  1050→                <div>
+  1051→                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+  1052→                    This week&apos;s key tasks
+  1053→                  </p>
+  1054→                  {weeklyTasks.length === 0 ? (
+  1055→                    <p className="rounded-md border border-dashed border-border px-3 py-3 text-center text-xs text-muted-foreground">
+  1056→                      All weekly tasks complete
+  1057→                    </p>
+  1058→                  ) : (
+  1059→                    <div className="space-y-1.5">
+  1060→                      {weeklyTasks.slice(0, 5).map((t) => (
+  1061→                        <button
+  1062→                          key={t.id}
+  1063→                          type="button"
+  1064→                          onClick={() => handleToggle(t.id)}
+  1065→                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/30"
+  1066→                        >
+  1067→                          <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1068→                          <span className="truncate text-xs">{t.title}</span>
+  1069→                          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+  1070→                            {t.dueDate ? relativeTime(t.dueDate) : ""}
+  1071→                          </span>
+  1072→                        </button>
+  1073→                      ))}
+  1074→                      {weeklyTasks.length > 5 && (
+  1075→                        <p className="text-center text-[10px] text-muted-foreground">
+  1076→                          +{weeklyTasks.length - 5} more
+  1077→                        </p>
+  1078→                      )}
+  1079→                    </div>
+  1080→                  )}
+  1081→                </div>
+  1082→              </div>
+  1083→            ) : (
+  1084→              <EmptyState
+  1085→                icon={<Calendar className="h-6 w-6" />}
+  1086→                title="No weekly goal"
+  1087→                hint="Define a weekly goal to focus this week's work."
+  1088→              />
+  1089→            )}
+  1090→          </Card>
+  1091→
+  1092→          {/* ---------- GOAL HEALTH ---------- */}
+  1093→          <Card className="p-5">
+  1094→            <SectionHeader
+  1095→              icon={<TrendingUp className="h-5 w-5" />}
+  1096→              title="Goal Health"
+  1097→              description="Achievement vs. misses"
+  1098→            />
+  1099→            <div className="mt-4">
+  1100→              <HealthDonut
+  1101→                active={s.activeGoals}
+  1102→                achieved={s.achievedGoals}
+  1103→                missed={s.missedGoals}
+  1104→              />
+  1105→              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-border pt-4 text-center">
+  1106→                <div>
+  1107→                  <p className="text-lg font-semibold text-primary">
+  1108→                    {s.achievedGoals}
+  1109→                  </p>
+  1110→                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+  1111→                    Achieved
+  1112→                  </p>
+  1113→                </div>
+  1114→                <div>
+  1115→                  <p className="text-lg font-semibold text-teal-400">
+  1116→                    {s.activeGoals}
+  1117→                  </p>
+  1118→                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+  1119→                    Active
+  1120→                  </p>
+  1121→                </div>
+  1122→                <div>
+  1123→                  <p className="text-lg font-semibold text-destructive">
+  1124→                    {s.missedGoals}
+  1125→                  </p>
+  1126→                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+  1127→                    Missed
+  1128→                  </p>
+  1129→                </div>
+  1130→              </div>
+  1131→            </div>
+  1132→          </Card>
+  1133→        </div>
+  1134→      </div>
+  1135→    </div>
+  1136→  );
+  1137→}
+  1138→

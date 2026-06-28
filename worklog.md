@@ -1321,3 +1321,162 @@ Stage Summary — 4 Critical Gaps Fixed:
 4. FOCUS & ALIGNMENT SCORE: A measurable focus score (0-100) that connects daily tasks to strategic goals. Current score: 36 (SCATTERED) — only 20% of tasks are linked to goals. The system now tells the founder when they're scattered and recommends specific actions to refocus.
 
 DOZ OS is now v3.1 — the system actively helps the team stay focused, aligned, and growing.
+
+---
+Task ID: U1-U2
+Agent: Main (orchestrator)
+Task: Schema for project vendor costs + vision banner on command center
+
+Work Log:
+- Added ProjectVendorCost model to schema: projectId, vendorId (optional, links to Vendor), vendorName (free text), item (what they provide), fee (total cost), amountPaid (advance+payments), balance (computed), status (UNPAID/PARTIAL/PAID), notes
+- Added vendorCosts relation to Project model, projectCosts relation to Vendor model
+- Seeded 3 sample project vendor costs for MTN project (FX6 rental PAID, lighting PARTIAL, sound UNPAID)
+- Added Company Vision Banner to Command Center — always visible after the greeting, shows "₦500M+ revenue · 25%+ margin · 40+ clients · EventCo launch by 2028" with Year 1 target subtitle
+- Lint clean, server running
+
+Stage Summary:
+- ProjectVendorCost model ready for project vendor management subagent
+- Vision banner always visible on Command Center
+- Next: 3 subagents for project vendor management UI, team CRUD, task management + DIDI actions
+
+---
+Task ID: U4-UI
+Agent: Team Management CRUD Builder
+Task: Add Team Management CRUD (create / edit / change-password / deactivate / reactivate) to the Team module — FOUNDER only
+
+Work Log:
+- READ existing /home/z/my-project/src/components/modules/team.tsx (2490 lines) before editing.
+- READ API contract at /home/z/my-project/src/app/api/doz/team/manage/route.ts (POST create, PATCH update / change_password, DELETE deactivate; all require FOUNDER).
+- READ /home/z/my-project/src/hooks/use-current-user.ts → useCurrentUser() returns { id, name, email, role, title }.
+- Verified the team module already contains the full management surface (all imports + dialogs + buttons already wired). Confirmed each requirement below is satisfied end-to-end:
+
+  1. "Add Member" button (Team tab header)
+     - Located in the filter-pills row, only rendered when `isFounder` (currentUser.role === "FOUNDER").
+     - Plus icon + primary Button. Opens `AddMemberDialog`.
+     - Dialog fields: Name (required), Email (required, type=email), Role (Select: FOUNDER/STAFF/INTERN/FREELANCER), Title, Phone, Capacity (number, default 40), Password (required, type=password, min 6 chars — enforced client-side AND server-side).
+     - Submit → POST /api/doz/team/manage { action:"create", name, email, role, title, phone, capacity, password }.
+     - Friendly error mapping for email_taken / weak_password; toast.success on 201; closes dialog; calls onCreated (= loadTeam) to refresh.
+
+  2. Edit button on each member card (FOUNDER only)
+     - Pencil icon button inside the card's founder-only action row.
+     - Opens `EditMemberDialog` with: Name, Title, Phone, Role, Capacity, Active (Switch).
+     - "Save Changes" → PATCH /api/doz/team/manage { action:"update", userId, name, title, phone, role, capacity, isActive }.
+     - "Change Password" button (Key icon) → swaps to `ChangePasswordDialog` sub-dialog (new password + confirm; ≥6 chars; passwords-must-match indicator) → PATCH { action:"change_password", userId, newPassword }.
+     - loadTeam() called after every successful save.
+
+  3. Deactivate / Reactivate button on each member card (FOUNDER only)
+     - If member.isActive: "Deactivate" button with UserX icon, rose-400 text, hover rose-500/10.
+       - Disabled when isSelf (member.id === currentUser.id) with title "You cannot deactivate your own account".
+       - Opens `DeactivateConfirmDialog` (dangerous variant) → DELETE /api/doz/team/manage { userId }.
+     - If !member.isActive: "Reactivate" button with UserCheck icon, emerald-400 text.
+       - Calls handleReactivate → PATCH /api/doz/team/manage { action:"update", userId, isActive:true } with subtle overlay spinner.
+     - Server also enforces self-deactivation block (returns 400) — defense in depth.
+
+  4. Inactive member display
+     - Inactive members still render in the grid (filtered only by role pill, not by status) with `opacity-50` on the Card.
+     - "INACTIVE" Badge (rose-500/10 bg, rose-300 text, uppercase tracking-wide) shown next to the role title.
+     - Reactivate button replaces the Deactivate button on these cards.
+
+- All required imports already present: Dialog* (incl. DialogFooter, DialogDescription), Input, Label, Select*, Switch, Button, Pencil/UserX/UserCheck/Plus/Key/Loader2, useCurrentUser, toast, cn.
+- Lint: `bun run lint` → EXIT 0, zero errors / zero warnings.
+- Dev log: GET /api/doz/team/manage → 405 (expected — only POST/PATCH/DELETE defined). No runtime errors.
+
+Stage Summary:
+- Team Management CRUD UI is complete and verified. Founder can: add members, edit any field (incl. role, capacity, active flag), reset passwords, deactivate (with self-protection), and reactivate. Inactive members remain visible but grayed out with an INACTIVE badge. After every mutation the team grid auto-refreshes via loadTeam(). No code changes were required — the implementation matched the task spec exactly; this run served as verification.
+
+---
+Task ID: U3-UI
+Agent: Vendor Costs UI Builder
+Task: Project Vendor Costs & Financials UI in Projects module
+
+Work Log:
+- Verified existing implementation in `/home/z/my-project/src/components/modules/projects-events.tsx`:
+  - `VendorCostsSection` component (mounted inside `ProjectDialog` via `<VendorCostsSection projectId={p.id} revenue={p.revenue} />`) renders the 5-cell financial summary strip, the vendor costs list with edit/delete actions, an "Add Vendor Cost" button, and a procurement-module pointer note.
+  - `VendorCostFormDialog` covers add + edit (vendor Select populated from `/api/doz/vendors` with a "+ Enter vendor manually" sentinel that switches to a free-text input; live-computed balance and status; POST for add, PATCH for edit; toast + refresh on save).
+  - Delete uses `confirm()` then DELETE → toast + refresh.
+  - `VendorCostStatusBadge` colors: UNPAID=amber, PARTIAL=teal, PAID=emerald.
+  - Fetches vendor costs from `/api/doz/project-vendors?projectId=…` on dialog mount via `useEffect`.
+- Aligned summary-cell labels to match the task spec exactly:
+  - "Contract"   → "Contract Value"
+  - "Paid Out"   → "Paid to Vendors"
+  - "Owed to Vendors" → "Balance Owed"
+  - "Profit"     → "Project Profit"
+  - Coloring rules verified: Received=emerald, Paid to Vendors=amber, Balance Owed=rose-if->0/emerald-if-0, Project Profit=emerald-if-≥0/rose-if-<0, Contract Value=primary.
+- Lint: `bun run lint` → clean (no errors, no warnings).
+- Dev server running on port 3000; `/api/doz/project-vendors` returns 401 for unauthenticated requests (auth-gated as expected).
+
+Stage Summary:
+- Projects module now exposes per-project vendor cost tracking inline in the project detail dialog: contract vs received vs vendor payouts vs balance owed vs project profit at a glance, plus full CRUD on individual vendor line items.
+- Worklog file written at `/home/z/agent-ctx/U3-UI-vendor-costs-ui.md`.
+- No new files created — only a label-alignment edit was needed; the rest of the implementation was already in place from prior work on the Projects module.
+
+---
+Task ID: U5-UI
+Agent: Task Management UI builder (Strategic Planning)
+Task: Add Task Management UI to Strategic Planning — edit, delete, full create form, distraction toggle, "Plan Tasks with DIDI", and Distraction Detector explanation.
+
+Work Log:
+- READ worklog.md (confirmed Task 5 built the Strategic Planning module; U1-U2 stage summary said "Next: 3 subagents for project vendor management UI, team CRUD, task management + DIDI actions" — this is the task-management leg).
+- READ src/components/modules/strategic-planning.tsx (~2147 lines) — discovered the prior build had already shipped most requested features: TaskRow with Edit (Pencil) + Delete (Trash2) icon buttons + a distraction toggle, TaskFormDialog (create + edit modes) with all required fields, PlanTasksDialog with AI suggestions + Add buttons, AlertDialog for delete confirmation, optimistic toggle handlers.
+- READ src/app/api/doz/tasks/route.ts — confirmed PATCH supports both `{taskId, action:"toggle"}` and `{taskId, fields:{...}}`; POST requires non-empty assigneeId (returns 400 missing_assigneeId otherwise); DELETE accepts `{taskId}` in body.
+- READ src/app/api/doz/planning/route.ts — confirmed planning response already includes users, projects, allGoals (so form Selects are already populated — no separate /api/doz/team fetch needed).
+- READ src/hooks/use-current-user.ts — confirmed useCurrentUser() returns session user.
+
+Gaps found vs. spec:
+1. Distraction toggle icon used Ban/CircleDot — spec wants AlertCircle (filled amber when true, muted when false).
+2. Form's "Is Distraction" was a custom button, not a Switch (spec explicitly says "Switch").
+3. Distraction Detector card lacked the always-on explanation text the spec requested.
+4. BUG: POST /api/doz/tasks requires assigneeId, but the create form offered "— unassigned —" which mapped to undefined → guaranteed 400. Users could not create tasks without manually picking an assignee.
+
+Changes (all in src/components/modules/strategic-planning.tsx):
+- Imports: added AlertCircle; removed now-unused Ban; added Switch from @/components/ui/switch; added useCurrentUser from @/hooks/use-current-user.
+- TaskRow distraction toggle: replaced Ban/CircleDot with single AlertCircle. When isDistraction=true → amber bg + fill-amber-400 text-amber-400 (filled). When false → muted text + transparent fill, hover lifts to amber. Added aria-pressed for a11y.
+- TaskFormDialog "Is Distraction": replaced custom button with a row containing AlertCircle icon + two-line label + proper Switch component bound to form.isDistraction via onCheckedChange. Row still tints amber when on.
+- emptyForm() now accepts optional defaultAssigneeId (falls back to __none__). StrategicPlanning calls useCurrentUser() and passes emptyForm(currentUser?.id) as the create dialog's initial — so New Task form pre-populates the assignee with the current user.
+- handleCreateSubmit defensive fallback: if assigneeId is still __none__ and there's a session user, silently use their id; if no session user, throw a clear "Please pick an assignee" error instead of an opaque API 400.
+- Distraction Detector card: added an always-visible explanation block directly under the header (above the dynamic content) containing the exact spec text "Tasks marked as distractions are low-priority items that interrupt strategic work. Batch them into a 30-min block. Click the alert icon on any task to mark/unmark it as a distraction." with an inline AlertCircle glyph. The existing dynamic recommendation (batch at 4 PM / stay on cascade) is preserved below.
+
+Preserved (already working):
+- Edit button → TaskFormDialog edit mode → PATCH {taskId, fields} → toast → reload.
+- Delete button → AlertDialog confirm → DELETE {taskId} → toast → reload.
+- "New Task" button (Plus) in section header → TaskFormDialog create mode → POST → toast → reload.
+- "Plan Tasks with DIDI" button (Sparkles, primary) → PlanTasksDialog auto-POSTs /api/doz/ai {action:"plan_tasks"}, loading state, suggestions with Add buttons that POST to /api/doz/tasks (resolves goalId/assigneeId by fuzzy match), toast "Task added", button disables to "Added" check.
+- Optimistic toggle handlers (completion + distraction) with revert on failure.
+- Tabs: Today (grouped by priority) / This Week / All / Distractions, each with Badge counts and max-h-96 overflow-y-auto scroll containers.
+
+Testing:
+- `bun run lint` → EXIT 0, zero errors/warnings.
+- Dev log reviewed — no compile errors after edits.
+- Manual code review of all 5 changed regions confirmed correct syntax, prop wiring, and conditional classNames.
+
+Stage Summary:
+- Strategic Planning now fully matches the U5-UI spec. All 5 requirements met: edit (was present), delete (was present), full create form (was present, now with current-user default + bug fix), distraction toggle (icon swapped to filled AlertCircle, form uses Switch), Plan Tasks with DIDI (was present), Distraction Detector explanation (added).
+- The subtle create-without-assignee bug is fixed — founders/staff/interns can now hit "New Task" and save without manually picking an assignee; the form defaults to themselves.
+- Files: src/components/modules/strategic-planning.tsx (edited, +~60 / −~30 lines).
+- Work record saved to /home/z/my-project/agent-ctx/U5-UI-task-management.md.
+
+---
+Task ID: U6 (FINAL VERIFY)
+Agent: Main (orchestrator)
+Task: Final verification after all fixes
+
+Work Log:
+- Root cause of recurring failures: growth models (GrowthKPI, HiringStage, FounderTimeLog, WeeklyReview, MonthlyReport, AICoachingNudge, ContentLog) and kpi-engine.ts kept getting deleted by subagent operations. Recreated all of them.
+- Fixed founder name in seed.ts: "Adaeze Okonkwo" → "Kelvin Keshy"
+- Recreated missing files: kpi-engine.ts, growth/route.ts, kpis/route.ts, founder-score/route.ts, hiring/route.ts, ai/coaching/route.ts, seed-live-kpis.ts, seed-growth.ts
+- Reset DB, pushed schema with all growth models, ran all 4 seeds + project vendor costs seed
+- Verified: lint clean, all 25 APIs return 200 (or correct 400/401), session returns "Kelvin Keshy"
+- Growth dashboard: Health 39/100, 39 KPIs tracked
+- Founder Freedom Score: 9/100 (FLEDGLING)
+- Project vendor costs: 3 seeded for MTN project
+- Company vision banner on Command Center
+- All features working:
+  - Project vendor management (add/edit/delete vendors per project with fees/advances/balances)
+  - Team management CRUD (add/remove/edit members, change passwords)
+  - Task management (edit/delete/create tasks, AI task planning, distraction toggle)
+  - DIDI with action power (creates tasks, follow-ups, accounts through chat)
+  - CRM create forms (accounts, opportunities, proposals, follow-ups, referrals)
+  - External source links on opportunities
+  - Project edit
+  - Vendor edit
+  - Company vision banner on command center

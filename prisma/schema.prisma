@@ -255,6 +255,7 @@ model Project {
   pos          PurchaseOrder[]
   resources    ResourceBooking[]
   paymentRequests PaymentRequest[]
+  vendorCosts    ProjectVendorCost[]
 }
 
 model Milestone {
@@ -335,6 +336,7 @@ model Vendor {
   quotes Quote[]
   pos    PurchaseOrder[]
   expenses Expense[]
+  projectCosts ProjectVendorCost[]
 }
 
 model Rfq {
@@ -683,4 +685,109 @@ model ReferralSource {
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// PROJECT VENDOR COSTS — project-level vendor management
+// ============================================================
+
+model ProjectVendorCost {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  vendorName  String   // free text if no vendor record
+  item        String   // what they're providing (LED screen, audio, lights, etc.)
+  fee         Float    // total fee the vendor is charging
+  amountPaid  Float    @default(0) // advance + payments made so far
+  balance     Float    @default(0) // fee - amountPaid (computed)
+  status      String   @default("UNPAID") // UNPAID, PARTIAL, PAID
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// GROWTH OPERATING FRAMEWORK + CONTENT LOG
+// ============================================================
+
+model GrowthKPI {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  current     Float    @default(0)
+  target      Float    @default(0)
+  yearOneTarget Float  @default(0)
+  yearThreeTarget Float @default(0)
+  unit        String   @default("COUNT")
+  weeklyPace  Float    @default(0)
+  forecast    String   @default("ON_TRACK")
+  confidence  Int      @default(50)
+  isKeyMetric Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+model HiringStage {
+  id            String   @id @default(cuid())
+  stage         Int
+  role          String
+  reason        String
+  successMetric String
+  status        String   @default("FORECASTED")
+  salaryBudget  Float?
+  targetDate    DateTime?
+  hiredName     String?
+  hiredAt       DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model FounderTimeLog {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime
+  category    String
+  hours       Float
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+model WeeklyReview {
+  id            String   @id @default(cuid())
+  weekStart     DateTime
+  content       String
+  topPriorities String
+  generatedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+}
+
+model MonthlyReport {
+  id          String   @id @default(cuid())
+  month       String
+  content     String
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model AICoachingNudge {
+  id          String   @id @default(cuid())
+  category    String
+  message     String
+  severity    String   @default("INFO")
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model ContentLog {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  platform    String
+  postUrl     String?
+  title       String
+  internId    String?
+  campaignId  String?
+  createdAt   DateTime @default(now())
 }

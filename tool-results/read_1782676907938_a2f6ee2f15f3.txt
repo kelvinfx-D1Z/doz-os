@@ -1,0 +1,1259 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from "react";
+     4→import {
+     5→  Calendar,
+     6→  MapPin,
+     7→  Users,
+     8→  Film,
+     9→  CheckCircle2,
+    10→  Clock,
+    11→  AlertTriangle,
+    12→  Star,
+    13→  Clapperboard,
+    14→  TrendingUp,
+    15→  Wallet,
+    16→  CircleDollarSign,
+    17→  Trophy,
+    18→  FolderKanban,
+    19→  Plus,
+    20→  Loader2,
+    21→  ArrowDownCircle,
+    22→  ArrowUpCircle,
+    23→} from "lucide-react";
+    24→import { Card } from "@/components/ui/card";
+    25→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    26→import {
+    27→  Dialog,
+    28→  DialogContent,
+    29→  DialogFooter,
+    30→  DialogHeader,
+    31→  DialogTitle,
+    32→  DialogTrigger,
+    33→} from "@/components/ui/dialog";
+    34→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    35→import { Skeleton } from "@/components/ui/skeleton";
+    36→import { Badge } from "@/components/ui/badge";
+    37→import { Progress } from "@/components/ui/progress";
+    38→import { Button } from "@/components/ui/button";
+    39→import { Input } from "@/components/ui/input";
+    40→import { Label } from "@/components/ui/label";
+    41→import {
+    42→  Select,
+    43→  SelectContent,
+    44→  SelectItem,
+    45→  SelectTrigger,
+    46→  SelectValue,
+    47→} from "@/components/ui/select";
+    48→import { toast } from "sonner";
+    49→import {
+    50→  StatCard,
+    51→  StatusBadge,
+    52→  SectionHeader,
+    53→  EmptyState,
+    54→  MiniBar,
+    55→} from "@/components/doz/ui-primitives";
+    56→import {
+    57→  formatNGN,
+    58→  formatDate,
+    59→  relativeTime,
+    60→  avatarColor,
+    61→  initials,
+    62→} from "@/lib/format";
+    63→
+    64→// ---------- Types ----------
+    65→interface CrewMember {
+    66→  id: string;
+    67→  role: string;
+    68→  status: string;
+    69→  dayRate: number;
+    70→  user: { name: string };
+    71→}
+    72→interface Milestone {
+    73→  id: string;
+    74→  title: string;
+    75→  dueDate: string;
+    76→  status: string;
+    77→  completedAt: string | null;
+    78→}
+    79→interface Deliverable {
+    80→  id: string;
+    81→  title: string;
+    82→  type: string | null;
+    83→  status: string;
+    84→  dueDate: string | null;
+    85→  clientApproved: boolean;
+    86→  deliveredAt: string | null;
+    87→}
+    88→interface Project {
+    89→  id: string;
+    90→  name: string;
+    91→  code: string | null;
+    92→  serviceType: string;
+    93→  status: string;
+    94→  eventDate: string | null;
+    95→  venue: string | null;
+    96→  budget: number;
+    97→  revenue: number;
+    98→  progress: number;
+    99→  startDate: string | null;
+   100→  endDate: string | null;
+   101→  account: { name: string; isStrategic: boolean } | null;
+   102→  manager: { name: string } | null;
+   103→  crew: CrewMember[];
+   104→  milestones: Milestone[];
+   105→  deliverables: Deliverable[];
+   106→  _count: { tasks: number; invoices: number; expenses: number };
+   107→  expensesTotal: number;
+   108→  received: number;
+   109→  balance: number;
+   110→  profit: number;
+   111→  margin: number;
+   112→}
+   113→interface ProjectsData {
+   114→  stats: {
+   115→    total: number;
+   116→    active: number;
+   117→    completed: number;
+   118→    totalRevenue: number;
+   119→    totalExpenses: number;
+   120→    totalProfit: number;
+   121→    totalReceived: number;
+   122→    totalBalance: number;
+   123→    avgMargin: number;
+   124→  };
+   125→  projects: Project[];
+   126→}
+   127→
+   128→interface AccountOption {
+   129→  id: string;
+   130→  name: string;
+   131→  isStrategic?: boolean;
+   132→}
+   133→
+   134→// ---------- Constants ----------
+   135→const ACTIVE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"];
+   136→
+   137→// Service types selectable in the New Project form. Kept in sync with the
+   138→// backend VALID_SERVICE_TYPES list in /api/doz/projects/route.ts.
+   139→const SERVICE_TYPES = [
+   140→  "EVENT_PRODUCTION",
+   141→  "EVENT_MANAGEMENT",
+   142→  "CONFERENCE_PRODUCTION",
+   143→  "VIDEO_PRODUCTION",
+   144→  "CORPORATE_VIDEO",
+   145→  "DOCUMENTARY",
+   146→  "TITLE_SEQUENCE",
+   147→  "COLOR_GRADING",
+   148→  "PHOTOGRAPHY",
+   149→  "MOTION_GRAPHICS",
+   150→  "LIVESTREAM",
+   151→  "POST_PRODUCTION",
+   152→] as const;
+   153→
+   154→// Statuses offered when creating a new project (post-create, IN_PROGRESS can
+   155→// be set later). Defaults to PLANNING.
+   156→const CREATE_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS"] as const;
+   157→
+   158→const SERVICE_ICON: Record<string, React.ReactNode> = {
+   159→  EVENT_PRODUCTION: <Clapperboard className="h-3.5 w-3.5" />,
+   160→  EVENT_MANAGEMENT: <Clapperboard className="h-3.5 w-3.5" />,
+   161→  VIDEO_PRODUCTION: <Film className="h-3.5 w-3.5" />,
+   162→  CONFERENCE_PRODUCTION: <Users className="h-3.5 w-3.5" />,
+   163→  TITLE_SEQUENCE: <Film className="h-3.5 w-3.5" />,
+   164→  COLOR_GRADING: <Film className="h-3.5 w-3.5" />,
+   165→};
+   166→
+   167→function serviceLabel(s: string): string {
+   168→  return s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+   169→}
+   170→
+   171→function deliverableStatusKey(s: string): string {
+   172→  return s.toLowerCase();
+   173→}
+   174→
+   175→function deliverableSummary(deliverables: Deliverable[]): string {
+   176→  if (deliverables.length === 0) return "No deliverables";
+   177→  const counts: Record<string, number> = {};
+   178→  for (const d of deliverables) {
+   179→    const k = deliverableStatusKey(d.status);
+   180→    counts[k] = (counts[k] ?? 0) + 1;
+   181→  }
+   182→  const order = ["pending", "in_progress", "review", "delivered"];
+   183→  const labels: Record<string, string> = {
+   184→    pending: "pending",
+   185→    in_progress: "in progress",
+   186→    review: "in review",
+   187→    delivered: "delivered",
+   188→  };
+   189→  return order
+   190→    .filter((k) => counts[k])
+   191→    .map((k) => `${counts[k]} ${labels[k]}`)
+   192→    .join(", ");
+   193→}
+   194→
+   195→// ---------- Main ----------
+   196→export function ProjectsEvents() {
+   197→  const [data, setData] = useState<ProjectsData | null>(null);
+   198→  const [loading, setLoading] = useState(true);
+   199→  const [error, setError] = useState<string | null>(null);
+   200→  const [tab, setTab] = useState("all");
+   201→  const [createOpen, setCreateOpen] = useState(false);
+   202→
+   203→  const load = useCallback(() => {
+   204→    // Note: we intentionally do NOT call setLoading(true) here synchronously
+   205→    // — the initial `loading` state is `true` already and we only flip it to
+   206→    // false once data arrives. Refreshes (after create) keep the existing
+   207→    // data on screen and avoid a cascading-render lint warning.
+   208→    fetch("/api/doz/projects")
+   209→      .then((r) => {
+   210→        if (!r.ok) throw new Error(`Request failed (${r.status})`);
+   211→        return r.json();
+   212→      })
+   213→      .then((d: ProjectsData) => {
+   214→        setData(d);
+   215→        setError(null);
+   216→      })
+   217→      .catch((e) => {
+   218→        setError(e.message || "Failed to load projects");
+   219→      })
+   220→      .finally(() => {
+   221→        setLoading(false);
+   222→      });
+   223→  }, []);
+   224→
+   225→  useEffect(() => {
+   226→    load();
+   227→  }, [load]);
+   228→
+   229→  if (loading && !data) return <ProjectsSkeleton />;
+   230→
+   231→  if (error || !data) {
+   232→    return (
+   233→      <div className="space-y-6">
+   234→        <SectionHeader
+   235→          icon={<Clapperboard className="h-5 w-5" />}
+   236→          title="Projects & Event Operations"
+   237→          description="Deliver every event on time, on budget"
+   238→          action={
+   239→            <NewProjectButton onClick={() => setCreateOpen(true)} />
+   240→          }
+   241→        />
+   242→        <EmptyState
+   243→          icon={<AlertTriangle className="h-8 w-8" />}
+   244→          title="Couldn't load projects"
+   245→          hint={error ?? "Unknown error"}
+   246→        />
+   247→        <NewProjectDialog
+   248→          open={createOpen}
+   249→          onOpenChange={setCreateOpen}
+   250→          onCreated={load}
+   251→        />
+   252→      </div>
+   253→    );
+   254→  }
+   255→
+   256→  const { stats, projects } = data;
+   257→
+   258→  // Filter by tab
+   259→  const filtered = projects.filter((p) => {
+   260→    if (tab === "all") return true;
+   261→    if (tab === "active") return ACTIVE_STATUSES.includes(p.status);
+   262→    if (tab === "planning") return p.status === "PLANNING";
+   263→    if (tab === "in_progress") return p.status === "IN_PROGRESS";
+   264→    if (tab === "completed") return p.status === "COMPLETED";
+   265→    return true;
+   266→  });
+   267→
+   268→  return (
+   269→    <div className="space-y-6">
+   270→      <SectionHeader
+   271→        icon={<Clapperboard className="h-5 w-5" />}
+   272→        title="Projects & Event Operations"
+   273→        description={`${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
+   274→        action={
+   275→          <NewProjectButton onClick={() => setCreateOpen(true)} />
+   276→        }
+   277→      />
+   278→
+   279→      {/* KPI ROW */}
+   280→      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+   281→        <StatCard
+   282→          label="Total Projects"
+   283→          value={stats.total}
+   284→          sub={`${stats.active} active`}
+   285→          icon={<FolderKanban className="h-4 w-4" />}
+   286→          accent="default"
+   287→        />
+   288→        <StatCard
+   289→          label="Active"
+   290→          value={stats.active}
+   291→          sub="in progress"
+   292→          icon={<Clapperboard className="h-4 w-4" />}
+   293→          accent="primary"
+   294→        />
+   295→        <StatCard
+   296→          label="Revenue"
+   297→          value={formatNGN(stats.totalRevenue, true)}
+   298→          sub="booked"
+   299→          icon={<CircleDollarSign className="h-4 w-4" />}
+   300→          accent="primary"
+   301→        />
+   302→        <StatCard
+   303→          label="Received"
+   304→          value={formatNGN(stats.totalReceived, true)}
+   305→          sub="collected"
+   306→          icon={<ArrowDownCircle className="h-4 w-4" />}
+   307→          accent="primary"
+   308→        />
+   309→        <StatCard
+   310→          label="Balance Owed"
+   311→          value={formatNGN(stats.totalBalance, true)}
+   312→          sub="outstanding"
+   313→          icon={<ArrowUpCircle className="h-4 w-4" />}
+   314→          accent={stats.totalBalance > 0 ? "warning" : "primary"}
+   315→        />
+   316→        <StatCard
+   317→          label="Profit"
+   318→          value={formatNGN(stats.totalProfit, true)}
+   319→          sub={`exp ${formatNGN(stats.totalExpenses, true)}`}
+   320→          icon={<TrendingUp className="h-4 w-4" />}
+   321→          accent={stats.totalProfit >= 0 ? "primary" : "danger"}
+   322→        />
+   323→        <StatCard
+   324→          label="Avg Margin"
+   325→          value={`${stats.avgMargin.toFixed(1)}%`}
+   326→          sub="per project"
+   327→          icon={<Wallet className="h-4 w-4" />}
+   328→          accent={stats.avgMargin >= 30 ? "primary" : stats.avgMargin >= 15 ? "warning" : "danger"}
+   329→        />
+   330→        <StatCard
+   331→          label="Completed"
+   332→          value={stats.completed}
+   333→          sub="delivered"
+   334→          icon={<Trophy className="h-4 w-4" />}
+   335→          accent="default"
+   336→        />
+   337→      </div>
+   338→
+   339→      {/* PROJECT LIST WITH TABS */}
+   340→      <Tabs value={tab} onValueChange={setTab} className="w-full">
+   341→        <div className="flex flex-wrap items-center justify-between gap-2">
+   342→          <TabsList className="h-9">
+   343→            <TabsTrigger value="all" className="text-xs">All ({projects.length})</TabsTrigger>
+   344→            <TabsTrigger value="active" className="text-xs">Active ({projects.filter((p) => ACTIVE_STATUSES.includes(p.status)).length})</TabsTrigger>
+   345→            <TabsTrigger value="planning" className="text-xs">Planning ({projects.filter((p) => p.status === "PLANNING").length})</TabsTrigger>
+   346→            <TabsTrigger value="in_progress" className="text-xs">In Progress ({projects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
+   347→            <TabsTrigger value="completed" className="text-xs">Completed ({projects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
+   348→          </TabsList>
+   349→          <p className="text-xs text-muted-foreground">
+   350→            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {projects.length}
+   351→          </p>
+   352→        </div>
+   353→
+   354→        <TabsContent value={tab} className="mt-4">
+   355→          {filtered.length === 0 ? (
+   356→            <EmptyState
+   357→              icon={<FolderKanban className="h-8 w-8" />}
+   358→              title="No projects in this view"
+   359→              hint="Switch tabs to see other projects, or create a new one."
+   360→            />
+   361→          ) : (
+   362→            <div className="grid gap-4 lg:grid-cols-2">
+   363→              {filtered.map((p) => (
+   364→                <ProjectCard key={p.id} project={p} />
+   365→              ))}
+   366→            </div>
+   367→          )}
+   368→        </TabsContent>
+   369→      </Tabs>
+   370→
+   371→      <NewProjectDialog
+   372→        open={createOpen}
+   373→        onOpenChange={setCreateOpen}
+   374→        onCreated={load}
+   375→      />
+   376→    </div>
+   377→  );
+   378→}
+   379→
+   380→// ---------- New Project Button ----------
+   381→function NewProjectButton({ onClick }: { onClick: () => void }) {
+   382→  return (
+   383→    <Button onClick={onClick} size="sm" className="gap-1">
+   384→      <Plus className="h-4 w-4" />
+   385→      New Project
+   386→    </Button>
+   387→  );
+   388→}
+   389→
+   390→// ---------- New Project Dialog ----------
+   391→function NewProjectDialog({
+   392→  open,
+   393→  onOpenChange,
+   394→  onCreated,
+   395→}: {
+   396→  open: boolean;
+   397→  onOpenChange: (v: boolean) => void;
+   398→  onCreated: () => void;
+   399→}) {
+   400→  const [name, setName] = useState("");
+   401→  const [serviceType, setServiceType] = useState<string>("");
+   402→  const [status, setStatus] = useState<string>("PLANNING");
+   403→  const [accountId, setAccountId] = useState<string>("");
+   404→  const [eventDate, setEventDate] = useState<string>("");
+   405→  const [venue, setVenue] = useState<string>("");
+   406→  const [budget, setBudget] = useState<string>("");
+   407→  const [revenue, setRevenue] = useState<string>("");
+   408→  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+   409→  const [accountsLoading, setAccountsLoading] = useState(false);
+   410→  const [submitting, setSubmitting] = useState(false);
+   411→
+   412→  // Load accounts (from CRM endpoint) once when the dialog first opens.
+   413→  useEffect(() => {
+   414→    if (!open) return;
+   415→    let cancelled = false;
+   416→    setAccountsLoading(true);
+   417→    fetch("/api/doz/crm")
+   418→      .then((r) => (r.ok ? r.json() : null))
+   419→      .then((d) => {
+   420→        if (cancelled || !d) return;
+   421→        const list: AccountOption[] = (d.accounts ?? []).map(
+   422→          (a: { id: string; name: string; isStrategic?: boolean }) => ({
+   423→            id: a.id,
+   424→            name: a.name,
+   425→            isStrategic: a.isStrategic,
+   426→          })
+   427→        );
+   428→        setAccounts(list);
+   429→      })
+   430→      .catch(() => {
+   431→        // Non-fatal — the field stays as an empty select.
+   432→      })
+   433→      .finally(() => {
+   434→        if (!cancelled) setAccountsLoading(false);
+   435→      });
+   436→    return () => {
+   437→      cancelled = true;
+   438→    };
+   439→  }, [open]);
+   440→
+   441→  // Reset form fields whenever the dialog closes.
+   442→  useEffect(() => {
+   443→    if (!open) {
+   444→      setName("");
+   445→      setServiceType("");
+   446→      setStatus("PLANNING");
+   447→      setAccountId("");
+   448→      setEventDate("");
+   449→      setVenue("");
+   450→      setBudget("");
+   451→      setRevenue("");
+   452→    }
+   453→  }, [open]);
+   454→
+   455→  const budgetNum = useMemo(() => {
+   456→    const n = Number(budget);
+   457→    return isNaN(n) ? 0 : n;
+   458→  }, [budget]);
+   459→  const revenueNum = useMemo(() => {
+   460→    const n = Number(revenue);
+   461→    return isNaN(n) ? 0 : n;
+   462→  }, [revenue]);
+   463→  const projectedProfit = revenueNum - budgetNum;
+   464→  const projectedMargin =
+   465→    revenueNum > 0 ? (projectedProfit / revenueNum) * 100 : 0;
+   466→
+   467→  const canSubmit =
+   468→    name.trim().length > 0 &&
+   469→    serviceType.length > 0 &&
+   470→    budget.trim().length > 0 &&
+   471→    Number(budget) >= 0 &&
+   472→    revenue.trim().length > 0 &&
+   473→    Number(revenue) >= 0 &&
+   474→    !submitting;
+   475→
+   476→  async function handleSubmit(e: React.FormEvent) {
+   477→    e.preventDefault();
+   478→    if (!canSubmit) return;
+   479→    setSubmitting(true);
+   480→    try {
+   481→      const payload: Record<string, unknown> = {
+   482→        name: name.trim(),
+   483→        serviceType,
+   484→        status,
+   485→        budget: budgetNum,
+   486→        revenue: revenueNum,
+   487→      };
+   488→      if (accountId) payload.accountId = accountId;
+   489→      if (eventDate) payload.eventDate = eventDate;
+   490→      if (venue.trim()) payload.venue = venue.trim();
+   491→
+   492→      const res = await fetch("/api/doz/projects", {
+   493→        method: "POST",
+   494→        headers: { "Content-Type": "application/json" },
+   495→        body: JSON.stringify(payload),
+   496→      });
+   497→      const json = await res.json().catch(() => null);
+   498→      if (!res.ok || !json?.project) {
+   499→        throw new Error(json?.error || `Failed (${res.status})`);
+   500→      }
+   501→      toast.success("Project created", {
+   502→        description: `${json.project.name} (${json.project.code ?? "no code"})`,
+   503→      });
+   504→      onOpenChange(false);
+   505→      onCreated();
+   506→    } catch (err) {
+   507→      toast.error("Couldn't create project", {
+   508→        description: err instanceof Error ? err.message : "Unknown error",
+   509→      });
+   510→    } finally {
+   511→      setSubmitting(false);
+   512→    }
+   513→  }
+   514→
+   515→  return (
+   516→    <Dialog open={open} onOpenChange={onOpenChange}>
+   517→      <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0">
+   518→        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+   519→          <DialogTitle className="flex items-center gap-2 text-base">
+   520→            <Plus className="h-4 w-4 text-primary" />
+   521→            Create New Project
+   522→          </DialogTitle>
+   523→          <p className="text-xs text-muted-foreground">
+   524→            Add a project with its cost, contract value, and key details.
+   525→          </p>
+   526→        </DialogHeader>
+   527→
+   528→        <form
+   529→          onSubmit={handleSubmit}
+   530→          className="scroll-thin flex max-h-[calc(90vh-9rem)] flex-col"
+   531→        >
+   532→          <div className="space-y-4 overflow-y-auto px-5 py-4">
+   533→            {/* Name */}
+   534→            <div className="space-y-1.5">
+   535→              <Label htmlFor="np-name">
+   536→                Project Name <span className="text-rose-500">*</span>
+   537→              </Label>
+   538→              <Input
+   539→                id="np-name"
+   540→                value={name}
+   541→                onChange={(e) => setName(e.target.value)}
+   542→                placeholder="e.g. GTBank Annual Gala 2025"
+   543→                required
+   544→                autoFocus
+   545→              />
+   546→            </div>
+   547→
+   548→            {/* Service Type + Status */}
+   549→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   550→              <div className="space-y-1.5">
+   551→                <Label htmlFor="np-service">
+   552→                  Service Type <span className="text-rose-500">*</span>
+   553→                </Label>
+   554→                <Select value={serviceType} onValueChange={setServiceType}>
+   555→                  <SelectTrigger id="np-service">
+   556→                    <SelectValue placeholder="Select service…" />
+   557→                  </SelectTrigger>
+   558→                  <SelectContent>
+   559→                    {SERVICE_TYPES.map((s) => (
+   560→                      <SelectItem key={s} value={s}>
+   561→                        {serviceLabel(s)}
+   562→                      </SelectItem>
+   563→                    ))}
+   564→                  </SelectContent>
+   565→                </Select>
+   566→              </div>
+   567→              <div className="space-y-1.5">
+   568→                <Label htmlFor="np-status">Status</Label>
+   569→                <Select value={status} onValueChange={setStatus}>
+   570→                  <SelectTrigger id="np-status">
+   571→                    <SelectValue />
+   572→                  </SelectTrigger>
+   573→                  <SelectContent>
+   574→                    {CREATE_STATUSES.map((s) => (
+   575→                      <SelectItem key={s} value={s}>
+   576→                        {serviceLabel(s)}
+   577→                      </SelectItem>
+   578→                    ))}
+   579→                  </SelectContent>
+   580→                </Select>
+   581→              </div>
+   582→            </div>
+   583→
+   584→            {/* Account + Event Date */}
+   585→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   586→              <div className="space-y-1.5">
+   587→                <Label htmlFor="np-account">Client / Account</Label>
+   588→                <Select value={accountId} onValueChange={setAccountId}>
+   589→                  <SelectTrigger id="np-account">
+   590→                    <SelectValue
+   591→                      placeholder={
+   592→                        accountsLoading ? "Loading…" : "Optional — select client"
+   593→                      }
+   594→                    />
+   595→                  </SelectTrigger>
+   596→                  <SelectContent>
+   597→                    {accounts.length === 0 && !accountsLoading ? (
+   598→                      <SelectItem value="__none__" disabled>
+   599→                        No accounts available
+   600→                      </SelectItem>
+   601→                    ) : (
+   602→                      accounts.map((a) => (
+   603→                        <SelectItem key={a.id} value={a.id}>
+   604→                          {a.isStrategic ? "★ " : ""}
+   605→                          {a.name}
+   606→                        </SelectItem>
+   607→                      ))
+   608→                    )}
+   609→                  </SelectContent>
+   610→                </Select>
+   611→              </div>
+   612→              <div className="space-y-1.5">
+   613→                <Label htmlFor="np-date">Event Date</Label>
+   614→                <Input
+   615→                  id="np-date"
+   616→                  type="date"
+   617→                  value={eventDate}
+   618→                  onChange={(e) => setEventDate(e.target.value)}
+   619→                />
+   620→              </div>
+   621→            </div>
+   622→
+   623→            {/* Venue */}
+   624→            <div className="space-y-1.5">
+   625→              <Label htmlFor="np-venue">Venue</Label>
+   626→              <Input
+   627→                id="np-venue"
+   628→                value={venue}
+   629→                onChange={(e) => setVenue(e.target.value)}
+   630→                placeholder="e.g. Eko Hotel Convention Center"
+   631→              />
+   632→            </div>
+   633→
+   634→            {/* Budget + Revenue */}
+   635→            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+   636→              <div className="space-y-1.5">
+   637→                <Label htmlFor="np-budget">
+   638→                  Project Cost (Budget) <span className="text-rose-500">*</span>
+   639→                </Label>
+   640→                <Input
+   641→                  id="np-budget"
+   642→                  type="number"
+   643→                  min={0}
+   644→                  step="1000"
+   645→                  value={budget}
+   646→                  onChange={(e) => setBudget(e.target.value)}
+   647→                  placeholder="5,000,000"
+   648→                  required
+   649→                />
+   650→                <p className="text-[11px] text-muted-foreground">
+   651→                  What will this project cost us to deliver?
+   652→                </p>
+   653→              </div>
+   654→              <div className="space-y-1.5">
+   655→                <Label htmlFor="np-revenue">
+   656→                  Total Contract Value <span className="text-rose-500">*</span>
+   657→                </Label>
+   658→                <Input
+   659→                  id="np-revenue"
+   660→                  type="number"
+   661→                  min={0}
+   662→                  step="1000"
+   663→                  value={revenue}
+   664→                  onChange={(e) => setRevenue(e.target.value)}
+   665→                  placeholder="8,000,000"
+   666→                  required
+   667→                />
+   668→                <p className="text-[11px] text-muted-foreground">
+   669→                  Total amount the client will pay.
+   670→                </p>
+   671→              </div>
+   672→            </div>
+   673→
+   674→            {/* Live profit calculation */}
+   675→            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+   676→              <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+   677→                <TrendingUp className="h-3.5 w-3.5" />
+   678→                Projected Profit (if client pays in full)
+   679→              </div>
+   680→              <div className="mt-1 flex flex-wrap items-baseline gap-2">
+   681→                <span
+   682→                  className={`text-lg font-semibold ${
+   683→                    projectedProfit >= 0 ? "text-emerald-500" : "text-rose-500"
+   684→                  }`}
+   685→                >
+   686→                  {formatNGN(projectedProfit)}
+   687→                </span>
+   688→                <span
+   689→                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+   690→                    projectedProfit >= 0
+   691→                      ? "bg-emerald-500/15 text-emerald-400"
+   692→                      : "bg-rose-500/15 text-rose-400"
+   693→                  }`}
+   694→                >
+   695→                  {revenueNum > 0 ? `${projectedMargin.toFixed(1)}% margin` : "—"}
+   696→                </span>
+   697→              </div>
+   698→              <p className="mt-1 text-[11px] text-muted-foreground">
+   699→                Contract {formatNGN(revenueNum, true)} − Cost {formatNGN(budgetNum, true)}
+   700→              </p>
+   701→            </div>
+   702→          </div>
+   703→
+   704→          <DialogFooter className="border-t border-border px-5 py-3">
+   705→            <Button
+   706→              type="button"
+   707→              variant="outline"
+   708→              onClick={() => onOpenChange(false)}
+   709→              disabled={submitting}
+   710→            >
+   711→              Cancel
+   712→            </Button>
+   713→            <Button type="submit" disabled={!canSubmit} className="gap-1.5">
+   714→              {submitting ? (
+   715→                <>
+   716→                  <Loader2 className="h-4 w-4 animate-spin" />
+   717→                  Creating…
+   718→                </>
+   719→              ) : (
+   720→                <>
+   721→                  <Plus className="h-4 w-4" />
+   722→                  Create Project
+   723→                </>
+   724→              )}
+   725→            </Button>
+   726→          </DialogFooter>
+   727→        </form>
+   728→      </DialogContent>
+   729→    </Dialog>
+   730→  );
+   731→}
+   732→
+   733→// ---------- Project Card ----------
+   734→function ProjectCard({ project: p }: { project: Project }) {
+   735→  const overBudgetWarn =
+   736→    p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
+   737→  const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
+   738→
+   739→  // Next 2 upcoming milestones: not DONE, sorted by dueDate asc
+   740→  const upcomingMilestones = p.milestones
+   741→    .filter((m) => m.status !== "DONE")
+   742→    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+   743→    .slice(0, 2);
+   744→
+   745→  const positiveProfit = p.profit >= 0;
+   746→
+   747→  return (
+   748→    <Dialog>
+   749→      <DialogTrigger asChild>
+   750→        <Card className="group cursor-pointer p-4 transition-all hover:border-primary/40 hover:bg-accent/20 lg:p-5">
+   751→          {/* Header: code + name + status */}
+   752→          <div className="flex items-start justify-between gap-2">
+   753→            <div className="min-w-0 flex-1">
+   754→              <div className="flex items-center gap-2">
+   755→                {p.code && (
+   756→                  <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+   757→                    {p.code}
+   758→                  </span>
+   759→                )}
+   760→              </div>
+   761→              <h3 className="mt-0.5 truncate text-sm font-semibold leading-tight">
+   762→                {p.name}
+   763→              </h3>
+   764→            </div>
+   765→            <StatusBadge status={p.status} />
+   766→          </div>
+   767→
+   768→          {/* Service type + account */}
+   769→          <div className="mt-2 flex flex-wrap items-center gap-2">
+   770→            <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
+   771→              {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+   772→              {serviceLabel(p.serviceType)}
+   773→            </Badge>
+   774→            {p.account && (
+   775→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   776→                {p.account.isStrategic && (
+   777→                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+   778→                )}
+   779→                {p.account.name}
+   780→              </span>
+   781→            )}
+   782→          </div>
+   783→
+   784→          {/* Event date + venue */}
+   785→          {p.eventDate && (
+   786→            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+   787→              <span className="inline-flex items-center gap-1">
+   788→                <Calendar className="h-3.5 w-3.5" />
+   789→                {formatDate(p.eventDate)}
+   790→              </span>
+   791→              {p.venue && (
+   792→                <span className="inline-flex items-center gap-1">
+   793→                  <MapPin className="h-3.5 w-3.5" />
+   794→                  {p.venue}
+   795→                </span>
+   796→              )}
+   797→            </div>
+   798→          )}
+   799→
+   800→          {/* Financial summary strip — Earned / Received / Balance / Cost */}
+   801→          <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
+   802→            <div className="min-w-0">
+   803→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   804→                <CircleDollarSign className="h-3 w-3" />
+   805→                Earned
+   806→              </p>
+   807→              <p className="mt-0.5 truncate text-sm font-semibold text-primary" title={formatNGN(p.revenue)}>
+   808→                {formatNGN(p.revenue, true)}
+   809→              </p>
+   810→            </div>
+   811→            <div className="min-w-0">
+   812→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   813→                <ArrowDownCircle className="h-3 w-3" />
+   814→                Received
+   815→              </p>
+   816→              <p
+   817→                className="mt-0.5 truncate text-sm font-semibold text-emerald-500"
+   818→                title={formatNGN(p.received)}
+   819→              >
+   820→                {formatNGN(p.received, true)}
+   821→              </p>
+   822→            </div>
+   823→            <div className="min-w-0">
+   824→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   825→                <ArrowUpCircle className="h-3 w-3" />
+   826→                Balance
+   827→              </p>
+   828→              <p
+   829→                className={`mt-0.5 truncate text-sm font-semibold ${
+   830→                  p.balance > 0 ? "text-amber-500" : "text-emerald-500"
+   831→                }`}
+   832→                title={formatNGN(p.balance)}
+   833→              >
+   834→                {formatNGN(p.balance, true)}
+   835→              </p>
+   836→            </div>
+   837→            <div className="min-w-0">
+   838→              <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+   839→                <Wallet className="h-3 w-3" />
+   840→                Cost
+   841→              </p>
+   842→              <p
+   843→                className="mt-0.5 truncate text-sm font-semibold text-muted-foreground"
+   844→                title={formatNGN(p.budget)}
+   845→              >
+   846→                {formatNGN(p.budget, true)}
+   847→              </p>
+   848→            </div>
+   849→          </div>
+   850→
+   851→          {/* Budget burn bar */}
+   852→          <div className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2.5">
+   853→            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   854→              <span>Budget burn</span>
+   855→              <span>
+   856→                Spent <span className="font-medium text-foreground">{formatNGN(p.expensesTotal, true)}</span> · {budgetUtil.toFixed(0)}% of budget
+   857→              </span>
+   858→            </div>
+   859→            <MiniBar
+   860→              value={p.expensesTotal}
+   861→              max={p.budget > 0 ? p.budget : p.revenue || 1}
+   862→              color={overBudgetWarn ? "bg-amber-500" : "bg-emerald-500"}
+   863→            />
+   864→            {/* Collection progress: received / revenue */}
+   865→            <div className="flex items-center justify-between pt-0.5 text-[11px] text-muted-foreground">
+   866→              <span>Collected</span>
+   867→              <span>
+   868→                <span className="font-medium text-emerald-500">
+   869→                  {formatNGN(p.received, true)}
+   870→                </span>
+   871→                {" / "}
+   872→                {formatNGN(p.revenue, true)} ·{" "}
+   873→                <span className="font-medium text-foreground">
+   874→                  {p.revenue > 0 ? ((p.received / p.revenue) * 100).toFixed(0) : 0}%
+   875→                </span>
+   876→              </span>
+   877→            </div>
+   878→            <MiniBar
+   879→              value={p.received}
+   880→              max={p.revenue > 0 ? p.revenue : 1}
+   881→              color="bg-emerald-500"
+   882→            />
+   883→            {overBudgetWarn && (
+   884→              <div className="flex items-center justify-end gap-1 pt-0.5 text-[11px] font-medium text-amber-500">
+   885→                <AlertTriangle className="h-3 w-3" />
+   886→                High burn
+   887→              </div>
+   888→            )}
+   889→          </div>
+   890→
+   891→          {/* Profit + margin */}
+   892→          <div className="mt-2.5 flex items-center justify-between">
+   893→            <div className="flex items-center gap-2">
+   894→              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Profit</span>
+   895→              <span
+   896→                className={`text-sm font-semibold ${
+   897→                  positiveProfit ? "text-emerald-500" : "text-rose-500"
+   898→                }`}
+   899→              >
+   900→                {formatNGN(p.profit, true)}
+   901→              </span>
+   902→            </div>
+   903→            <span
+   904→              className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+   905→                positiveProfit
+   906→                  ? "bg-emerald-500/15 text-emerald-400"
+   907→                  : "bg-rose-500/15 text-rose-400"
+   908→              }`}
+   909→            >
+   910→              {p.margin.toFixed(1)}% margin
+   911→            </span>
+   912→          </div>
+   913→
+   914→          {/* Progress bar */}
+   915→          <div className="mt-3">
+   916→            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   917→              <span>Project progress</span>
+   918→              <span className="font-medium text-foreground">{p.progress}%</span>
+   919→            </div>
+   920→            <Progress value={p.progress} className="mt-1 h-1.5" />
+   921→          </div>
+   922→
+   923→          {/* Crew summary with avatar stack */}
+   924→          <div className="mt-3 flex items-center justify-between">
+   925→            <div className="flex items-center gap-2">
+   926→              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   927→                <Users className="h-3.5 w-3.5" />
+   928→                {p.crew.length} crew assigned
+   929→              </span>
+   930→            </div>
+   931→            {p.crew.length > 0 && (
+   932→              <div className="flex -space-x-2">
+   933→                {p.crew.slice(0, 3).map((c) => (
+   934→                  <Avatar
+   935→                    key={c.id}
+   936→                    className="h-6 w-6 border-2 border-background ring-0"
+   937→                  >
+   938→                    <AvatarFallback
+   939→                      className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+   940→                    >
+   941→                      {initials(c.user.name)}
+   942→                    </AvatarFallback>
+   943→                  </Avatar>
+   944→                ))}
+   945→                {p.crew.length > 3 && (
+   946→                  <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-semibold text-muted-foreground">
+   947→                    +{p.crew.length - 3}
+   948→                  </div>
+   949→                )}
+   950→              </div>
+   951→            )}
+   952→          </div>
+   953→
+   954→          {/* Upcoming milestones */}
+   955→          {upcomingMilestones.length > 0 && (
+   956→            <div className="mt-3 border-t border-border/60 pt-2.5">
+   957→              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+   958→                Upcoming milestones
+   959→              </p>
+   960→              <div className="space-y-1">
+   961→                {upcomingMilestones.map((m) => (
+   962→                  <div key={m.id} className="flex items-center justify-between gap-2 text-xs">
+   963→                    <span className="inline-flex min-w-0 items-center gap-1.5">
+   964→                      <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+   965→                      <span className="truncate">{m.title}</span>
+   966→                    </span>
+   967→                    <span className="shrink-0 text-[11px] text-muted-foreground">
+   968→                      {relativeTime(m.dueDate)}
+   969→                    </span>
+   970→                  </div>
+   971→                ))}
+   972→              </div>
+   973→            </div>
+   974→          )}
+   975→
+   976→          {/* Deliverables summary */}
+   977→          {p.deliverables.length > 0 && (
+   978→            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+   979→              <CheckCircle2 className="h-3.5 w-3.5" />
+   980→              <span>{deliverableSummary(p.deliverables)}</span>
+   981→            </div>
+   982→          )}
+   983→
+   984→          {/* Footer hint */}
+   985→          <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+   986→            <span>{p._count.tasks} tasks · {p._count.invoices} invoices · {p._count.expenses} expenses</span>
+   987→            <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+   988→              View details →
+   989→            </span>
+   990→          </div>
+   991→        </Card>
+   992→      </DialogTrigger>
+   993→
+   994→      <ProjectDialog project={p} />
+   995→    </Dialog>
+   996→  );
+   997→}
+   998→
+   999→// ---------- Project Detail Dialog ----------
+  1000→function ProjectDialog({ project: p }: { project: Project }) {
+  1001→  const milestones = [...p.milestones].sort(
+  1002→    (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+  1003→  );
+  1004→  const deliverables = [...p.deliverables].sort((a, b) => {
+  1005→    const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+  1006→    const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+  1007→    return da - db;
+  1008→  });
+  1009→
+  1010→  return (
+  1011→    <DialogContent className="max-h-[88vh] max-w-2xl overflow-hidden p-0">
+  1012→      <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+  1013→        <div className="flex items-center gap-2">
+  1014→          {p.code && (
+  1015→            <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+  1016→              {p.code}
+  1017→            </span>
+  1018→          )}
+  1019→          <StatusBadge status={p.status} />
+  1020→        </div>
+  1021→        <DialogTitle className="text-base">{p.name}</DialogTitle>
+  1022→        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+  1023→          <span className="inline-flex items-center gap-1">
+  1024→            {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+  1025→            {serviceLabel(p.serviceType)}
+  1026→          </span>
+  1027→          {p.account && (
+  1028→            <span className="inline-flex items-center gap-1">
+  1029→              {p.account.isStrategic && (
+  1030→                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+  1031→              )}
+  1032→              {p.account.name}
+  1033→            </span>
+  1034→          )}
+  1035→          {p.manager && <span>· PM: {p.manager.name}</span>}
+  1036→        </div>
+  1037→      </DialogHeader>
+  1038→
+  1039→      <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
+  1040→        {/* Quick facts */}
+  1041→        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+  1042→          <div className="rounded-md border border-border/60 p-2.5">
+  1043→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Earned (Contract)</p>
+  1044→            <p className="mt-0.5 text-sm font-semibold text-primary">{formatNGN(p.revenue, true)}</p>
+  1045→          </div>
+  1046→          <div className="rounded-md border border-border/60 p-2.5">
+  1047→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Received</p>
+  1048→            <p className="mt-0.5 text-sm font-semibold text-emerald-500">{formatNGN(p.received, true)}</p>
+  1049→          </div>
+  1050→          <div className="rounded-md border border-border/60 p-2.5">
+  1051→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance Owed</p>
+  1052→            <p className={`mt-0.5 text-sm font-semibold ${p.balance > 0 ? "text-amber-500" : "text-emerald-500"}`}>
+  1053→              {formatNGN(p.balance, true)}
+  1054→            </p>
+  1055→          </div>
+  1056→          <div className="rounded-md border border-border/60 p-2.5">
+  1057→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Budget (Cost)</p>
+  1058→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.budget, true)}</p>
+  1059→          </div>
+  1060→          <div className="rounded-md border border-border/60 p-2.5">
+  1061→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Expenses</p>
+  1062→            <p className="mt-0.5 text-sm font-semibold">{formatNGN(p.expensesTotal, true)}</p>
+  1063→          </div>
+  1064→          <div className="rounded-md border border-border/60 p-2.5">
+  1065→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Profit / Margin</p>
+  1066→            <p className={`mt-0.5 text-sm font-semibold ${p.profit >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+  1067→              {formatNGN(p.profit, true)} · {p.margin.toFixed(1)}%
+  1068→            </p>
+  1069→          </div>
+  1070→        </div>
+  1071→
+  1072→        {/* Event + dates */}
+  1073→        <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+  1074→          {p.eventDate && (
+  1075→            <div className="flex items-center gap-2">
+  1076→              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+  1077→              <span className="text-muted-foreground">Event:</span>
+  1078→              <span className="font-medium">{formatDate(p.eventDate)}</span>
+  1079→            </div>
+  1080→          )}
+  1081→          {p.venue && (
+  1082→            <div className="flex items-center gap-2">
+  1083→              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+  1084→              <span className="text-muted-foreground">Venue:</span>
+  1085→              <span className="font-medium">{p.venue}</span>
+  1086→            </div>
+  1087→          )}
+  1088→          {p.startDate && (
+  1089→            <div className="flex items-center gap-2">
+  1090→              <span className="text-muted-foreground">Start:</span>
+  1091→              <span className="font-medium">{formatDate(p.startDate)}</span>
+  1092→            </div>
+  1093→          )}
+  1094→          {p.endDate && (
+  1095→            <div className="flex items-center gap-2">
+  1096→              <span className="text-muted-foreground">End:</span>
+  1097→              <span className="font-medium">{formatDate(p.endDate)}</span>
+  1098→            </div>
+  1099→          )}
+  1100→        </div>
+  1101→
+  1102→        {/* Progress */}
+  1103→        <div className="mt-4">
+  1104→          <div className="flex items-center justify-between text-xs">
+  1105→            <span className="font-medium">Progress</span>
+  1106→            <span className="font-semibold text-primary">{p.progress}%</span>
+  1107→          </div>
+  1108→          <Progress value={p.progress} className="mt-1.5 h-2" />
+  1109→        </div>
+  1110→
+  1111→        {/* Crew */}
+  1112→        <div className="mt-5">
+  1113→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1114→            <Users className="h-3.5 w-3.5" />
+  1115→            Crew ({p.crew.length})
+  1116→          </h4>
+  1117→          {p.crew.length === 0 ? (
+  1118→            <p className="text-xs text-muted-foreground">No crew assigned yet.</p>
+  1119→          ) : (
+  1120→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1121→              {p.crew.map((c) => (
+  1122→                <div
+  1123→                  key={c.id}
+  1124→                  className="flex items-center justify-between rounded-md border border-border/60 px-2.5 py-1.5"
+  1125→                >
+  1126→                  <div className="flex min-w-0 items-center gap-2">
+  1127→                    <Avatar className="h-6 w-6">
+  1128→                      <AvatarFallback
+  1129→                        className={`h-6 w-6 text-[9px] font-semibold ${avatarColor(c.user.name)}`}
+  1130→                      >
+  1131→                        {initials(c.user.name)}
+  1132→                      </AvatarFallback>
+  1133→                    </Avatar>
+  1134→                    <div className="min-w-0">
+  1135→                      <p className="truncate text-xs font-medium">{c.user.name}</p>
+  1136→                      <p className="truncate text-[10px] text-muted-foreground">
+  1137→                        {c.role.replace(/_/g, " ").toLowerCase()}
+  1138→                      </p>
+  1139→                    </div>
+  1140→                  </div>
+  1141→                  <div className="flex items-center gap-2">
+  1142→                    <span className="text-[11px] text-muted-foreground">
+  1143→                      {formatNGN(c.dayRate, true)}/day
+  1144→                    </span>
+  1145→                    <StatusBadge status={c.status} />
+  1146→                  </div>
+  1147→                </div>
+  1148→              ))}
+  1149→            </div>
+  1150→          )}
+  1151→        </div>
+  1152→
+  1153→        {/* Milestones */}
+  1154→        <div className="mt-5">
+  1155→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1156→            <Clock className="h-3.5 w-3.5" />
+  1157→            Milestones ({milestones.length})
+  1158→          </h4>
+  1159→          {milestones.length === 0 ? (
+  1160→            <p className="text-xs text-muted-foreground">No milestones defined.</p>
+  1161→          ) : (
+  1162→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1163→              {milestones.map((m) => (
+  1164→                <div
+  1165→                  key={m.id}
+  1166→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+  1167→                >
+  1168→                  <div className="flex min-w-0 items-center gap-2">
+  1169→                    <CheckCircle2
+  1170→                      className={`h-3.5 w-3.5 shrink-0 ${
+  1171→                        m.status === "DONE" ? "text-emerald-500" : "text-muted-foreground"
+  1172→                      }`}
+  1173→                    />
+  1174→                    <div className="min-w-0">
+  1175→                      <p className={`truncate text-xs ${m.status === "DONE" ? "line-through text-muted-foreground" : "font-medium"}`}>
+  1176→                        {m.title}
+  1177→                      </p>
+  1178→                      <p className="text-[10px] text-muted-foreground">
+  1179→                        Due {formatDate(m.dueDate)} · {relativeTime(m.dueDate)}
+  1180→                      </p>
+  1181→                    </div>
+  1182→                  </div>
+  1183→                  <StatusBadge status={m.status} />
+  1184→                </div>
+  1185→              ))}
+  1186→            </div>
+  1187→          )}
+  1188→        </div>
+  1189→
+  1190→        {/* Deliverables */}
+  1191→        <div className="mt-5">
+  1192→          <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+  1193→            <Film className="h-3.5 w-3.5" />
+  1194→            Deliverables ({deliverables.length})
+  1195→          </h4>
+  1196→          {deliverables.length === 0 ? (
+  1197→            <p className="text-xs text-muted-foreground">No deliverables defined.</p>
+  1198→          ) : (
+  1199→            <div className="scroll-thin max-h-48 space-y-1.5 overflow-y-auto pr-1">
+  1200→              {deliverables.map((d) => (
+  1201→                <div
+  1202→                  key={d.id}
+  1203→                  className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-1.5"
+  1204→                >
+  1205→                  <div className="flex min-w-0 items-center gap-2">
+  1206→                    <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1207→                    <div className="min-w-0">
+  1208→                      <p className="truncate text-xs font-medium">{d.title}</p>
+  1209→                      <p className="text-[10px] text-muted-foreground">
+  1210→                        {d.type ? d.type.replace(/_/g, " ").toLowerCase() : "deliverable"}
+  1211→                        {d.dueDate && ` · due ${formatDate(d.dueDate)}`}
+  1212→                        {d.clientApproved && " · approved"}
+  1213→                      </p>
+  1214→                    </div>
+  1215→                  </div>
+  1216→                  <StatusBadge status={d.status} />
+  1217→                </div>
+  1218→              ))}
+  1219→            </div>
+  1220→          )}
+  1221→        </div>
+  1222→
+  1223→        {/* Footer counts */}
+  1224→        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
+  1225→          <span>{p._count.tasks} tasks</span>
+  1226→          <span>·</span>
+  1227→          <span>{p._count.invoices} invoices</span>
+  1228→          <span>·</span>
+  1229→          <span>{p._count.expenses} expenses</span>
+  1230→        </div>
+  1231→      </div>
+  1232→    </DialogContent>
+  1233→  );
+  1234→}
+  1235→
+  1236→// ---------- Skeleton ----------
+  1237→function ProjectsSkeleton() {
+  1238→  return (
+  1239→    <div className="space-y-6">
+  1240→      <SectionHeader
+  1241→        icon={<Clapperboard className="h-5 w-5" />}
+  1242→        title="Projects & Event Operations"
+  1243→        description="Loading projects…"
+  1244→      />
+  1245→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+  1246→        {Array.from({ length: 6 }).map((_, i) => (
+  1247→          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+  1248→        ))}
+  1249→      </div>
+  1250→      <Skeleton className="h-9 w-full max-w-md rounded-lg" />
+  1251→      <div className="grid gap-4 lg:grid-cols-2">
+  1252→        {Array.from({ length: 4 }).map((_, i) => (
+  1253→          <Skeleton key={i} className="h-64 w-full rounded-lg" />
+  1254→        ))}
+  1255→      </div>
+  1256→    </div>
+  1257→  );
+  1258→}
+  1259→

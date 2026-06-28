@@ -14,7 +14,7 @@ import { getSessionUser } from "@/lib/auth";
 
 const COMPANY = {
   name: "Digit One Zero Ltd",
-  founder: "Adaeze Okonkwo",
+  founder: "Kelvin Keshy",
   title: "Founder & CEO",
   bank: "GTBank — Digit One Zero Ltd — 0123456789",
 };

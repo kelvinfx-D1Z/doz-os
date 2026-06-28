@@ -626,7 +626,7 @@ export function CommandCenter() {
   const { stats, founder, currentUser: apiUser } = data;
   // Prefer the session user's name (so interns/staff see THEIR name, not the
   // founder's). Fall back to the API's currentUser, then the founder record.
-  const displayName = user?.name ?? apiUser?.name ?? founder?.name ?? "Adaeze Okonkwo";
+  const displayName = user?.name ?? apiUser?.name ?? founder?.name ?? "Kelvin Keshy";
   const role = user?.role ?? apiUser?.role ?? "FOUNDER";
 
   // Shared props passed to every role-specific view.
@@ -781,6 +781,24 @@ export function CommandCenter() {
               <Zap className="h-3 w-3" />
               {stats.activeProjects} active projects
             </Badge>
+          </div>
+        </div>
+
+        {/* ---------- Company Vision Banner ---------- */}
+        <div className="relative overflow-hidden rounded-lg border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Target className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Company North Star</p>
+              <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">
+                ₦500M+ revenue · 25%+ margin · 40+ clients · EventCo launch by 2028
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Year 1 target: ₦120M revenue · 15 clients · Founder operational time below 50%
+              </p>
+            </div>
           </div>
         </div>
 

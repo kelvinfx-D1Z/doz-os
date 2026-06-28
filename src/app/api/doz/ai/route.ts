@@ -1,18 +1,39 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import ZAI from "z-ai-web-dev-sdk";
 
 // ============================================================
 // AI Chief of Staff — Operations Director for Digit One Zero Ltd
 // GET  : stored AI insights + context summary
-// POST : {action: daily_plan | risk_check | proposal_draft | chat, message?, opportunityName?}
+// POST : {action: daily_plan | risk_check | proposal_draft | chat
+//              | plan_tasks | chat_with_actions,
+//         message?, opportunityName?}
 // ============================================================
 
 const SYSTEM_PROMPT =
   "You are the AI Chief of Staff for Digit One Zero Ltd, a Nigerian event production and media company based in Lagos. " +
   "You act as an Operations Director. You are direct, actionable, and concise. You think in priorities, risks, and cash flow. " +
-  "You use Nigerian Naira (\u20a6). You help the founder (Adaeze Okonkwo) reduce distraction, enforce process, and scale the company. " +
+  "You use Nigerian Naira (\u20a6). You help the founder (Kelvin Keshy) reduce distraction, enforce process, and scale the company. " +
   "Always give specific, prioritized recommendations. Be brief but complete. Use markdown headings (##), bold (**text**), and bullet lists.";
+
+// System prompt for DIDI with action-taking capability.
+const DIDI_ACTIONS_SYSTEM_PROMPT =
+  "You are DIDI, the AI Growth Coach and Chief of Staff for Digit One Zero Ltd. " +
+  "The founder is Kelvin Keshy. You can TAKE ACTIONS to help run the company.\n\n" +
+  "When the user asks you to do something (create a task, follow up, add a contact, etc.), respond with a JSON object containing:\n" +
+  '1. "reply" — your conversational response to the user\n' +
+  '2. "actions" — an array of actions to execute\n\n' +
+  "Supported action types:\n" +
+  '- create_task: { "type": "create_task", "data": { "title": "...", "priority": "HIGH|MEDIUM|LOW|URGENT", "category": "STRATEGIC|OPERATIONAL|ADMIN|DISTRACTION", "dueDate": "YYYY-MM-DD" } }\n' +
+  '- complete_task: { "type": "complete_task", "data": { "taskTitle": "partial title to match" } }\n' +
+  '- create_followup: { "type": "create_followup", "data": { "subject": "...", "type": "CALL|EMAIL|MEETING|WHATSAPP", "dueDate": "YYYY-MM-DD" } }\n' +
+  '- create_account: { "type": "create_account", "data": { "name": "...", "industry": "..." } }\n' +
+  '- create_opportunity: { "type": "create_opportunity", "data": { "name": "...", "value": 1000000, "accountName": "..." } }\n\n' +
+  'If no actions are needed, return { "reply": "...", "actions": [] }.\n\n' +
+  "Always be helpful, direct, and reference real business data. Use Nigerian Naira (\u20a6).\n" +
+  "IMPORTANT: Return ONLY the JSON object — no markdown fences, no prose before or after. " +
+  "The reply field should be plain text (markdown allowed), and actions should be a JSON array.";
 
 // ---------- helpers ----------
 
@@ -138,7 +159,7 @@ export async function GET() {
 // ---------- POST ----------
 
 interface AiPostBody {
-  action: "daily_plan" | "risk_check" | "proposal_draft" | "chat";
+  action: "daily_plan" | "risk_check" | "proposal_draft" | "chat" | "plan_tasks" | "chat_with_actions";
   message?: string;
   opportunityName?: string;
 }
@@ -171,7 +192,7 @@ function buildUserPrompt(
     case "daily_plan":
       return (
         `Here is the current operating context for Digit One Zero Ltd (today):\n\n${ctxText}\n\n` +
-        `Produce a prioritized daily plan for the founder (Adaeze Okonkwo). ` +
+        `Produce a prioritized daily plan for the founder (Kelvin Keshy). ` +
         `Use markdown. Include:\n` +
         `## Top 3 Priorities\n## Delegate (who & what)\n## Defer (what to push)\n## Risk to Watch\n` +
         `Be specific, action-oriented, and tie each priority to a project or cash-flow item where possible. Use Naira.`
@@ -220,12 +241,24 @@ export async function POST(req: Request) {
   }
 
   const { action, message, opportunityName } = body;
-  const validActions: AiPostBody["action"][] = ["daily_plan", "risk_check", "proposal_draft", "chat"];
+  const validActions: AiPostBody["action"][] = [
+    "daily_plan", "risk_check", "proposal_draft", "chat", "plan_tasks", "chat_with_actions",
+  ];
   if (!validActions.includes(action)) {
     return NextResponse.json(
       { response: `Unknown action: ${action}. Valid: ${validActions.join(", ")}.`, error: true },
       { status: 200 }
     );
+  }
+
+  // ---- plan_tasks — DIDI analyzes goals + tasks and suggests new tasks ----
+  if (action === "plan_tasks") {
+    return handlePlanTasks(message);
+  }
+
+  // ---- chat_with_actions — DIDI replies AND takes actions (create/complete/etc.) ----
+  if (action === "chat_with_actions") {
+    return handleChatWithActions(message);
   }
 
   // build context (cheap, in-DB)
@@ -295,6 +328,602 @@ export async function POST(req: Request) {
   }
 }
 
+// ============================================================
+// PLAN TASKS — DIDI analyzes goals + tasks and suggests tasks
+// ============================================================
+async function handlePlanTasks(focusHint: string | undefined) {
+  let goals: any[] = [];
+  let existingTasks: any[] = [];
+  let users: any[] = [];
+  try {
+    [goals, existingTasks, users] = await Promise.all([
+      db.goal.findMany({
+        where: { status: { in: ["ACTIVE", "ON_HOLD"] } },
+        include: { owner: { select: { name: true } } },
+        orderBy: [{ type: "asc" }, { dueDate: "asc" }],
+      }),
+      db.task.findMany({
+        where: { status: { not: "DONE" } },
+        select: { id: true, title: true, priority: true, goalId: true },
+        orderBy: { dueDate: "asc" },
+      }),
+      db.user.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true, role: true, title: true },
+      }),
+    ]);
+  } catch (e) {
+    console.error("[plan_tasks] context fetch failed:", e);
+  }
+
+  if (goals.length === 0) {
+    return NextResponse.json({
+      error: false,
+      empty: true,
+      message: "No active goals found. Define annual or quarterly goals first so DIDI can plan against them.",
+      suggestions: [],
+    });
+  }
+
+  const goalsSummary = goals.map((g) => {
+    const days = Math.round((new Date(g.dueDate).getTime() - Date.now()) / 86400000);
+    return `- [${g.type}${g.quarter ? ` ${g.quarter}` : ""}] ${g.title} — ${g.progress}% done, ${days >= 0 ? `${days}d left` : `${Math.abs(days)}d overdue`} (owner: ${g.owner?.name ?? "—"})`;
+  }).join("\n");
+
+  const existingTasksSummary = existingTasks.length === 0
+    ? "(no open tasks yet)"
+    : existingTasks.slice(0, 30).map((t) => `- ${t.title}`).join("\n");
+
+  const teamSummary = users.length === 0
+    ? "(no team members)"
+    : users.map((u) => `- ${u.name} — ${u.role}${u.title ? ` / ${u.title}` : ""}`).join("\n");
+
+  const userPrompt =
+    `Here are the active goals at Digit One Zero Ltd:\n\n${goalsSummary}\n\n` +
+    `Here are the team members available:\n${teamSummary}\n\n` +
+    `Here are the currently OPEN tasks (already on the list):\n${existingTasksSummary}\n\n` +
+    (focusHint ? `Founder's focus hint: ${focusHint}\n\n` : "") +
+    `SUGGEST 5 to 8 NEW TASKS that would meaningfully move these goals forward. ` +
+    `Do NOT duplicate tasks already on the list. For each task, return a JSON object with these fields:\n` +
+    `- title: short action verb + object (e.g. "Call GTBank treasury team to confirm invoice payment")\n` +
+    `- priority: URGENT | HIGH | MEDIUM | LOW\n` +
+    `- category: STRATEGIC | OPERATIONAL | ADMIN | DISTRACTION\n` +
+    `- assigneeSuggestion: a team member name (or "Founder" if strategic)\n` +
+    `- goalTitle: the EXACT title of the goal this task connects to (must match one of the goals above)\n` +
+    `- rationale: one short sentence on why this task moves the goal\n\n` +
+    `Return STRICT JSON: {"suggestions": [ {title, priority, category, assigneeSuggestion, goalTitle, rationale}, ... ]}. ` +
+    `Do not include any text before or after the JSON. Do not use markdown fences.`;
+
+  try {
+    const zai = await ZAI.create();
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: "assistant", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      thinking: { type: "disabled" },
+    });
+    const text: string | undefined = completion?.choices?.[0]?.message?.content;
+    if (!text) {
+      return NextResponse.json({
+        error: false,
+        offline: true,
+        message: "AI service offline — could not generate task suggestions.",
+        suggestions: [],
+      });
+    }
+
+    // Parse JSON robustly (LLMs sometimes wrap in ```json fences)
+    const parsed = safeParseSuggestions(text);
+    return NextResponse.json({
+      error: false,
+      suggestions: parsed,
+      raw: parsed.length === 0 ? text : undefined,
+    });
+  } catch (err) {
+    console.error("[plan_tasks] z-ai-web-dev-sdk failed:", err);
+    return NextResponse.json({
+      error: false,
+      offline: true,
+      message: "AI service offline — could not generate task suggestions.",
+      suggestions: [],
+    });
+  }
+}
+
+function safeParseSuggestions(text: string): Array<{
+  title: string;
+  priority?: string;
+  category?: string;
+  assigneeSuggestion?: string;
+  goalTitle?: string;
+  rationale?: string;
+}> {
+  // Strip markdown fences if present
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  }
+  // Find first { ... } block (greedy)
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return [];
+  const slice = cleaned.slice(start, end + 1);
+  try {
+    const obj = JSON.parse(slice);
+    if (obj && Array.isArray(obj.suggestions)) {
+      return obj.suggestions.filter((s: any) => s && typeof s.title === "string");
+    }
+  } catch {
+    /* fall through */
+  }
+  return [];
+}
+
+// ============================================================
+// CHAT WITH ACTIONS — DIDI takes actions through the chat
+// ============================================================
+async function handleChatWithActions(message: string | undefined) {
+  const user = await getSessionUser();
+  const userMessage = message?.trim() || "What should I focus on right now?";
+
+  // Build a compact live context for DIDI to reason over
+  let contextBlock = "";
+  try {
+    const ctx = await buildContextSummary();
+    contextBlock = contextSummaryToText(ctx);
+  } catch {
+    contextBlock = "(context unavailable)";
+  }
+
+  const userPrompt =
+    `Live operating context for Digit One Zero Ltd:\n${contextBlock}\n\n` +
+    `Founder's message: "${userMessage}"\n\n` +
+    `Respond with the JSON object as instructed. Take action(s) if the founder is asking you to create, schedule, ` +
+    `follow up on, or close out something. If they're just asking a question, return an empty actions array with ` +
+    `your answer in the reply field. Remember: return ONLY the JSON.`;
+
+  let rawText = "";
+  try {
+    const zai = await ZAI.create();
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: "assistant", content: DIDI_ACTIONS_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      thinking: { type: "disabled" },
+    });
+    rawText = completion?.choices?.[0]?.message?.content ?? "";
+  } catch (err) {
+    console.error("[chat_with_actions] z-ai-web-dev-sdk failed:", err);
+    return NextResponse.json({
+      reply: "I'm offline right now. Quick guidance: prioritise overdue invoices, clear pending approvals, and protect the founder's calendar today.",
+      actions: [],
+      actionResults: [],
+      offline: true,
+    });
+  }
+
+  if (!rawText) {
+    return NextResponse.json({
+      reply: "I didn't catch a response — please try again.",
+      actions: [],
+      actionResults: [],
+    });
+  }
+
+  const parsed = safeParseDidiResponse(rawText);
+  // If the LLM didn't return valid JSON, fall back to treating the whole text as a reply.
+  if (!parsed) {
+    return NextResponse.json({
+      reply: rawText,
+      actions: [],
+      actionResults: [],
+      rawNotJson: true,
+    });
+  }
+
+  // Execute the actions server-side
+  const actionResults: any[] = [];
+  for (const act of parsed.actions ?? []) {
+    try {
+      const result = await executeDidiAction(act, user?.id);
+      actionResults.push(result);
+    } catch (e) {
+      actionResults.push({
+        type: act?.type,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return NextResponse.json({
+    reply: parsed.reply ?? "",
+    actions: parsed.actions ?? [],
+    actionResults,
+  });
+}
+
+// Parse the LLM's JSON response for chat_with_actions.
+// Returns { reply, actions } or null if the response isn't valid JSON.
+function safeParseDidiResponse(text: string): { reply: string; actions: any[] } | null {
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  }
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return null;
+  const slice = cleaned.slice(start, end + 1);
+  try {
+    const obj = JSON.parse(slice);
+    if (obj && typeof obj === "object" && "reply" in obj) {
+      return {
+        reply: typeof obj.reply === "string" ? obj.reply : "",
+        actions: Array.isArray(obj.actions) ? obj.actions : [],
+      };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+// Execute a single DIDI action against the DB.
+// Returns { type, ok, ...details } describing the result.
+async function executeDidiAction(
+  act: any,
+  creatorId: string | undefined,
+): Promise<any> {
+  if (!act || typeof act !== "object" || typeof act.type !== "string") {
+    return { ok: false, error: "invalid_action_shape" };
+  }
+  const data = act.data ?? {};
+
+  switch (act.type) {
+    case "create_task": {
+      const title = typeof data.title === "string" ? data.title.trim() : "";
+      if (!title) return { type: "create_task", ok: false, error: "missing_title" };
+
+      const validPriorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
+      const priority = validPriorities.includes(data.priority) ? data.priority : "MEDIUM";
+      const validCategories = ["STRATEGIC", "OPERATIONAL", "ADMIN", "DISTRACTION"];
+      const category = validCategories.includes(data.category) ? data.category : null;
+
+      // dueDate — accept YYYY-MM-DD, or words like "today"/"tomorrow"/"next week"
+      let dueDate: Date | null = null;
+      if (typeof data.dueDate === "string") {
+        const d = parseFlexibleDate(data.dueDate);
+        if (d) dueDate = d;
+      }
+
+      // Resolve assignee: try assigneeId, else by name match, else fall back to creator
+      let assigneeId: string | undefined = data.assigneeId;
+      if (!assigneeId && typeof data.assignee === "string" && data.assignee.trim()) {
+        // "Founder" / "Kelvin" / "Adaeze" → first FOUNDER role user
+        const lower = data.assignee.toLowerCase();
+        if (lower === "founder" || lower === "kelvin" || lower === "adaeze" || lower === "ceo") {
+          const founder = await db.user.findFirst({
+            where: { role: "FOUNDER", isActive: true },
+            select: { id: true },
+          });
+          if (founder) assigneeId = founder.id;
+        }
+        if (!assigneeId) {
+          const u = await findUserByNameCI(data.assignee);
+          if (u) assigneeId = u.id;
+        }
+      }
+      if (!assigneeId && creatorId) assigneeId = creatorId;
+      if (!assigneeId) {
+        return { type: "create_task", ok: false, error: "no_assignee_available" };
+      }
+
+      // Try to link to a goal by goalTitle (fuzzy)
+      let goalId: string | null = null;
+      if (typeof data.goalTitle === "string" && data.goalTitle.trim()) {
+        const g = await findGoalByTitleCI(data.goalTitle);
+        if (g) goalId = g.id;
+      }
+
+      const created = await db.task.create({
+        data: {
+          title,
+          description: typeof data.description === "string" ? data.description : null,
+          priority,
+          category,
+          assigneeId,
+          creatorId: creatorId ?? assigneeId,
+          goalId,
+          dueDate,
+          status: "TODO",
+          isDistraction: false,
+        },
+        select: { id: true, title: true },
+      });
+
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: creatorId ?? assigneeId,
+            action: "CREATED_TASK",
+            detail: `DIDI created "${created.title}"`,
+          },
+        });
+      } catch { /* non-blocking */ }
+
+      return { type: "create_task", ok: true, id: created.id, title: created.title };
+    }
+
+    case "complete_task": {
+      const partial = typeof data.taskTitle === "string" ? data.taskTitle.trim() : "";
+      if (!partial) return { type: "complete_task", ok: false, error: "missing_taskTitle" };
+
+      const target = await findOpenTaskByTitleCI(partial);
+      if (!target) {
+        return { type: "complete_task", ok: false, error: "task_not_found", taskTitle: partial };
+      }
+      const updated = await db.task.update({
+        where: { id: target.id },
+        data: { status: "DONE", completedAt: new Date() },
+        select: { id: true, title: true },
+      });
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: creatorId ?? updated.id,
+            action: "COMPLETED_TASK",
+            detail: `DIDI marked "${updated.title}" as done`,
+          },
+        });
+      } catch { /* non-blocking */ }
+      return { type: "complete_task", ok: true, id: updated.id, title: updated.title };
+    }
+
+    case "create_followup": {
+      const subject = typeof data.subject === "string" ? data.subject.trim() : "";
+      if (!subject) return { type: "create_followup", ok: false, error: "missing_subject" };
+
+      const validTypes = ["CALL", "EMAIL", "MEETING", "WHATSAPP"];
+      const type = validTypes.includes(data.type) ? data.type : "CALL";
+
+      // dueDate default to +1 day if not provided
+      let dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 1);
+      if (typeof data.dueDate === "string") {
+        const d = parseFlexibleDate(data.dueDate);
+        if (d) dueDate = d;
+      }
+
+      // Try to attach to an opportunity by opportunityName
+      let opportunityId: string | null = null;
+      if (typeof data.opportunityName === "string" && data.opportunityName.trim()) {
+        const o = await findOpportunityByNameCI(data.opportunityName);
+        if (o) opportunityId = o.id;
+      }
+
+      const created = await db.followUp.create({
+        data: {
+          subject,
+          type,
+          dueDate,
+          notes: typeof data.notes === "string" ? data.notes : null,
+          opportunityId,
+        },
+        select: { id: true, subject: true, dueDate: true },
+      });
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: creatorId ?? "system",
+            action: "CREATED_FOLLOWUP",
+            detail: `DIDI scheduled "${created.subject}"`,
+          },
+        });
+      } catch { /* non-blocking */ }
+      return {
+        type: "create_followup",
+        ok: true,
+        id: created.id,
+        subject: created.subject,
+        dueDate: created.dueDate?.toISOString(),
+      };
+    }
+
+    case "create_account": {
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      if (!name) return { type: "create_account", ok: false, error: "missing_name" };
+
+      // De-dupe by name (case-insensitive)
+      const existing = await findAccountByNameCI(name);
+      if (existing) {
+        return {
+          type: "create_account",
+          ok: false,
+          error: "account_exists",
+          id: existing.id,
+          name: existing.name,
+        };
+      }
+
+      const created = await db.account.create({
+        data: {
+          name,
+          industry: typeof data.industry === "string" ? data.industry : null,
+        },
+        select: { id: true, name: true },
+      });
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: creatorId ?? "system",
+            action: "CREATED_ACCOUNT",
+            detail: `DIDI created account "${created.name}"`,
+          },
+        });
+      } catch { /* non-blocking */ }
+      return { type: "create_account", ok: true, id: created.id, name: created.name };
+    }
+
+    case "create_opportunity": {
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      if (!name) return { type: "create_opportunity", ok: false, error: "missing_name" };
+
+      let accountId: string | null = null;
+      if (typeof data.accountName === "string" && data.accountName.trim()) {
+        const a = await findAccountByNameCI(data.accountName);
+        if (a) accountId = a.id;
+      }
+
+      const value = typeof data.value === "number" && !isNaN(data.value) ? data.value : 0;
+      const validStages = ["DISCOVERY", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
+      const stage = validStages.includes(data.stage) ? data.stage : "DISCOVERY";
+
+      const created = await db.opportunity.create({
+        data: {
+          name,
+          value,
+          stage,
+          accountId,
+        },
+        select: { id: true, name: true, value: true },
+      });
+      try {
+        await db.activityLog.create({
+          data: {
+            userId: creatorId ?? "system",
+            action: "CREATED_OPPORTUNITY",
+            detail: `DIDI created opportunity "${created.name}" (\u20a6${created.value.toLocaleString("en-NG")})`,
+          },
+        });
+      } catch { /* non-blocking */ }
+      return {
+        type: "create_opportunity",
+        ok: true,
+        id: created.id,
+        name: created.name,
+        value: created.value,
+      };
+    }
+
+    default:
+      return { type: act.type, ok: false, error: "unknown_action_type" };
+  }
+}
+
+// Parse a flexible date input.
+// - "today", "tomorrow", "next week" / "next-week" / "end of week"
+// - YYYY-MM-DD, ISO strings, or any string Date can parse.
+function parseFlexibleDate(input: string): Date | null {
+  const lower = input.trim().toLowerCase();
+  if (lower === "today") {
+    const d = new Date(); d.setHours(17, 0, 0, 0); return d;
+  }
+  if (lower === "tomorrow") {
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(17, 0, 0, 0); return d;
+  }
+  if (lower === "next week" || lower === "next-week" || lower === "end of week" || lower === "end-of-week") {
+    const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(17, 0, 0, 0); return d;
+  }
+  const d = new Date(input);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+// ============================================================
+// Case-insensitive finders — SQLite Prisma doesn't support
+// `mode: "insensitive"`, so we fetch a small set and filter in JS.
+// ============================================================
+async function findUserByNameCI(name: string): Promise<{ id: string } | null> {
+  if (!name.trim()) return null;
+  const lower = name.toLowerCase();
+  const users = await db.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    take: 200,
+  });
+  // Prefer exact, then contains (case-insensitive).
+  const exact = users.find((u) => u.name.toLowerCase() === lower);
+  if (exact) return { id: exact.id };
+  const contains = users.find((u) => u.name.toLowerCase().includes(lower));
+  if (contains) return { id: contains.id };
+  // Allow matching on first name only
+  const firstName = lower.split(" ")[0];
+  if (firstName.length >= 3) {
+    const byFirst = users.find((u) => u.name.toLowerCase().startsWith(firstName));
+    if (byFirst) return { id: byFirst.id };
+  }
+  return null;
+}
+
+async function findGoalByTitleCI(title: string): Promise<{ id: string } | null> {
+  if (!title.trim()) return null;
+  const lower = title.toLowerCase();
+  const goals = await db.goal.findMany({
+    select: { id: true, title: true },
+    take: 200,
+  });
+  const exact = goals.find((g) => g.title.toLowerCase() === lower);
+  if (exact) return { id: exact.id };
+  const contains = goals.find((g) =>
+    g.title.toLowerCase().includes(lower) || lower.includes(g.title.toLowerCase())
+  );
+  if (contains) return { id: contains.id };
+  return null;
+}
+
+async function findOpenTaskByTitleCI(partial: string): Promise<{ id: string; title: string } | null> {
+  if (!partial.trim()) return null;
+  const lower = partial.toLowerCase();
+  const tasks = await db.task.findMany({
+    where: { status: { not: "DONE" } },
+    select: { id: true, title: true, dueDate: true },
+    orderBy: { dueDate: "asc" },
+    take: 200,
+  });
+  const contains = tasks.find((t) => t.title.toLowerCase().includes(lower));
+  if (contains) return { id: contains.id, title: contains.title };
+  // Try matching by significant keywords
+  const keywords = lower.split(/\s+/).filter((w) => w.length >= 4);
+  if (keywords.length > 0) {
+    const matched = tasks.find((t) => {
+      const tl = t.title.toLowerCase();
+      return keywords.every((k) => tl.includes(k));
+    });
+    if (matched) return { id: matched.id, title: matched.title };
+  }
+  return null;
+}
+
+async function findOpportunityByNameCI(name: string): Promise<{ id: string } | null> {
+  if (!name.trim()) return null;
+  const lower = name.toLowerCase();
+  const opps = await db.opportunity.findMany({
+    select: { id: true, name: true },
+    take: 200,
+  });
+  const exact = opps.find((o) => o.name.toLowerCase() === lower);
+  if (exact) return { id: exact.id };
+  const contains = opps.find((o) => o.name.toLowerCase().includes(lower));
+  if (contains) return { id: contains.id };
+  return null;
+}
+
+async function findAccountByNameCI(name: string): Promise<{ id: string; name: string } | null> {
+  if (!name.trim()) return null;
+  const lower = name.toLowerCase();
+  const accounts = await db.account.findMany({
+    select: { id: true, name: true },
+    take: 200,
+  });
+  const exact = accounts.find((a) => a.name.toLowerCase() === lower);
+  if (exact) return { id: exact.id, name: exact.name };
+  const contains = accounts.find((a) => a.name.toLowerCase().includes(lower));
+  if (contains) return { id: contains.id, name: contains.name };
+  return null;
+}
+
 // ---------- graceful fallback when SDK fails ----------
 
 function cachedFallback(action: AiPostBody["action"]): string {
@@ -328,6 +957,8 @@ function cachedFallback(action: AiPostBody["action"]): string {
         "## Terms\n- 50% deposit on signing, 50% on delivery\n- Cancellation: 30% retention\n- IP transfers on full payment"
       );
     case "chat":
+    case "plan_tasks":
+    case "chat_with_actions":
     default:
       return (
         "I'm offline right now. Quick guidance: prioritise overdue invoices, " +

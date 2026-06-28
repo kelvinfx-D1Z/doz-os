@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Target,
   Flag,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   Clock,
   TrendingUp,
@@ -12,9 +13,45 @@ import {
   ChevronRight,
   Circle,
   CircleDot,
+  Pencil,
+  Trash2,
+  Sparkles,
+  Plus,
+  Bot,
+  Loader2,
+  X,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   StatCard,
   StatusBadge,
@@ -34,9 +71,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FocusScoreCard } from "@/components/doz/focus-score-card";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 // ============================================================
 // Types
@@ -90,6 +129,9 @@ interface Task {
   estimatedHrs: number | null;
   actualHrs: number | null;
   completedAt: string | null;
+  assigneeId: string | null;
+  goalId: string | null;
+  projectId: string | null;
   assignee: { name: string; role: string } | null;
   goal: { title: string; type: string } | null;
   project: { name: string } | null;
@@ -106,6 +148,30 @@ interface GoalLite {
   parentId: string | null;
 }
 
+interface TeamUser {
+  id: string;
+  name: string;
+  role: string;
+  title: string | null;
+}
+
+interface ProjectLite {
+  id: string;
+  name: string;
+  code: string | null;
+  status: string;
+}
+
+interface AllGoalLite {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  progress: number;
+  dueDate: string;
+  quarter?: string | null;
+}
+
 interface PlanningData {
   stats: Stats;
   goals: Goal[];
@@ -116,6 +182,24 @@ interface PlanningData {
     MONTHLY: GoalLite[];
     WEEKLY: GoalLite[];
   };
+  users?: TeamUser[];
+  projects?: ProjectLite[];
+  allGoals?: AllGoalLite[];
+}
+
+// ============================================================
+// Form payload — used for both create and edit
+// ============================================================
+interface TaskFormPayload {
+  title: string;
+  description: string;
+  priority: string;
+  category: string; // "STRATEGIC" | "OPERATIONAL" | "ADMIN" | "DISTRACTION" | "__none__"
+  assigneeId: string; // user id or "__none__"
+  goalId: string; // goal id or "__none__"
+  projectId: string; // project id or "__none__"
+  dueDate: string; // YYYY-MM-DD or ""
+  isDistraction: boolean;
 }
 
 // ============================================================
@@ -296,9 +380,15 @@ function CascadeRow({
 function TaskRow({
   task,
   onToggle,
+  onEdit,
+  onDelete,
+  onToggleDistraction,
 }: {
   task: Task;
   onToggle: (id: string) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (task: Task) => void;
+  onToggleDistraction: (task: Task) => void;
 }) {
   const isDone = task.status === "DONE";
   const isOverdue =
@@ -310,11 +400,11 @@ function TaskRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-accent/30",
+        "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors",
         isDistraction
           ? "border-amber-500/40 bg-amber-500/5"
           : "border-border bg-card",
-        isDone && "opacity-60"
+        "hover:bg-accent/30"
       )}
     >
       {/* Toggle */}
@@ -334,8 +424,13 @@ function TaskRow({
       {/* Priority dot */}
       <PriorityDot priority={task.priority} />
 
-      {/* Title + meta */}
-      <div className="min-w-0 flex-1">
+      {/* Title + meta — clickable to edit */}
+      <button
+        type="button"
+        onClick={() => onEdit(task)}
+        className="min-w-0 flex-1 text-left"
+        aria-label={`Edit task ${task.title}`}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <p
             className={cn(
@@ -376,8 +471,11 @@ function TaskRow({
               <span className="truncate">{task.project.name}</span>
             </span>
           )}
+          <span className="text-[10px] text-muted-foreground/70">
+            · click to edit
+          </span>
         </div>
-      </div>
+      </button>
 
       {/* Assignee */}
       {task.assignee && (
@@ -424,6 +522,52 @@ function TaskRow({
       <div className="hidden shrink-0 md:block">
         <StatusBadge status={task.status} />
       </div>
+
+      {/* Distraction toggle */}
+      <button
+        type="button"
+        onClick={() => onToggleDistraction(task)}
+        title={isDistraction ? "Remove distraction flag" : "Flag as distraction"}
+        className={cn(
+          "shrink-0 rounded-md p-1.5 transition-colors",
+          isDistraction
+            ? "bg-amber-500/15 hover:bg-amber-500/25"
+            : "text-muted-foreground/50 hover:bg-amber-500/10 hover:text-amber-400"
+        )}
+        aria-label={isDistraction ? "Remove distraction flag" : "Flag as distraction"}
+        aria-pressed={isDistraction}
+      >
+        <AlertCircle
+          className={cn(
+            "h-3.5 w-3.5",
+            isDistraction
+              ? "fill-amber-400 text-amber-400"
+              : "fill-transparent text-current"
+          )}
+        />
+      </button>
+
+      {/* Edit */}
+      <button
+        type="button"
+        onClick={() => onEdit(task)}
+        title="Edit task"
+        className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-primary"
+        aria-label="Edit task"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Delete */}
+      <button
+        type="button"
+        onClick={() => onDelete(task)}
+        title="Delete task"
+        className="shrink-0 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-red-500/10 hover:text-destructive"
+        aria-label="Delete task"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
@@ -555,13 +699,587 @@ function SkeletonGrid() {
 }
 
 // ============================================================
+// Empty form payload + helpers
+// ============================================================
+const NONE = "__none__";
+
+function emptyForm(defaultAssigneeId?: string): TaskFormPayload {
+  return {
+    title: "",
+    description: "",
+    priority: "MEDIUM",
+    category: NONE,
+    assigneeId: defaultAssigneeId ?? NONE,
+    goalId: NONE,
+    projectId: NONE,
+    dueDate: "",
+    isDistraction: false,
+  };
+}
+
+function taskToForm(task: Task): TaskFormPayload {
+  return {
+    title: task.title,
+    description: task.description ?? "",
+    priority: task.priority,
+    category: task.category ?? NONE,
+    assigneeId: task.assigneeId ?? NONE,
+    goalId: task.goalId ?? NONE,
+    projectId: task.projectId ?? NONE,
+    dueDate: task.dueDate ? task.dueDate.slice(0, 10) : "",
+    isDistraction: task.isDistraction,
+  };
+}
+
+// ============================================================
+// Task form dialog (used for both create & edit)
+// ============================================================
+function TaskFormDialog({
+  open,
+  onOpenChange,
+  mode, // "create" | "edit"
+  initial,
+  users,
+  goals,
+  projects,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  mode: "create" | "edit";
+  initial: TaskFormPayload | null;
+  users: TeamUser[];
+  goals: AllGoalLite[];
+  projects: ProjectLite[];
+  onSubmit: (payload: TaskFormPayload) => Promise<void>;
+}) {
+  const [form, setForm] = useState<TaskFormPayload>(initial ?? emptyForm());
+  const [saving, setSaving] = useState(false);
+
+  // Reset form when the dialog opens / initial changes
+  useEffect(() => {
+    if (open) {
+      setForm(initial ?? emptyForm());
+    }
+  }, [open, initial]);
+
+  const setField = <K extends keyof TaskFormPayload>(key: K, value: TaskFormPayload[K]) => {
+    setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit(form);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save task");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {mode === "create" ? (
+              <>
+                <Plus className="h-5 w-5 text-primary" />
+                New Task
+              </>
+            ) : (
+              <>
+                <Pencil className="h-5 w-5 text-primary" />
+                Edit Task
+              </>
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {mode === "create"
+              ? "Add a new task to the system. Connect it to a goal for focus."
+              : "Update task fields. All changes save to the database."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Title */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-title">Title *</Label>
+            <Input
+              id="task-title"
+              value={form.title}
+              onChange={(e) => setField("title", e.target.value)}
+              placeholder="e.g. Call GTBank treasury team to confirm invoice payment"
+              autoFocus
+              required
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label htmlFor="task-desc">Description</Label>
+            <Textarea
+              id="task-desc"
+              value={form.description}
+              onChange={(e) => setField("description", e.target.value)}
+              placeholder="Optional notes, context, or acceptance criteria"
+              rows={3}
+            />
+          </div>
+
+          {/* Priority + Category */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Priority</Label>
+              <Select value={form.priority} onValueChange={(v) => setField("priority", v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select value={form.category} onValueChange={(v) => setField("category", v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>— none —</SelectItem>
+                  <SelectItem value="STRATEGIC">Strategic</SelectItem>
+                  <SelectItem value="OPERATIONAL">Operational</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="DISTRACTION">Distraction</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Assignee + Due date */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Assignee</Label>
+              <Select value={form.assigneeId} onValueChange={(v) => setField("assigneeId", v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>— unassigned —</SelectItem>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name} · {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="task-due">Due date</Label>
+              <Input
+                id="task-due"
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => setField("dueDate", e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Goal + Project */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Link to goal</Label>
+              <Select value={form.goalId} onValueChange={(v) => setField("goalId", v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value={NONE}>— none —</SelectItem>
+                  {goals.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      [{g.type}] {g.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Link to project</Label>
+              <Select value={form.projectId} onValueChange={(v) => setField("projectId", v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value={NONE}>— none —</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Distraction toggle */}
+          <div
+            className={cn(
+              "flex w-full items-center justify-between rounded-md border px-3 py-2 transition-colors",
+              form.isDistraction
+                ? "border-amber-500/40 bg-amber-500/10"
+                : "border-border"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle
+                className={cn(
+                  "h-4 w-4",
+                  form.isDistraction
+                    ? "fill-amber-400 text-amber-400"
+                    : "text-muted-foreground"
+                )}
+              />
+              <div className="min-w-0">
+                <p
+                  className={cn(
+                    "text-sm font-medium",
+                    form.isDistraction ? "text-amber-400" : "text-foreground"
+                  )}
+                >
+                  {form.isDistraction ? "Flagged as distraction" : "Flag as distraction"}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {form.isDistraction
+                    ? "Will be batched — toggle off to unflag"
+                    : "Batch & defer non-strategic work"}
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={form.isDistraction}
+              onCheckedChange={(v) => setField("isDistraction", v)}
+              aria-label="Toggle distraction flag"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !form.title.trim()}>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : mode === "create" ? (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Create Task
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Plan Tasks with DIDI dialog
+// ============================================================
+interface PlanSuggestion {
+  title: string;
+  priority?: string;
+  category?: string;
+  assigneeSuggestion?: string;
+  goalTitle?: string;
+  rationale?: string;
+}
+
+function PlanTasksDialog({
+  open,
+  onOpenChange,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onAdd: (s: PlanSuggestion) => Promise<boolean>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<PlanSuggestion[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [addedSet, setAddedSet] = useState<Set<number>>(new Set());
+  const [addingIdx, setAddingIdx] = useState<number | null>(null);
+  const [emptyMsg, setEmptyMsg] = useState<string | null>(null);
+  const [rawText, setRawText] = useState<string | null>(null);
+
+  const fetchSuggestions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setEmptyMsg(null);
+    setRawText(null);
+    setSuggestions([]);
+    setAddedSet(new Set());
+    try {
+      const res = await fetch("/api/doz/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "plan_tasks" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.empty) {
+        setEmptyMsg(json.message ?? "No active goals found.");
+      } else if (json.offline) {
+        setError(json.message ?? "AI service offline.");
+      } else if (Array.isArray(json.suggestions) && json.suggestions.length > 0) {
+        setSuggestions(json.suggestions);
+        if (json.raw) setRawText(json.raw);
+      } else {
+        // Couldn't parse — show raw text if any
+        if (json.raw) {
+          setRawText(json.raw);
+          setError("DIDI returned a response I couldn't parse — showing raw text below.");
+        } else {
+          setError("DIDI didn't return any suggestions. Try again.");
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to get suggestions");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Auto-fetch when opened
+  useEffect(() => {
+    if (open) {
+      void fetchSuggestions();
+    }
+  }, [open, fetchSuggestions]);
+
+  const handleAdd = async (s: PlanSuggestion, idx: number) => {
+    setAddingIdx(idx);
+    try {
+      const ok = await onAdd(s);
+      if (ok) {
+        setAddedSet((prev) => new Set(prev).add(idx));
+      }
+    } finally {
+      setAddingIdx(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Plan Tasks with DIDI
+          </DialogTitle>
+          <DialogDescription>
+            DIDI analyzes your active goals and current tasks, then suggests new tasks that move
+            them forward. Click <span className="font-semibold">Add</span> on any suggestion to
+            create it in the system.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[60vh] overflow-y-auto pr-1 scroll-thin">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+              <div className="relative">
+                <Bot className="h-10 w-10 text-primary" />
+                <Loader2 className="absolute -bottom-1 -right-1 h-4 w-4 animate-spin text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-primary">DIDI is analyzing your goals…</p>
+                <p className="text-xs text-muted-foreground">
+                  Reading active goals, open tasks, and team members.
+                </p>
+              </div>
+            </div>
+          ) : emptyMsg ? (
+            <EmptyState
+              icon={<Target className="h-8 w-8" />}
+              title="No active goals"
+              hint={emptyMsg}
+            />
+          ) : error && suggestions.length === 0 ? (
+            <EmptyState
+              icon={<AlertTriangle className="h-8 w-8" />}
+              title="Couldn't get suggestions"
+              hint={error}
+            />
+          ) : (
+            <div className="space-y-3">
+              {suggestions.map((s, i) => {
+                const isAdded = addedSet.has(i);
+                const isAdding = addingIdx === i;
+                return (
+                  <div
+                    key={`${s.title}-${i}`}
+                    className={cn(
+                      "rounded-lg border p-3 transition-colors",
+                      isAdded
+                        ? "border-primary/30 bg-primary/5"
+                        : "border-border bg-card hover:border-primary/30"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium leading-snug">{s.title}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {s.priority && (
+                            <Badge variant="outline" className="text-[9px] font-semibold uppercase">
+                              <PriorityDot priority={s.priority} />
+                              <span className="ml-1">{s.priority}</span>
+                            </Badge>
+                          )}
+                          {s.category && (
+                            <CategoryBadge category={s.category} />
+                          )}
+                          {s.assigneeSuggestion && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] font-semibold uppercase text-muted-foreground"
+                            >
+                              → {s.assigneeSuggestion}
+                            </Badge>
+                          )}
+                          {s.goalTitle && (
+                            <Badge
+                              variant="outline"
+                              className="border-primary/30 bg-primary/10 text-[9px] font-semibold uppercase text-primary"
+                            >
+                              <Target className="mr-1 h-2.5 w-2.5" />
+                              {s.goalTitle}
+                            </Badge>
+                          )}
+                        </div>
+                        {s.rationale && (
+                          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                            {s.rationale}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={isAdded ? "outline" : "default"}
+                        disabled={isAdded || isAdding}
+                        onClick={() => handleAdd(s, i)}
+                        className="shrink-0"
+                      >
+                        {isAdding ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : isAdded ? (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Added
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="h-3.5 w-3.5" />
+                            Add
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {rawText && (
+                <details className="rounded-md border border-border bg-muted/30 p-3 text-xs">
+                  <summary className="cursor-pointer font-semibold text-muted-foreground">
+                    Show raw AI response
+                  </summary>
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
+                    {rawText}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void fetchSuggestions()}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Regenerate
+          </Button>
+          <Button type="button" onClick={() => onOpenChange(false)}>
+            <X className="h-4 w-4" />
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Main component
 // ============================================================
 export function StrategicPlanning() {
+  const { user: currentUser } = useCurrentUser();
   const [data, setData] = useState<PlanningData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [doneOverrides, setDoneOverrides] = useState<Record<string, boolean>>({});
+
+  // Task form / delete / plan-tasks dialog state
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showPlanTasks, setShowPlanTasks] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch("/api/doz/planning", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as PlanningData;
+      setData(json);
+      setError(null);
+    } catch (e) {
+      // Don't overwrite data — just toast
+      toast.error(e instanceof Error ? e.message : "Failed to refresh");
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -595,15 +1313,216 @@ export function StrategicPlanning() {
     );
   }, [data, doneOverrides]);
 
-  const handleToggle = (id: string) => {
+  const handleToggle = async (id: string) => {
     const t = tasksView.find((x) => x.id === id);
     if (!t) return;
     const newDone = t.status !== "DONE";
+    // Optimistic update
     setDoneOverrides((prev) => ({ ...prev, [id]: newDone }));
     if (newDone) {
       toast.success("Task marked done", { description: t.title });
     } else {
       toast.message("Task reopened", { description: t.title });
+    }
+    // Persist
+    try {
+      const res = await fetch("/api/doz/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: id, action: "toggle" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      // Revert on failure
+      setDoneOverrides((prev) => ({ ...prev, [id]: !newDone }));
+      toast.error(e instanceof Error ? e.message : "Failed to toggle task");
+    }
+  };
+
+  const handleToggleDistraction = async (task: Task) => {
+    const next = !task.isDistraction;
+    // Optimistic
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === task.id ? { ...t, isDistraction: next } : t
+        ),
+      };
+    });
+    toast.success(
+      next ? "Flagged as distraction" : "Removed distraction flag",
+      { description: task.title }
+    );
+    try {
+      const res = await fetch("/api/doz/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: task.id,
+          fields: { isDistraction: next },
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      // Revert
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === task.id ? { ...t, isDistraction: task.isDistraction } : t
+          ),
+        };
+      });
+      toast.error(e instanceof Error ? e.message : "Failed to toggle distraction");
+    }
+  };
+
+  const handleEdit = (task: Task) => {
+    setEditingTask(task);
+    setShowEdit(true);
+  };
+
+  const handleEditSubmit = async (payload: TaskFormPayload) => {
+    if (!editingTask) return;
+    const fields: Record<string, unknown> = {
+      title: payload.title.trim(),
+      description: payload.description.trim(),
+      priority: payload.priority,
+      category: payload.category === NONE ? null : payload.category,
+      assigneeId: payload.assigneeId === NONE ? null : payload.assigneeId,
+      goalId: payload.goalId === NONE ? null : payload.goalId,
+      projectId: payload.projectId === NONE ? null : payload.projectId,
+      isDistraction: payload.isDistraction,
+      dueDate: payload.dueDate || null,
+    };
+    const res = await fetch("/api/doz/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId: editingTask.id, fields }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail ?? `HTTP ${res.status}`);
+    }
+    toast.success("Task updated", { description: payload.title });
+    await reload();
+    setEditingTask(null);
+  };
+
+  const handleCreateSubmit = async (payload: TaskFormPayload) => {
+    // POST /api/doz/tasks requires a non-empty assigneeId. If the user left
+    // it unassigned, fall back to the current session user.
+    let assigneeId = payload.assigneeId === NONE ? undefined : payload.assigneeId;
+    if (!assigneeId) {
+      if (currentUser?.id) {
+        assigneeId = currentUser.id;
+      } else {
+        throw new Error("Please pick an assignee before creating the task.");
+      }
+    }
+    const body: Record<string, unknown> = {
+      title: payload.title.trim(),
+      description: payload.description.trim() || undefined,
+      priority: payload.priority,
+      category: payload.category === NONE ? undefined : payload.category,
+      assigneeId,
+      goalId: payload.goalId === NONE ? undefined : payload.goalId,
+      projectId: payload.projectId === NONE ? undefined : payload.projectId,
+      dueDate: payload.dueDate || undefined,
+      isDistraction: payload.isDistraction,
+    };
+    const res = await fetch("/api/doz/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail ?? `HTTP ${res.status}`);
+    }
+    toast.success("Task created", { description: payload.title });
+    await reload();
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/doz/tasks", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: deleteTarget.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail ?? `HTTP ${res.status}`);
+      }
+      toast.success("Task deleted", { description: deleteTarget.title });
+      setDeleteTarget(null);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete task");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleAddSuggestion = async (s: PlanSuggestion): Promise<boolean> => {
+    // Map a DIDI suggestion onto a create-task POST.
+    // Try to resolve goalId by goalTitle fuzzy match against data.allGoals.
+    let goalId: string | undefined;
+    if (s.goalTitle && data?.allGoals) {
+      const match = data.allGoals.find(
+        (g) =>
+          g.title.toLowerCase().includes(s.goalTitle!.toLowerCase()) ||
+          s.goalTitle!.toLowerCase().includes(g.title.toLowerCase())
+      );
+      if (match) goalId = match.id;
+    }
+
+    // Try to resolve assigneeId by name match.
+    let assigneeId: string | undefined;
+    if (s.assigneeSuggestion && data?.users) {
+      const suggestion = s.assigneeSuggestion.toLowerCase();
+      const match = data.users.find(
+        (u) =>
+          u.name.toLowerCase().includes(suggestion) ||
+          suggestion.includes(u.name.toLowerCase().split(" ")[0])
+      );
+      if (match) assigneeId = match.id;
+      else if (suggestion.includes("founder") || suggestion.includes("kelvin") || suggestion.includes("adaeze")) {
+        // Founder = first FOUNDER role user
+        const founder = data.users.find((u) => u.role === "FOUNDER");
+        if (founder) assigneeId = founder.id;
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      title: s.title,
+      priority: s.priority ?? "MEDIUM",
+      category: s.category,
+      goalId,
+      assigneeId,
+    };
+    try {
+      const res = await fetch("/api/doz/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail ?? `HTTP ${res.status}`);
+      }
+      toast.success("Task added", { description: s.title });
+      await reload();
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add task");
+      return false;
     }
   };
 
@@ -799,6 +1718,29 @@ export function StrategicPlanning() {
               icon={<CheckCircle2 className="h-5 w-5" />}
               title="Tasks"
               description="Connect every task to a goal. Triage distractions."
+              action={
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    onClick={() => setShowPlanTasks(true)}
+                    className="bg-primary"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Plan Tasks with DIDI
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowCreate(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    New Task
+                  </Button>
+                </div>
+              }
             />
             <Tabs defaultValue="today" className="mt-4">
               <TabsList className="grid w-full grid-cols-4">
@@ -861,6 +1803,9 @@ export function StrategicPlanning() {
                               key={t.id}
                               task={t}
                               onToggle={handleToggle}
+                              onEdit={handleEdit}
+                              onDelete={(task) => setDeleteTarget(task)}
+                              onToggleDistraction={handleToggleDistraction}
                             />
                           ))}
                         </div>
@@ -885,6 +1830,9 @@ export function StrategicPlanning() {
                         key={t.id}
                         task={t}
                         onToggle={handleToggle}
+                        onEdit={handleEdit}
+                        onDelete={(task) => setDeleteTarget(task)}
+                        onToggleDistraction={handleToggleDistraction}
                       />
                     ))}
                   </div>
@@ -906,6 +1854,9 @@ export function StrategicPlanning() {
                         key={t.id}
                         task={t}
                         onToggle={handleToggle}
+                        onEdit={handleEdit}
+                        onDelete={(task) => setDeleteTarget(task)}
+                        onToggleDistraction={handleToggleDistraction}
                       />
                     ))}
                   </div>
@@ -927,6 +1878,9 @@ export function StrategicPlanning() {
                         key={t.id}
                         task={t}
                         onToggle={handleToggle}
+                        onEdit={handleEdit}
+                        onDelete={(task) => setDeleteTarget(task)}
+                        onToggleDistraction={handleToggleDistraction}
                       />
                     ))}
                   </div>
@@ -960,6 +1914,18 @@ export function StrategicPlanning() {
                   {distractionTasks.length}
                 </Badge>
               )}
+            </div>
+
+            {/* Always-on explanation */}
+            <div className="mt-3 flex gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-2.5">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400/20 text-amber-400" />
+              <p className="text-[11px] leading-relaxed text-amber-200/80">
+                Tasks marked as distractions are low-priority items that
+                interrupt strategic work. Batch them into a 30-min block. Click
+                the{" "}
+                <AlertCircle className="inline-block h-3 w-3 fill-amber-400 text-amber-400 align-text-bottom" />{" "}
+                alert icon on any task to mark/unmark it as a distraction.
+              </p>
             </div>
 
             {distractionTasks.length > 0 ? (
@@ -1132,6 +2098,97 @@ export function StrategicPlanning() {
           </Card>
         </div>
       </div>
+
+      {/* ============================================================ */}
+      {/* DIALOGS                                                      */}
+      {/* ============================================================ */}
+
+      {/* Create task dialog */}
+      <TaskFormDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        mode="create"
+        initial={emptyForm(currentUser?.id)}
+        users={data?.users ?? []}
+        goals={data?.allGoals ?? []}
+        projects={data?.projects ?? []}
+        onSubmit={handleCreateSubmit}
+      />
+
+      {/* Edit task dialog */}
+      <TaskFormDialog
+        open={showEdit}
+        onOpenChange={(v) => {
+          setShowEdit(v);
+          if (!v) setEditingTask(null);
+        }}
+        mode="edit"
+        initial={editingTask ? taskToForm(editingTask) : null}
+        users={data?.users ?? []}
+        goals={data?.allGoals ?? []}
+        projects={data?.projects ?? []}
+        onSubmit={handleEditSubmit}
+      />
+
+      {/* Plan tasks with DIDI dialog */}
+      <PlanTasksDialog
+        open={showPlanTasks}
+        onOpenChange={setShowPlanTasks}
+        onAdd={handleAddSuggestion}
+      />
+
+      {/* Delete confirmation */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => {
+          if (!v && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete task?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? (
+                <>
+                  This will permanently delete{" "}
+                  <span className="font-semibold text-foreground">
+                    &ldquo;{deleteTarget.title}&rdquo;
+                  </span>
+                  . This action cannot be undone.
+                </>
+              ) : (
+                "This will permanently delete the task. This action cannot be undone."
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteConfirm();
+              }}
+              disabled={deleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Delete Task
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
