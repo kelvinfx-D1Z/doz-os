@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DOZ OS — Comprehensive Guide</title>
+<style>
+@page { size: 720px 1020px; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 720px;
+  background: #0a0e1a;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #e8edf5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ========== COVER ========== */
+.cover {
+  width: 720px;
+  height: 1020px;
+  background: linear-gradient(135deg, #0a0e1a 0%, #0f1a2e 50%, #0a1f1a 100%);
+  position: relative;
+  overflow: hidden;
+  break-after: page;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+}
+.cover::before {
+  content: '';
+  position: absolute;
+  top: -100px;
+  right: -100px;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(16,185,129,0.15) 0%, transparent 70%);
+  border-radius: 50%;
+}
+.cover::after {
+  content: '';
+  position: absolute;
+  bottom: -80px;
+  left: -80px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(245,158,11,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+}
+.cover-logo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 80px;
+  position: relative;
+  z-index: 1;
+}
+.cover-logo .badge {
+  width: 56px;
+  height: 56px;
+  background: #10b981;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Courier New', monospace;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0a0e1a;
+}
+.cover-logo .name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e8edf5;
+  letter-spacing: 0.5px;
+}
+.cover-logo .sub {
+  font-size: 11px;
+  color: #6b7689;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.cover-title {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.cover-subtitle {
+  font-size: 18px;
+  color: #9ca3af;
+  line-height: 1.6;
+  margin-bottom: 60px;
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+}
+.cover-meta {
+  display: flex;
+  gap: 32px;
+  position: relative;
+  z-index: 1;
+}
+.cover-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cover-meta-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #6b7689;
+}
+.cover-meta-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e8edf5;
+}
+.cover-footer {
+  position: absolute;
+  bottom: 40px;
+  left: 60px;
+  right: 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #4b5563;
+}
+.cover-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(16,185,129,0.15);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+  margin-bottom: 40px;
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+}
+
+/* ========== CONTENT ========== */
+.main-content {
+  padding: 50px 55px 40px 55px;
+  background: #0a0e1a;
+}
+.chapter {
+  margin-top: 0;
+}
+.chapter + .chapter {
+  margin-top: 28px;
+}
+.chapter-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+  break-after: avoid;
+}
+.chapter-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(16,185,129,0.15);
+  border: 1px solid rgba(16,185,129,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #34d399;
+  flex-shrink: 0;
+}
+.chapter-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #e8edf5;
+  letter-spacing: -0.3px;
+}
+.chapter-sub {
+  font-size: 13px;
+  color: #6b7689;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #b8c1d1;
+  margin-bottom: 12px;
+}
+strong { color: #e8edf5; font-weight: 600; }
+em { color: #34d399; font-style: normal; font-weight: 500; }
+
+/* Cards */
+.card {
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 14px;
+  break-inside: avoid;
+}
+.card-accent {
+  border-left: 3px solid #10b981;
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e8edf5;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #9ca3af;
+}
+.card-body strong { color: #e8edf5; }
+
+/* Feature list */
+.feature-list {
+  list-style: none;
+  margin-bottom: 14px;
+}
+.feature-list li {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b8c1d1;
+  padding-left: 20px;
+  position: relative;
+  margin-bottom: 6px;
+  break-inside: avoid;
+}
+.feature-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+/* Metric grid */
+.metric-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.metric-box {
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 14px;
+  break-inside: avoid;
+}
+.metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #6b7689;
+  margin-bottom: 4px;
+}
+.metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e8edf5;
+}
+.metric-target {
+  font-size: 11px;
+  color: #6b7689;
+  margin-top: 2px;
+}
+.metric-status-ahead { color: #34d399; }
+.metric-status-behind { color: #f59e0b; }
+.metric-status-risk { color: #f43f5e; }
+
+/* Code/quote block */
+.quote {
+  background: rgba(16,185,129,0.08);
+  border-left: 3px solid #10b981;
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 14px;
+  break-inside: avoid;
+}
+.quote p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b8c1d1;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+.quote p:last-child { margin-bottom: 0; }
+.quote-author {
+  font-size: 11px;
+  color: #6b7689;
+  margin-top: 8px;
+}
+
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 14px;
+  break-inside: avoid;
+  font-size: 12px;
+}
+th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #111827;
+  color: #6b7689;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  border-bottom: 1px solid #1e293b;
+}
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1e293b;
+  color: #b8c1d1;
+  font-size: 12px;
+}
+td:first-child { font-weight: 600; color: #e8edf5; }
+
+/* Section divider */
+.divider {
+  height: 1px;
+  background: #1e293b;
+  margin: 24px 0;
+}
+
+/* Callout */
+.callout {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  break-inside: avoid;
+}
+.callout-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.callout p {
+  font-size: 13px;
+  color: #b8c1d1;
+  margin-bottom: 0;
+}
+
+/* Steps */
+.steps {
+  margin-bottom: 14px;
+}
+.step {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  break-inside: avoid;
+}
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #10b981;
+  color: #0a0e1a;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.step-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b8c1d1;
+  padding-top: 2px;
+}
+.step-content strong { color: #e8edf5; }
+
+/* ========== ENDING ========== */
+.ending {
+  width: 720px;
+  height: 1020px;
+  background: linear-gradient(135deg, #0a0e1a 0%, #0f1a2e 100%);
+  position: relative;
+  overflow: hidden;
+  break-before: page;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+  text-align: center;
+}
+.ending::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%);
+  border-radius: 50%;
+}
+.ending-badge {
+  width: 72px;
+  height: 72px;
+  background: #10b981;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Courier New', monospace;
+  font-size: 28px;
+  font-weight: 800;
+  color: #0a0e1a;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 1;
+}
+.ending-title {
+  font-size: 32px;
+  font-weight: 800;
+  color: #e8edf5;
+  margin-bottom: 16px;
+  position: relative;
+  z-index: 1;
+}
+.ending-sub {
+  font-size: 15px;
+  color: #9ca3af;
+  line-height: 1.6;
+  max-width: 420px;
+  position: relative;
+  z-index: 1;
+  margin-bottom: 40px;
+}
+.ending-meta {
+  font-size: 11px;
+  color: #4b5563;
+  position: relative;
+  z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="badge">10</div>
+    <div>
+      <div class="name">DOZ OS</div>
+      <div class="sub">Digit One Zero</div>
+    </div>
+  </div>
+
+  <div class="cover-badge">v4.1 — Growth Operating System</div>
+
+  <h1 class="cover-title">The Comprehensive<br>Operating Guide</h1>
+  <p class="cover-subtitle">
+    How to run Digit One Zero Ltd using DOZ OS — from daily execution to
+    the ₦500M vision. Every module, every workflow, every AI interaction
+    explained.
+  </p>
+
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Company</div>
+      <div class="cover-meta-value">Digit One Zero Ltd</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Founder</div>
+      <div class="cover-meta-value">Kelvin Keshy</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Version</div>
+      <div class="cover-meta-value">4.1 — Live KPIs</div>
+    </div>
+  </div>
+
+  <div class="cover-footer">
+    <span>Lagos, Nigeria</span>
+    <span>Internal Use</span>
+  </div>
+</div>
+
+<!-- ============ CONTENT ============ -->
+<div class="main-content">
+
+<!-- ===== CHAPTER 1 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">1</div>
+    <div class="chapter-title">What Is DOZ OS?</div>
+  </div>
+  <p class="chapter-sub">The purpose, philosophy, and architecture of the system.</p>
+
+  <p>
+    <strong>DOZ OS</strong> (Digit One Zero Operating System) is the backend of your company.
+    It is not just software — it is the operating system that helps Digit One Zero grow from
+    a founder-dependent business into a scalable, process-driven organization targeting
+    <strong>₦500M+ annual revenue</strong> by 2028.
+  </p>
+
+  <p>
+    Every module, dashboard, AI interaction, and report exists to answer one question:
+    <em>"What is the next highest-impact action that moves the company closer to the vision?"</em>
+  </p>
+
+  <div class="card card-accent">
+    <div class="card-title">The Fundamental Principle</div>
+    <div class="card-body">
+      DOZ OS never simply reports what happened. It actively helps the founder and team
+      make better decisions. Every metric has a <strong>current value, target, forecast,
+      and required weekly pace</strong>. The system always answers: <strong>"Are we ahead
+      or behind?"</strong>
+    </div>
+  </div>
+
+  <p>
+    The system serves four types of users: the <strong>Founder</strong> (Kelvin), who sees
+    the company-wide growth dashboard; <strong>Staff</strong> (operations, finance), who
+    manage projects and approvals; <strong>Interns</strong>, who receive daily tasks and
+    file reports; and <strong>Freelancers</strong>, who see crew assignments and deliverables.
+    Each role sees a personalized dashboard — everyone knows what they should be doing.
+  </p>
+
+  <p>
+    Clients access a separate <strong>Client Portal</strong> (no login required) where they
+    view project progress, approve deliverables, and confirm payments. Vendors do not have
+    accounts — the Production Manager adds vendor information directly.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 2 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">2</div>
+    <div class="chapter-title">Getting Started</div>
+  </div>
+  <p class="chapter-sub">Signing in, navigating, and understanding what you see.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content"><strong>Open the app.</strong> Navigate to the DOZ URL. You will see the sign-in screen.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content"><strong>Sign in.</strong> Use your email and password. The demo password for all accounts is <strong>doz2025</strong>. You can also click a quick persona button (Founder, Ops Lead, Finance, Intern, Freelancer).</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content"><strong>Navigate.</strong> Use the left sidebar to switch between modules. Press <strong>⌘K</strong> (or Ctrl+K) to open the command palette and jump to any module.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content"><strong>Sign out.</strong> Click your avatar in the bottom-left of the sidebar, then click "Sign out."</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">Demo Accounts</div>
+    <p><strong>Founder:</strong> founder@digitonezero.com · <strong>Ops:</strong> ops@digitonezero.com · <strong>Finance:</strong> finance@digitonezero.com · <strong>Intern:</strong> chioma@digitonezero.com · <strong>Freelancer:</strong> bola@freelance.ng — all use password <strong>doz2025</strong></p>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Role-Based Access</div>
+    <div class="card-body">
+      <strong>Founder</strong> sees all 12 modules including AI Chief of Staff. <strong>Staff</strong> sees everything except AI. <strong>Interns</strong> see Command Center, Field Mode, Team, and SOP. <strong>Freelancers</strong> see Command Center, Field Mode, Projects, and Team. This ensures everyone focuses on what's relevant to their role.
+    </div>
+  </div>
+</div>
+
+<!-- ===== CHAPTER 3 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">3</div>
+    <div class="chapter-title">The Growth Dashboard</div>
+  </div>
+  <p class="chapter-sub">The most important screen — measures progress toward ₦500M.</p>
+
+  <p>
+    The Growth Dashboard is the cockpit of the company. It shows a single <strong>Company
+    Health Score</strong> (0–100) broken down into Sales, Marketing, Finance, Operations,
+    People, and Delivery. Below the score, <strong>39 growth KPIs</strong> are tracked
+    across 9 categories — each with a live current value, target, forecast, confidence
+    score, and required weekly pace.
+  </p>
+
+  <p>
+    Every KPI <strong>self-updates from real database data</strong>. When an invoice is
+    paid, revenue updates. When an intern logs a social post, the content counter goes up.
+    When you log your time, the Founder Freedom Score recalculates. No manual updates needed.
+  </p>
+
+  <div class="metric-grid">
+    <div class="metric-box">
+      <div class="metric-label">Annual Revenue</div>
+      <div class="metric-value">₦31.5M</div>
+      <div class="metric-target metric-status-risk">Target: ₦120M · 26%</div>
+    </div>
+    <div class="metric-box">
+      <div class="metric-label">Health Score</div>
+      <div class="metric-value">37/100</div>
+      <div class="metric-target metric-status-behind">Behind — needs acceleration</div>
+    </div>
+    <div class="metric-box">
+      <div class="metric-label">Pipeline Coverage</div>
+      <div class="metric-value">94.8%</div>
+      <div class="metric-target metric-status-behind">Target: 300% · needs 3x pipeline</div>
+    </div>
+    <div class="metric-box">
+      <div class="metric-label">Founder Freedom</div>
+      <div class="metric-value">39/100</div>
+      <div class="metric-target metric-status-behind">Target: 50 · progressing</div>
+    </div>
+  </div>
+
+  <p>
+    The dashboard's nine sections are: <strong>Revenue</strong> (revenue, pipeline, cash,
+    outstanding, deal size, margin), <strong>Business Development</strong> (leads, win rate,
+    referral %, marketing %), <strong>Marketing</strong> (content, campaigns, ROI),
+    <strong>Client Success</strong> (repeat rate, NPS, ratings), <strong>Operations</strong>
+    (on-time, budget variance, vendor performance), <strong>Founder</strong> (time
+    allocation, delegation, focus), <strong>People</strong> (interns, staff, training),
+    and <strong>EventCo</strong> (platform progress, beta users).
+  </p>
+
+  <div class="callout">
+    <div class="callout-title">How to Use It</div>
+    <p>Open the Growth Dashboard every Monday. Look at the Health Score first. If any category
+    is below 50, that's where to focus this week. Then scan the key metrics — anything red
+    needs immediate action.</p>
+  </div>
+</div>
+
+<!-- ===== CHAPTER 4 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">4</div>
+    <div class="chapter-title">The CEO Command Center</div>
+  </div>
+  <p class="chapter-sub">Your first screen every morning — personalized per role.</p>
+
+  <p>
+    The Command Center is what you see after signing in. It is <strong>role-aware</strong>:
+    the founder sees the company-wide view, interns see their own tasks and reports, staff
+    see their projects and approvals, freelancers see their crew assignments.
+  </p>
+
+  <p>
+    For the founder, the Command Center displays: the <strong>AI Morning Briefing</strong>
+    (auto-generated, no clicks needed), <strong>AI Coaching Nudges</strong> (proactive
+    advice), the <strong>Founder Freedom Score</strong> (measuring your independence),
+    <strong>Growth Targets</strong> (15 key metrics with current vs target), today's
+    <strong>Top Priorities</strong> (interactive checkboxes), <strong>Pending Approvals</strong>,
+    the <strong>Weekly CEO Review</strong> (auto-generated on Mondays), pipeline, cash
+    position, and team activity.
+  </p>
+
+  <div class="quote">
+    <p>"Good morning Kelvin. We are currently 46% behind our revenue target with ₦31.5M
+    generated against ₦120M target. 1 invoice is overdue: INV-2025-061 for ₦4,500,000.
+    Today's highest-impact actions: 1. Call Shell regarding proposal. 2. Approve RFQ for
+    MTN event. Estimated business impact: ₦15M potential pipeline."</p>
+    <div class="quote-author">— AI Morning Briefing (auto-generated)</div>
+  </div>
+
+  <p>
+    <strong>For interns</strong>, the Command Center shows: "Good morning, Chioma" with
+    their tasks for today, a prominent "File Your Daily Report" prompt (amber if not filed,
+    green if filed), their weekly objective, their learning plan, and their recent reports.
+    It feels focused and encouraging — not overwhelming.
+  </p>
+
+  <p>
+    <strong>For staff</strong>, it shows their projects, pending approvals they can action
+    (segregation-enforced — they cannot approve their own requests), their team's daily
+    reports, and weekly objectives.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 5 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">5</div>
+    <div class="chapter-title">The AI Chief of Staff</div>
+  </div>
+  <p class="chapter-sub">Your digital COO — proactive, contextual, always coaching.</p>
+
+  <p>
+    The AI is not a chatbot you have to remember to use. It is a <strong>presence</strong>
+    on your dashboard that proactively briefs you, flags risks, and coaches you toward the
+    growth vision. It uses the z-ai language model with live business data as context.
+  </p>
+
+  <div class="card card-accent">
+    <div class="card-title">CEO Morning Briefing</div>
+    <div class="card-body">
+      Auto-generated every morning (cached for 1 hour). Addresses you by name. Includes:
+      revenue vs target, overdue invoices, proposals needing follow-up, referral dependency
+      status, intern completion rate, pending approvals, and your <strong>top 5 highest-impact
+      actions</strong> with estimated business impact in ₦. No clicks needed — it just appears.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Weekly CEO Review</div>
+    <div class="card-body">
+      Auto-generated every Monday. Answers: What happened last week? What improved? What
+      declined? Biggest risks? Cash leaks? Which clients need attention? Which proposals
+      need follow-up? Which team members need help? Which goals are off track? Then
+      recommends your <strong>Top 5 CEO priorities</strong> for the week.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Monthly Board Report</div>
+    <div class="card-body">
+      Auto-generated monthly with 14 sections: Revenue, Profit, Cash Flow, Pipeline, Sales,
+      Marketing, Operations, People, Project Margins, Client Satisfaction, Vendor
+      Performance, Growth Score, Founder Time Allocation, and Recommendations.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">AI Coaching Nudges</div>
+    <div class="card-body">
+      Continuous, proactive coaching that acts like an experienced COO. Examples: "Kelvin,
+      you've spent 9 hours this week on administration. Target is below 4 hours. Recommend
+      delegating invoice verification." Or: "Referral dependence remains at 50%. Target is
+      below 40%. Publish two LinkedIn case studies this week."
+    </div>
+  </div>
+
+  <p>
+    You can also interact with the AI directly in the <strong>AI Chief of Staff module</strong>:
+    generate a daily plan, run a risk check, draft a proposal, or ask a question. The AI
+    uses live business context (pipeline, cash, tasks, team activity) to give specific,
+    actionable responses.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 6 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">6</div>
+    <div class="chapter-title">All 12 Modules Explained</div>
+  </div>
+  <p class="chapter-sub">What each module does and when to use it.</p>
+
+  <table>
+    <tr>
+      <th style="width:30%">Module</th>
+      <th>What It Does</th>
+    </tr>
+    <tr>
+      <td>Growth Dashboard</td>
+      <td>The cockpit. 39 live KPIs, health score, 9 sections. Open every Monday.</td>
+    </tr>
+    <tr>
+      <td>Command Center</td>
+      <td>Your daily starting point. AI briefing, priorities, approvals, focus score. Personalized per role.</td>
+    </tr>
+    <tr>
+      <td>Strategic Planning</td>
+      <td>Goal cascade: Annual → Quarterly → Monthly → Weekly → Daily. Tasks link to goals. Distraction detector.</td>
+    </tr>
+    <tr>
+      <td>Routines</td>
+      <td>Business rhythm checklists: Morning Briefing, End of Day, Weekly Review, Event Day, Monthly Close, Sales Pipeline.</td>
+    </tr>
+    <tr>
+      <td>AI Chief of Staff</td>
+      <td>Interactive AI: daily plans, risk checks, proposal drafts, chat. The proactive growth coach.</td>
+    </tr>
+    <tr>
+      <td>Field Mode</td>
+      <td>Mobile-first for on-site use. Quick daily report filing + offline event run-sheet with localStorage sync.</td>
+    </tr>
+    <tr>
+      <td>CRM & Sales</td>
+      <td>Pipeline kanban (5 stages), accounts, proposals, follow-ups, referrals. Generate client portal links.</td>
+    </tr>
+    <tr>
+      <td>Marketing & Growth</td>
+      <td>Lead source breakdown, referral nurturing, content calendar, campaign ROI. Reduces referral dependency.</td>
+    </tr>
+    <tr>
+      <td>Projects & Events</td>
+      <td>Project cards with financial strip (earned/received/balance/cost), crew, milestones. Create new projects with budget.</td>
+    </tr>
+    <tr>
+      <td>Procurement</td>
+      <td>3-way segregation (Requester ≠ Approver ≠ Payer), RFQs, quote comparison, POs, payment requests. Add vendors directly.</td>
+    </tr>
+    <tr>
+      <td>Financial Intelligence</td>
+      <td>P&L by project/client/service, cash flow, invoices, expenses with receipt upload, budget tracking, invoice reminders.</td>
+    </tr>
+    <tr>
+      <td>Team Management</td>
+      <td>Members, daily/weekly reports, weekly intern task assignment, hiring plan (6-stage bottleneck-based).</td>
+    </tr>
+    <tr>
+      <td>SOP & Knowledge</td>
+      <td>Templates, policies, training materials, case studies. The company's process library.</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ===== CHAPTER 7 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">7</div>
+    <div class="chapter-title">The Founder Freedom Score</div>
+  </div>
+  <p class="chapter-sub">The metric that measures whether you're building a company that can run without you.</p>
+
+  <p>
+    The Founder Freedom Score is your competitive advantage. It measures whether Digit One
+    Zero can continue to grow even when you are not involved in every decision. The goal is
+    to <strong>increase this score every quarter</strong>.
+  </p>
+
+  <div class="metric-grid">
+    <div class="metric-box">
+      <div class="metric-label">Current Score</div>
+      <div class="metric-value">39/100</div>
+      <div class="metric-target">Rating: Progressing</div>
+    </div>
+    <div class="metric-box">
+      <div class="metric-label">Year 1 Target</div>
+      <div class="metric-value">50/100</div>
+      <div class="metric-target">Year 3: 80/100</div>
+    </div>
+  </div>
+
+  <p>The score is calculated from five sub-metrics:</p>
+
+  <ul class="feature-list">
+    <li><strong>Projects without founder</strong> (25 pts) — % of projects delivered without your direct involvement as manager</li>
+    <li><strong>Delegated decisions</strong> (20 pts) — % of approvals not made by you</li>
+    <li><strong>Strategy vs operations time</strong> (20 pts) — ratio of strategy hours to operations hours</li>
+    <li><strong>SOP-driven tasks</strong> (15 pts) — % of tasks completed without escalation to you</li>
+    <li><strong>Revenue without founder sales</strong> (20 pts) — % of revenue from non-founder-sourced leads</li>
+  </ul>
+
+  <p>
+    The card also shows your <strong>time allocation</strong> for the week: how many hours
+    you spent on Sales, Operations, Administration, Strategy, and Delivery. Use the "Log
+    Time" button to record your time — the score updates automatically.
+  </p>
+
+  <div class="callout">
+    <div class="callout-title">Why This Matters</div>
+    <p>The real objective isn't just to grow revenue — it's to build a company that can
+    continue to grow even when you're not involved in every decision. That is the clearest
+    indicator that Digit One Zero has evolved from a founder-led business into a scalable
+    company.</p>
+  </div>
+</div>
+
+<!-- ===== CHAPTER 8 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">8</div>
+    <div class="chapter-title">The Hiring Plan</div>
+  </div>
+  <p class="chapter-sub">Hire based on bottlenecks, not headcount.</p>
+
+  <p>
+    The system recommends hiring only when: revenue supports it, team utilization exceeds
+    80%, or growth targets require additional capacity. The 6-stage plan is sequenced to
+    solve the company's biggest bottleneck at each stage of growth.
+  </p>
+
+  <table>
+    <tr>
+      <th style="width:8%">Stage</th>
+      <th style="width:27%">Role</th>
+      <th style="width:35%">Reason</th>
+      <th>Success Metric</th>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Business Development Executive</td>
+      <td>Generate predictable revenue</td>
+      <td>20 qualified leads/month</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Finance & Operations Officer</td>
+      <td>Separate financial control from operations</td>
+      <td>100% procurement compliance</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Project Coordinator</td>
+      <td>Reduce founder involvement in delivery</td>
+      <td>Founder ops involvement below 30%</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Marketing & Content Executive</td>
+      <td>Reduce referral dependence</td>
+      <td>35% of leads from marketing</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Senior Producer</td>
+      <td>Manage simultaneous large productions</td>
+      <td>5 concurrent projects without founder</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Technology/Product Manager</td>
+      <td>Lead EventCo/Fiestivo</td>
+      <td>SaaS growth independent of production</td>
+    </tr>
+  </table>
+
+  <p>
+    The Hiring Dashboard (in the Team module → "Hiring Plan" tab) shows the current team,
+    open positions, salary budget (₦1.75M/month across all planned hires), team utilization,
+    and whether each stage is ready to activate.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 9 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">9</div>
+    <div class="chapter-title">Procurement & Financial Control</div>
+  </div>
+  <p class="chapter-sub">How the system prevents financial leakage.</p>
+
+  <p>
+    The procurement workflow enforces <strong>3-way segregation of duties</strong>: no
+    single person can request, approve, and pay the same transaction. This is enforced both
+    in the database schema and in the API (returns HTTP 403 on violation).
+  </p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content"><strong>RFQ created</strong> — staff or PM creates a Request for Quote for a needed item or service</div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content"><strong>Quotes collected</strong> — minimum 2-3 vendor quotes (by threshold: under ₦100K = 1 quote, ₦100K-₦1M = 2, above ₦1M = 3)</div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content"><strong>Quote comparison</strong> — system highlights the lowest and recommended quote with budget variance</div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content"><strong>Purchase Order issued</strong> — formal PO created for the selected vendor</div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content"><strong>Payment Request</strong> — requester creates a payment request linked to the PO</div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content"><strong>Approval</strong> — approver (≠ requester) approves or rejects</div>
+    </div>
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content"><strong>Payment</strong> — payer (≠ approver, ≠ requester) executes payment and marks as paid</div>
+    </div>
+    <div class="step">
+      <div class="step-num">8</div>
+      <div class="step-content"><strong>Verification</strong> — receipt uploaded, expense verified</div>
+    </div>
+  </div>
+
+  <p>
+    The <strong>Financial Intelligence module</strong> shows profit by project, client, and
+    service line. It tracks invoices (with overdue detection and AI-drafted WhatsApp/Email
+    reminders), expenses (with receipt upload), budgets (with utilization bars), and cash
+    flow. A "Reminders" tab shows overdue invoices with copy-ready reminder messages and
+    pending payment confirmations from the client portal.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 10 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">10</div>
+    <div class="chapter-title">The Client Portal</div>
+  </div>
+  <p class="chapter-sub">How clients self-serve without logging in.</p>
+
+  <p>
+    Clients access their portal via a shareable link containing a token (e.g.,
+    <strong>/?portal=lcc-portal-2025</strong>). No DOZ OS account needed. The portal shows
+    only client-facing data — no internal costs, profit margins, or team information.
+  </p>
+
+  <p>The portal has three tabs:</p>
+
+  <ul class="feature-list">
+    <li><strong>Projects</strong> — view project status, event date, venue, progress, and deliverables. Clients can approve or request changes on each deliverable (with a note).</li>
+    <li><strong>Invoices</strong> — view invoice code, amount, amount paid, balance, and status. If there's an outstanding balance, clients click "Confirm Payment" to submit a payment confirmation (amount, method, reference) which goes to the founder for verification.</li>
+    <li><strong>Payment Confirmations</strong> — track the status of submitted confirmations (PENDING → VERIFIED or REJECTED).</li>
+  </ul>
+
+  <p>
+    To share a portal link: go to <strong>CRM & Sales → Accounts tab</strong> and click
+    "Copy Link" next to any account with an active portal. Five portal tokens are currently
+    active: GTBank, MTN, Lagos Chamber, Dangote, and Shell.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 11 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">11</div>
+    <div class="chapter-title">Field Mode for On-Site Work</div>
+  </div>
+  <p class="chapter-sub">Mobile-first tools for interns and freelancers at events.</p>
+
+  <p>
+    Field Mode is designed for phone-in-hand use at events. It has two features:
+  </p>
+
+  <div class="card card-accent">
+    <div class="card-title">Quick Daily Report Filing</div>
+    <div class="card-body">
+      File an end-of-day report in under 30 seconds: what you did (one per line), what's
+      planned tomorrow, blockers, hours worked (slider), and mood (emoji: Great/OK/Stressed).
+      Submitting twice today updates the same report — no duplicates.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Offline Event Run-Sheet</div>
+    <div class="card-body">
+      A per-project checklist that works without internet. Combines DB milestones with an
+      11-item event-day template. Milestone toggles queue when offline and auto-sync when
+      back online. Shows progress ("7 of 12 complete") with online/offline indicator.
+    </div>
+  </div>
+</div>
+
+<!-- ===== CHAPTER 12 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">12</div>
+    <div class="chapter-title">Routines & Business Rhythm</div>
+  </div>
+  <p class="chapter-sub">Run the same playbook every time.</p>
+
+  <p>
+    The Routines module contains 6 pre-built business routine templates that systematize
+    your operational discipline. Each is an interactive checklist you run through and track
+    completion.
+  </p>
+
+  <table>
+    <tr>
+      <th style="width:30%">Routine</th>
+      <th style="width:15%">Frequency</th>
+      <th>Purpose</th>
+    </tr>
+    <tr>
+      <td>Morning Briefing</td>
+      <td>Daily</td>
+      <td>Start every day with focus — review priorities, approvals, overdue items, set DND</td>
+    </tr>
+    <tr>
+      <td>End of Day Wrap</td>
+      <td>Daily</td>
+      <td>Close out — update tasks, log expenses, confirm reports, note tomorrow's priority</td>
+    </tr>
+    <tr>
+      <td>Weekly Business Review</td>
+      <td>Weekly (Mon)</td>
+      <td>Cash flow, pipeline, profitability, team performance, weekly objectives</td>
+    </tr>
+    <tr>
+      <td>Event Day Run-Sheet</td>
+      <td>Event Day</td>
+      <td>11-step execution checklist from crew call to post-event debrief</td>
+    </tr>
+    <tr>
+      <td>Monthly Close</td>
+      <td>Monthly</td>
+      <td>Reconcile, P&L, vendor review, goal update, next month's priorities</td>
+    </tr>
+    <tr>
+      <td>Sales Pipeline Review</td>
+      <td>Twice weekly</td>
+      <td>Follow-ups, proposals near expiry, new leads, referral nurturing</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ===== CHAPTER 13 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">13</div>
+    <div class="chapter-title">Live KPIs — How Targets Self-Update</div>
+  </div>
+  <p class="chapter-sub">Every metric is computed from real database data.</p>
+
+  <p>
+    Every growth KPI now <strong>self-updates from real database data</strong>. The system
+    includes a KPI Computation Engine (35+ functions) that queries the actual database every
+    time the dashboard loads. No manual updates needed.
+  </p>
+
+  <table>
+    <tr>
+      <th style="width:35%">KPI</th>
+      <th style="width:35%">Data Source</th>
+      <th>Computed Value</th>
+    </tr>
+    <tr>
+      <td>Annual Revenue</td>
+      <td>Sum of invoice.amountPaid</td>
+      <td>₦31.5M</td>
+    </tr>
+    <tr>
+      <td>Referral Dependency</td>
+      <td>Opportunities where source = REFERRAL / total</td>
+      <td>50%</td>
+    </tr>
+    <tr>
+      <td>Social Posts This Month</td>
+      <td>ContentLog count this month</td>
+      <td>6 / 12</td>
+    </tr>
+    <tr>
+      <td>Pipeline Coverage</td>
+      <td>Open pipeline value / revenue target</td>
+      <td>94.8%</td>
+    </tr>
+    <tr>
+      <td>Founder Freedom Score</td>
+      <td>Projects without founder + delegated decisions + SOP tasks</td>
+      <td>39/100</td>
+    </tr>
+    <tr>
+      <td>Cash Position</td>
+      <td>Invoices received − expenses paid</td>
+      <td>₦9.52M</td>
+    </tr>
+  </table>
+
+  <p>
+    When an intern logs a social post, the content counter goes up. When an invoice gets
+    paid, revenue updates. When you log your time, the Founder Freedom Score recalculates.
+    The system always reflects reality.
+  </p>
+</div>
+
+<!-- ===== CHAPTER 14 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">14</div>
+    <div class="chapter-title">Daily & Weekly Rhythm</div>
+  </div>
+  <p class="chapter-sub">How to use DOZ OS as your operating rhythm.</p>
+
+  <div class="card card-accent">
+    <div class="card-title">Every Morning (5 minutes)</div>
+    <div class="card-body">
+      <strong>1.</strong> Open the Command Center. Read the AI Morning Briefing.<br>
+      <strong>2.</strong> Check the Founder Freedom Score — is your admin time high?<br>
+      <strong>3.</strong> Review Growth Targets — anything red needs attention.<br>
+      <strong>4.</strong> Check off your Top Priorities as you complete them.<br>
+      <strong>5.</strong> Approve pending payment requests (segregation enforced).
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Every Monday (30 minutes)</div>
+    <div class="card-body">
+      <strong>1.</strong> Read the Weekly CEO Review (auto-generated).<br>
+      <strong>2.</strong> Open the Growth Dashboard — check the Health Score.<br>
+      <strong>3.</strong> Assign weekly tasks to interns (Team → Weekly Tasks).<br>
+      <strong>4.</strong> Run the Weekly Business Review routine.<br>
+      <strong>5.</strong> Check overdue invoice reminders — send WhatsApp/Email drafts.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Every Friday (15 minutes)</div>
+    <div class="card-body">
+      <strong>1.</strong> Open Marketing & Growth → Referral Sources.<br>
+      <strong>2.</strong> Contact every overdue referrer ("Log Contact").<br>
+      <strong>3.</strong> Review content calendar — schedule next week's posts.<br>
+      <strong>4.</strong> Run the End of Day Wrap routine.
+    </div>
+  </div>
+
+  <div class="card card-accent">
+    <div class="card-title">Monthly (Last Friday)</div>
+    <div class="card-body">
+      <strong>1.</strong> Read the Monthly Board Report (auto-generated).<br>
+      <strong>2.</strong> Run the Monthly Close routine.<br>
+      <strong>3.</strong> Review project P&L — identify profit and loss projects.<br>
+      <strong>4.</strong> Rate vendors and cull underperformers.<br>
+      <strong>5.</strong> Update annual goal progress.
+    </div>
+  </div>
+</div>
+
+<!-- ===== CHAPTER 15 ===== -->
+<div class="chapter">
+  <div class="chapter-header">
+    <div class="chapter-num">15</div>
+    <div class="chapter-title">The North Star Vision</div>
+  </div>
+  <p class="chapter-sub">Where Digit One Zero is going — and how DOZ OS gets you there.</p>
+
+  <p>
+    The North Star is clear: <strong>₦500M+ annual revenue, 25%+ net profit margin, 40+
+    corporate clients, and a commercially launched EventCo/Fiestivo platform by 2028.</strong>
+    Year One target: ₦120M revenue, 15 corporate clients, founder operational time below 50%.
+  </p>
+
+  <div class="quote">
+    <p>"The real objective isn't just to grow revenue — it's to build a company that can
+    continue to grow even when you are not involved in every decision. That is the clearest
+    indicator that Digit One Zero has successfully evolved from a founder-led business into
+    a scalable company."</p>
+  </div>
+
+  <p>
+    DOZ OS measures progress toward this vision every day. Every KPI has a current value,
+    a target, a forecast, and a required weekly pace. The AI coaches you toward it. The
+    Founder Freedom Score ensures you're building independence, not just revenue. The hiring
+    plan sequences your team growth to solve bottlenecks. And the routines systematize the
+    discipline that turns ambition into execution.
+  </p>
+
+  <p>
+    The system is honest. Right now, the Health Score is 37/100. Revenue is at 26% of target.
+    Referral dependency is 50% (target: 40%). But now you can <strong>see</strong> exactly
+    where you stand and <strong>what to do about it</strong> — every morning, automatically.
+  </p>
+
+  <div class="callout">
+    <div class="callout-title">The Question DOZ OS Always Answers</div>
+    <p style="font-size: 15px; font-weight: 600; color: #e8edf5; text-align: center; padding: 8px 0;">
+      "What is the next highest-impact action that moves Digit One Zero closer to becoming
+      a ₦500M+ event production and technology company?"
+    </p>
+  </div>
+</div>
+
+</div>
+
+<!-- ============ ENDING ============ -->
+<div class="ending">
+  <div class="ending-badge">10</div>
+  <h2 class="ending-title">DOZ OS v4.1</h2>
+  <p class="ending-sub">
+    The Growth Operating System for Digit One Zero Ltd.<br>
+    Built to help Kelvin Keshy and the team achieve the ₦500M vision.
+  </p>
+  <div class="ending-meta">
+    Digit One Zero Ltd · Lagos, Nigeria<br>
+    Internal Use · v4.1 — Live KPIs
+  </div>
+</div>
+
+</body>
+</html>

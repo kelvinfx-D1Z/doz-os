@@ -1,0 +1,946 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useMemo, useState } from "react";
+     4→     4→import {
+     5→     5→  Star,
+     6→     6→  Phone,
+     7→     7→  Mail,
+     8→     8→  Calendar,
+     9→     9→  MessageCircle,
+    10→    10→  TrendingUp,
+    11→    11→  Users,
+    12→    12→  FileText,
+    13→    13→  Handshake,
+    14→    14→  CheckCircle2,
+    15→    15→  Clock,
+    16→    16→  AlertCircle,
+    17→    17→  ChevronRight,
+    18→    18→  Briefcase,
+    19→    19→  Building2,
+    20→    20→  Link2,
+    21→    21→} from "lucide-react";
+    22→    22→
+    23→    23→import { Card } from "@/components/ui/card";
+    24→    24→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    25→    25→import {
+    26→    26→  Table,
+    27→    27→  TableBody,
+    28→    28→  TableCell,
+    29→    29→  TableHead,
+    30→    30→  TableHeader,
+    31→    31→  TableRow,
+    32→    32→} from "@/components/ui/table";
+    33→    33→import { Skeleton } from "@/components/ui/skeleton";
+    34→    34→import { Badge } from "@/components/ui/badge";
+    35→    35→import { Button } from "@/components/ui/button";
+    36→    36→import { ScrollArea } from "@/components/ui/scroll-area";
+    37→    37→import { toast } from "sonner";
+    38→    38→import {
+    39→    39→  StatCard,
+    40→    40→  StatusBadge,
+    41→    41→  SectionHeader,
+    42→    42→  EmptyState,
+    43→    43→  MiniBar,
+    44→    44→} from "@/components/doz/ui-primitives";
+    45→    45→import { formatNGN, relativeTime, formatDate, avatarColor } from "@/lib/format";
+    46→    46→
+    47→    47→// ---------- types (mirroring API response shape) ----------
+    48→    48→type Stats = {
+    49→    49→  totalPipeline: number;
+    50→    50→  weightedPipeline: number;
+    51→    51→  openOpps: number;
+    52→    52→  wonOpps: number;
+    53→    53→  lostOpps: number;
+    54→    54→  proposalsSent: number;
+    55→    55→  proposalsAccepted: number;
+    56→    56→  conversionRate: number;
+    57→    57→  openFollowUps: number;
+    58→    58→  overdueFollowUps: number;
+    59→    59→  strategicAccounts: number;
+    60→    60→  totalReferralValue: number;
+    61→    61→};
+    62→    62→
+    63→    63→type Opportunity = {
+    64→    64→  id: string;
+    65→    65→  name: string;
+    66→    66→  stage: string;
+    67→    67→  value: number;
+    68→    68→  probability: number;
+    69→    69→  expectedClose: string | null;
+    70→    70→  source: string;
+    71→    71→  serviceType: string | null;
+    72→    72→  account: { name: string; isStrategic: boolean } | null;
+    73→    73→  contact: { name: string } | null;
+    74→    74→  proposals: { id: string; title: string; amount: number; status: string }[];
+    75→    75→  followUps: {
+    76→    76→    id: string;
+    77→    77→    subject: string;
+    78→    78→    dueDate: string;
+    79→    79→    completed: boolean;
+    80→    80→  }[];
+    81→    81→};
+    82→    82→
+    83→    83→type Account = {
+    84→    84→  id: string;
+    85→    85→  name: string;
+    86→    86→  industry: string | null;
+    87→    87→  isStrategic: boolean;
+    88→    88→  lifetimeValue: number;
+    89→    89→  portalToken: string | null;
+    90→    90→  portalActive: boolean;
+    91→    91→  _count: { opportunities: number; projects: number };
+    92→    92→};
+    93→    93→
+    94→    94→type Contact = {
+    95→    95→  id: string;
+    96→    96→  name: string;
+    97→    97→  title: string | null;
+    98→    98→  email: string | null;
+    99→    99→  phone: string | null;
+   100→   100→  isDecisionMaker: boolean;
+   101→   101→  account: { name: string } | null;
+   102→   102→};
+   103→   103→
+   104→   104→type Lead = {
+   105→   105→  id: string;
+   106→   106→  contactName: string;
+   107→   107→  company: string | null;
+   108→   108→  source: string;
+   109→   109→  sourceDetail: string | null;
+   110→   110→  status: string;
+   111→   111→  value: number;
+   112→   112→  serviceInterest: string | null;
+   113→   113→  createdAt: string;
+   114→   114→};
+   115→   115→
+   116→   116→type Proposal = {
+   117→   117→  id: string;
+   118→   118→  title: string;
+   119→   119→  amount: number;
+   120→   120→  status: string;
+   121→   121→  sentDate: string | null;
+   122→   122→  responseDate: string | null;
+   123→   123→  validUntil: string | null;
+   124→   124→  opportunity: { name: string; account: { name: string } | null } | null;
+   125→   125→};
+   126→   126→
+   127→   127→type FollowUp = {
+   128→   128→  id: string;
+   129→   129→  type: string;
+   130→   130→  subject: string;
+   131→   131→  notes: string | null;
+   132→   132→  dueDate: string;
+   133→   133→  completed: boolean;
+   134→   134→  contact: { name: string } | null;
+   135→   135→  opportunity: { name: string; account: { name: string } | null } | null;
+   136→   136→};
+   137→   137→
+   138→   138→type Referral = {
+   139→   139→  id: string;
+   140→   140→  referrerName: string;
+   141→   141→  value: number;
+   142→   142→  note: string | null;
+   143→   143→  toAccount: { name: string } | null;
+   144→   144→  createdAt: string;
+   145→   145→};
+   146→   146→
+   147→   147→type CrmData = {
+   148→   148→  stats: Stats;
+   149→   149→  opportunities: Opportunity[];
+   150→   150→  accounts: Account[];
+   151→   151→  contacts: Contact[];
+   152→   152→  leads: Lead[];
+   153→   153→  proposals: Proposal[];
+   154→   154→  followUps: FollowUp[];
+   155→   155→  referrals: Referral[];
+   156→   156→  pipelineByStage: { stage: string; count: number; value: number }[];
+   157→   157→};
+   158→   158→
+   159→   159→// ---------- helpers ----------
+   160→   160→const STAGES = ["DISCOVERY", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON"] as const;
+   161→   161→
+   162→   162→function sourceBadgeVariant(source: string): "default" | "secondary" | "outline" {
+   163→   163→  switch (source) {
+   164→   164→    case "REFERRAL":
+   165→   165→      return "default";
+   166→   166→    case "EXISTING_CLIENT":
+   167→   167→      return "secondary";
+   168→   168→    case "NETWORKING":
+   169→   169→      return "outline";
+   170→   170→    default:
+   171→   171→      return "outline";
+   172→   172→  }
+   173→   173→}
+   174→   174→
+   175→   175→function followUpIcon(type: string) {
+   176→   176→  switch (type) {
+   177→   177→    case "CALL":
+   178→   178→      return <Phone className="h-3.5 w-3.5" />;
+   179→   179→    case "EMAIL":
+   180→   180→      return <Mail className="h-3.5 w-3.5" />;
+   181→   181→    case "MEETING":
+   182→   182→      return <Calendar className="h-3.5 w-3.5" />;
+   183→   183→    case "WHATSAPP":
+   184→   184→      return <MessageCircle className="h-3.5 w-3.5" />;
+   185→   185→    default:
+   186→   186→      return <MessageCircle className="h-3.5 w-3.5" />;
+   187→   187→  }
+   188→   188→}
+   189→   189→
+   190→   190→function isExpiredProposal(p: Proposal): boolean {
+   191→   191→  if (p.status !== "SENT" || !p.validUntil) return false;
+   192→   192→  return new Date(p.validUntil).getTime() < Date.now();
+   193→   193→}
+   194→   194→
+   195→   195→function startOfDay(d: Date): Date {
+   196→   196→  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+   197→   197→}
+   198→   198→
+   199→   199→// ---------- loading skeleton ----------
+   200→   200→function CrmSkeleton() {
+   201→   201→  return (
+   202→   202→    <div className="space-y-5">
+   203→   203→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+   204→   204→        {Array.from({ length: 6 }).map((_, i) => (
+   205→   205→          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+   206→   206→        ))}
+   207→   207→      </div>
+   208→   208→      <Skeleton className="h-9 w-80 rounded-lg" />
+   209→   209→      <Skeleton className="h-64 w-full rounded-lg" />
+   210→   210→      <Skeleton className="h-48 w-full rounded-lg" />
+   211→   211→    </div>
+   212→   212→  );
+   213→   213→}
+   214→   214→
+   215→   215→// ---------- main component ----------
+   216→   216→export function CrmSales() {
+   217→   217→  const [data, setData] = useState<CrmData | null>(null);
+   218→   218→  const [loading, setLoading] = useState(true);
+   219→   219→  const [error, setError] = useState<string | null>(null);
+   220→   220→
+   221→   221→  useEffect(() => {
+   222→   222→    let cancelled = false;
+   223→   223→    (async () => {
+   224→   224→      try {
+   225→   225→        setLoading(true);
+   226→   226→        const res = await fetch("/api/doz/crm", { cache: "no-store" });
+   227→   227→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   228→   228→        const json = (await res.json()) as CrmData;
+   229→   229→        if (!cancelled) {
+   230→   230→          setData(json);
+   231→   231→          setError(null);
+   232→   232→        }
+   233→   233→      } catch (e: unknown) {
+   234→   234→        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load CRM data");
+   235→   235→      } finally {
+   236→   236→        if (!cancelled) setLoading(false);
+   237→   237→      }
+   238→   238→    })();
+   239→   239→    return () => {
+   240→   240→      cancelled = true;
+   241→   241→    };
+   242→   242→  }, []);
+   243→   243→
+   244→   244→  if (loading) return <CrmSkeleton />;
+   245→   245→  if (error || !data)
+   246→   246→    return (
+   247→   247→      <EmptyState
+   248→   248→        icon={<AlertCircle className="h-8 w-8" />}
+   249→   249→        title="Could not load CRM data"
+   250→   250→        hint={error ?? "Please try again."}
+   251→   251→      />
+   252→   252→    );
+   253→   253→
+   254→   254→  const { stats, opportunities, accounts, proposals, followUps, referrals, pipelineByStage } = data;
+   255→   255→  const openOpps = opportunities.filter((o) => !["WON", "LOST"].includes(o.stage));
+   256→   256→  const referralPctOfPipeline =
+   257→   257→    stats.totalPipeline > 0 ? (stats.totalReferralValue / stats.totalPipeline) * 100 : 0;
+   258→   258→
+   259→   259→  return (
+   260→   260→    <div className="space-y-5">
+   261→   261→      {/* ---------- TOP KPI ROW ---------- */}
+   262→   262→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+   263→   263→        <StatCard
+   264→   264→          label="Pipeline Value"
+   265→   265→          value={formatNGN(stats.totalPipeline, true)}
+   266→   266→          sub={`${stats.openOpps} open opps`}
+   267→   267→          icon={<TrendingUp className="h-4 w-4" />}
+   268→   268→          accent="primary"
+   269→   269→        />
+   270→   270→        <StatCard
+   271→   271→          label="Weighted Pipeline"
+   272→   272→          value={formatNGN(stats.weightedPipeline, true)}
+   273→   273→          sub="Probability-adjusted"
+   274→   274→          icon={<TrendingUp className="h-4 w-4" />}
+   275→   275→        />
+   276→   276→        <StatCard
+   277→   277→          label="Open Opportunities"
+   278→   278→          value={stats.openOpps}
+   279→   279→          sub={`${stats.wonOpps} won · ${stats.lostOpps} lost`}
+   280→   280→          icon={<Briefcase className="h-4 w-4" />}
+   281→   281→        />
+   282→   282→        <StatCard
+   283→   283→          label="Conversion Rate"
+   284→   284→          value={`${stats.conversionRate.toFixed(1)}%`}
+   285→   285→          sub={`${stats.proposalsAccepted} of ${stats.proposalsSent + stats.proposalsAccepted} proposals`}
+   286→   286→          icon={<CheckCircle2 className="h-4 w-4" />}
+   287→   287→          accent={stats.conversionRate >= 25 ? "primary" : "warning"}
+   288→   288→        />
+   289→   289→        <StatCard
+   290→   290→          label="Open Follow-ups"
+   291→   291→          value={stats.openFollowUps}
+   292→   292→          sub={stats.overdueFollowUps > 0 ? `${stats.overdueFollowUps} overdue` : "On track"}
+   293→   293→          icon={<Clock className="h-4 w-4" />}
+   294→   294→          accent={stats.overdueFollowUps > 0 ? "danger" : "default"}
+   295→   295→        />
+   296→   296→        <StatCard
+   297→   297→          label="Strategic Accounts"
+   298→   298→          value={stats.strategicAccounts}
+   299→   299→          sub={`${accounts.length} total accounts`}
+   300→   300→          icon={<Star className="h-4 w-4" />}
+   301→   301→          accent="warning"
+   302→   302→        />
+   303→   303→      </div>
+   304→   304→
+   305→   305→      {/* ---------- TABS ---------- */}
+   306→   306→      <Tabs defaultValue="pipeline" className="w-full">
+   307→   307→        <TabsList className="h-9">
+   308→   308→          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+   309→   309→          <TabsTrigger value="accounts">Accounts</TabsTrigger>
+   310→   310→          <TabsTrigger value="proposals">Proposals</TabsTrigger>
+   311→   311→          <TabsTrigger value="followups">Follow-ups</TabsTrigger>
+   312→   312→          <TabsTrigger value="referrals">Referrals</TabsTrigger>
+   313→   313→        </TabsList>
+   314→   314→
+   315→   315→        {/* ---------- PIPELINE TAB ---------- */}
+   316→   316→        <TabsContent value="pipeline" className="space-y-5">
+   317→   317→          <PipelineBoard
+   318→   318→            opportunities={opportunities}
+   319→   319→            pipelineByStage={pipelineByStage}
+   320→   320→          />
+   321→   321→
+   322→   322→          {/* Open opportunities table */}
+   323→   323→          <Card className="p-5">
+   324→   324→            <SectionHeader
+   325→   325→              icon={<Briefcase className="h-4 w-4" />}
+   326→   326→              title="Open Opportunities"
+   327→   327→              description={`${openOpps.length} active deals in the pipeline`}
+   328→   328→            />
+   329→   329→            <div className="mt-4 max-h-96 overflow-y-auto scroll-thin">
+   330→   330→              <Table>
+   331→   331→                <TableHeader className="sticky top-0 bg-card z-10">
+   332→   332→                  <TableRow>
+   333→   333→                    <TableHead>Account</TableHead>
+   334→   334→                    <TableHead>Opportunity</TableHead>
+   335→   335→                    <TableHead className="text-right">Value</TableHead>
+   336→   336→                    <TableHead>Stage</TableHead>
+   337→   337→                    <TableHead className="w-24">Probability</TableHead>
+   338→   338→                    <TableHead>Expected Close</TableHead>
+   339→   339→                    <TableHead>Source</TableHead>
+   340→   340→                  </TableRow>
+   341→   341→                </TableHeader>
+   342→   342→                <TableBody>
+   343→   343→                  {openOpps.length === 0 ? (
+   344→   344→                    <TableRow>
+   345→   345→                      <TableCell colSpan={7}>
+   346→   346→                        <EmptyState icon={<Briefcase className="h-6 w-6" />} title="No open opportunities" />
+   347→   347→                      </TableCell>
+   348→   348→                    </TableRow>
+   349→   349→                  ) : (
+   350→   350→                    openOpps.map((o) => (
+   351→   351→                      <TableRow key={o.id}>
+   352→   352→                        <TableCell className="font-medium">
+   353→   353→                          <div className="flex items-center gap-1.5">
+   354→   354→                            {o.account?.isStrategic && (
+   355→   355→                              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+   356→   356→                            )}
+   357→   357→                            {o.account?.name ?? "—"}
+   358→   358→                          </div>
+   359→   359→                        </TableCell>
+   360→   360→                        <TableCell className="max-w-[220px] truncate text-muted-foreground">
+   361→   361→                          {o.name}
+   362→   362→                        </TableCell>
+   363→   363→                        <TableCell className="text-right font-semibold">
+   364→   364→                          {formatNGN(o.value, true)}
+   365→   365→                        </TableCell>
+   366→   366→                        <TableCell>
+   367→   367→                          <StatusBadge status={o.stage} />
+   368→   368→                        </TableCell>
+   369→   369→                        <TableCell>
+   370→   370→                          <div className="flex items-center gap-2">
+   371→   371→                            <MiniBar
+   372→   372→                              value={o.probability}
+   373→   373→                              max={100}
+   374→   374→                              color={
+   375→   375→                                o.probability >= 60
+   376→   376→                                  ? "bg-primary"
+   377→   377→                                  : o.probability >= 35
+   378→   378→                                  ? "bg-amber-500"
+   379→   379→                                  : "bg-muted-foreground"
+   380→   380→                              }
+   381→   381→                            />
+   382→   382→                            <span className="w-8 text-[11px] text-muted-foreground">{o.probability}%</span>
+   383→   383→                          </div>
+   384→   384→                        </TableCell>
+   385→   385→                        <TableCell className="text-xs text-muted-foreground">
+   386→   386→                          {formatDate(o.expectedClose)}
+   387→   387→                        </TableCell>
+   388→   388→                        <TableCell>
+   389→   389→                          <Badge variant={sourceBadgeVariant(o.source)} className="text-[10px]">
+   390→   390→                            {o.source.replace(/_/g, " ")}
+   391→   391→                          </Badge>
+   392→   392→                        </TableCell>
+   393→   393→                      </TableRow>
+   394→   394→                    ))
+   395→   395→                  )}
+   396→   396→                </TableBody>
+   397→   397→              </Table>
+   398→   398→            </div>
+   399→   399→          </Card>
+   400→   400→        </TabsContent>
+   401→   401→
+   402→   402→        {/* ---------- ACCOUNTS TAB ---------- */}
+   403→   403→        <TabsContent value="accounts">
+   404→   404→          <Card className="p-5">
+   405→   405→            <SectionHeader
+   406→   406→              icon={<Building2 className="h-4 w-4" />}
+   407→   407→              title="Accounts"
+   408→   408→              description={`${accounts.length} accounts · ${stats.strategicAccounts} strategic`}
+   409→   409→            />
+   410→   410→            <div className="mt-4 max-h-96 overflow-y-auto scroll-thin">
+   411→   411→              <Table>
+   412→   412→                <TableHeader className="sticky top-0 bg-card z-10">
+   413→   413→                  <TableRow>
+   414→   414→                    <TableHead>Account</TableHead>
+   415→   415→                    <TableHead>Industry</TableHead>
+   416→   416→                    <TableHead className="text-right">Lifetime Value</TableHead>
+   417→   417→                    <TableHead className="text-center">Opportunities</TableHead>
+   418→   418→                    <TableHead className="text-center">Projects</TableHead>
+   419→   419→                    <TableHead className="text-center">Client Portal</TableHead>
+   420→   420→                  </TableRow>
+   421→   421→                </TableHeader>
+   422→   422→                <TableBody>
+   423→   423→                  {accounts.length === 0 ? (
+   424→   424→                    <TableRow>
+   425→   425→                      <TableCell colSpan={6}>
+   426→   426→                        <EmptyState icon={<Building2 className="h-6 w-6" />} title="No accounts yet" />
+   427→   427→                      </TableCell>
+   428→   428→                    </TableRow>
+   429→   429→                  ) : (
+   430→   430→                    accounts.map((a) => (
+   431→   431→                      <TableRow key={a.id}>
+   432→   432→                        <TableCell className="font-medium">
+   433→   433→                          <div className="flex items-center gap-2">
+   434→   434→                            <span
+   435→   435→                              className={`flex h-7 w-7 items-center justify-center rounded-md text-[10px] font-bold ${avatarColor(
+   436→   436→                                a.name
+   437→   437→                              )}`}
+   438→   438→                            >
+   439→   439→                              {a.name.slice(0, 2).toUpperCase()}
+   440→   440→                            </span>
+   441→   441→                            <div className="flex items-center gap-1.5">
+   442→   442→                              {a.isStrategic && (
+   443→   443→                                <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+   444→   444→                              )}
+   445→   445→                              {a.name}
+   446→   446→                            </div>
+   447→   447→                          </div>
+   448→   448→                        </TableCell>
+   449→   449→                        <TableCell className="text-muted-foreground">{a.industry ?? "—"}</TableCell>
+   450→   450→                        <TableCell className="text-right font-semibold">
+   451→   451→                          {formatNGN(a.lifetimeValue)}
+   452→   452→                        </TableCell>
+   453→   453→                        <TableCell className="text-center">{a._count.opportunities}</TableCell>
+   454→   454→                        <TableCell className="text-center">{a._count.projects}</TableCell>
+   455→   455→                        <TableCell className="text-center">
+   456→   456→                          {a.portalActive && a.portalToken ? (
+   457→   457→                            <Button
+   458→   458→                              size="sm"
+   459→   459→                              variant="outline"
+   460→   460→                              className="h-7 gap-1.5 text-xs"
+   461→   461→                              onClick={() => {
+   462→   462→                                const url = `${window.location.origin}/?portal=${a.portalToken}`;
+   463→   463→                                navigator.clipboard?.writeText(url);
+   464→   464→                                toast.success(`Portal link copied for ${a.name}`);
+   465→   465→                              }}
+   466→   466→                            >
+   467→   467→                              <Link2 className="h-3 w-3" />
+   468→   468→                              Copy Link
+   469→   469→                            </Button>
+   470→   470→                          ) : (
+   471→   471→                            <span className="text-[10px] text-muted-foreground">Not enabled</span>
+   472→   472→                          )}
+   473→   473→                        </TableCell>
+   474→   474→                      </TableRow>
+   475→   475→                    ))
+   476→   476→                  )}
+   477→   477→                </TableBody>
+   478→   478→              </Table>
+   479→   479→            </div>
+   480→   480→          </Card>
+   481→   481→        </TabsContent>
+   482→   482→
+   483→   483→        {/* ---------- PROPOSALS TAB ---------- */}
+   484→   484→        <TabsContent value="proposals">
+   485→   485→          <Card className="p-5">
+   486→   486→            <SectionHeader
+   487→   487→              icon={<FileText className="h-4 w-4" />}
+   488→   488→              title="Proposals"
+   489→   489→              description={`${proposals.length} proposals · ${stats.proposalsSent} sent · ${stats.proposalsAccepted} accepted`}
+   490→   490→            />
+   491→   491→            <div className="mt-4 max-h-96 overflow-y-auto scroll-thin">
+   492→   492→              <Table>
+   493→   493→                <TableHeader className="sticky top-0 bg-card z-10">
+   494→   494→                  <TableRow>
+   495→   495→                    <TableHead>Title</TableHead>
+   496→   496→                    <TableHead>Account</TableHead>
+   497→   497→                    <TableHead className="text-right">Amount</TableHead>
+   498→   498→                    <TableHead>Status</TableHead>
+   499→   499→                    <TableHead>Sent</TableHead>
+   500→   500→                    <TableHead>Valid Until</TableHead>
+   501→   501→                    <TableHead>Response</TableHead>
+   502→   502→                  </TableRow>
+   503→   503→                </TableHeader>
+   504→   504→                <TableBody>
+   505→   505→                  {proposals.length === 0 ? (
+   506→   506→                    <TableRow>
+   507→   507→                      <TableCell colSpan={7}>
+   508→   508→                        <EmptyState icon={<FileText className="h-6 w-6" />} title="No proposals yet" />
+   509→   509→                      </TableCell>
+   510→   510→                    </TableRow>
+   511→   511→                  ) : (
+   512→   512→                    proposals.map((p) => {
+   513→   513→                      const expired = isExpiredProposal(p);
+   514→   514→                      return (
+   515→   515→                        <TableRow
+   516→   516→                          key={p.id}
+   517→   517→                          className={expired ? "bg-amber-500/5" : undefined}
+   518→   518→                        >
+   519→   519→                          <TableCell className="font-medium">
+   520→   520→                            <div className="flex items-center gap-2">
+   521→   521→                              {expired && <AlertCircle className="h-3.5 w-3.5 text-amber-400" />}
+   522→   522→                              <span className="max-w-[260px] truncate">{p.title}</span>
+   523→   523→                            </div>
+   524→   524→                          </TableCell>
+   525→   525→                          <TableCell className="text-muted-foreground">
+   526→   526→                            {p.opportunity?.account?.name ?? p.opportunity?.name ?? "—"}
+   527→   527→                          </TableCell>
+   528→   528→                          <TableCell className="text-right font-semibold">
+   529→   529→                            {formatNGN(p.amount)}
+   530→   530→                          </TableCell>
+   531→   531→                          <TableCell>
+   532→   532→                            <StatusBadge status={p.status} />
+   533→   533→                            {expired && (
+   534→   534→                              <Badge variant="outline" className="ml-1 border-amber-500/40 text-[10px] text-amber-400">
+   535→   535→                                EXPIRED
+   536→   536→                              </Badge>
+   537→   537→                            )}
+   538→   538→                          </TableCell>
+   539→   539→                          <TableCell className="text-xs text-muted-foreground">
+   540→   540→                            {formatDate(p.sentDate)}
+   541→   541→                          </TableCell>
+   542→   542→                          <TableCell className="text-xs text-muted-foreground">
+   543→   543→                            {formatDate(p.validUntil)}
+   544→   544→                          </TableCell>
+   545→   545→                          <TableCell className="text-xs text-muted-foreground">
+   546→   546→                            {formatDate(p.responseDate)}
+   547→   547→                          </TableCell>
+   548→   548→                        </TableRow>
+   549→   549→                      );
+   550→   550→                    })
+   551→   551→                  )}
+   552→   552→                </TableBody>
+   553→   553→              </Table>
+   554→   554→            </div>
+   555→   555→          </Card>
+   556→   556→        </TabsContent>
+   557→   557→
+   558→   558→        {/* ---------- FOLLOW-UPS TAB ---------- */}
+   559→   559→        <TabsContent value="followups">
+   560→   560→          <FollowUpsList followUps={followUps} />
+   561→   561→        </TabsContent>
+   562→   562→
+   563→   563→        {/* ---------- REFERRALS TAB ---------- */}
+   564→   564→        <TabsContent value="referrals">
+   565→   565→          <ReferralsPanel
+   566→   566→            referrals={referrals}
+   567→   567→            totalValue={stats.totalReferralValue}
+   568→   568→            pctOfPipeline={referralPctOfPipeline}
+   569→   569→          />
+   570→   570→        </TabsContent>
+   571→   571→      </Tabs>
+   572→   572→    </div>
+   573→   573→  );
+   574→   574→}
+   575→   575→
+   576→   576→// ============================================================
+   577→   577→// PIPELINE BOARD (Kanban)
+   578→   578→// ============================================================
+   579→   579→function PipelineBoard({
+   580→   580→  opportunities,
+   581→   581→  pipelineByStage,
+   582→   582→}: {
+   583→   583→  opportunities: Opportunity[];
+   584→   584→  pipelineByStage: { stage: string; count: number; value: number }[];
+   585→   585→}) {
+   586→   586→  return (
+   587→   587→    <Card className="p-5">
+   588→   588→      <SectionHeader
+   589→   589→        icon={<TrendingUp className="h-4 w-4" />}
+   590→   590→        title="Pipeline Board"
+   591→   591→        description="Drag stages are conceptual — opportunities grouped by stage"
+   592→   592→      />
+   593→   593→      <ScrollArea className="mt-4 w-full whitespace-nowrap">
+   594→   594→        <div className="flex gap-3 pb-2">
+   595→   595→          {STAGES.map((stage) => {
+   596→   596→            const stageData = pipelineByStage.find((p) => p.stage === stage);
+   597→   597→            const items = opportunities.filter((o) => o.stage === stage);
+   598→   598→            const count = stageData?.count ?? items.length;
+   599→   599→            const value = stageData?.value ?? items.reduce((s, o) => s + o.value, 0);
+   600→   600→            return (
+   601→   601→              <div
+   602→   602→                key={stage}
+   603→   603→                className="flex min-w-[260px] flex-col rounded-lg bg-muted/30 p-3"
+   604→   604→              >
+   605→   605→                {/* column header */}
+   606→   606→                <div className="mb-3 flex items-center justify-between">
+   607→   607→                  <div className="flex items-center gap-2">
+   608→   608→                    <StatusBadge status={stage} />
+   609→   609→                    <span className="text-xs text-muted-foreground">{count} deals</span>
+   610→   610→                  </div>
+   611→   611→                  <span className="text-sm font-semibold">{formatNGN(value, true)}</span>
+   612→   612→                </div>
+   613→   613→                {/* column body */}
+   614→   614→                <div className="flex-1 space-y-2">
+   615→   615→                  {items.length === 0 ? (
+   616→   616→                    <div className="rounded-md border border-dashed border-border/60 py-6 text-center text-[11px] text-muted-foreground/60">
+   617→   617→                      No deals
+   618→   618→                    </div>
+   619→   619→                  ) : (
+   620→   620→                    items.map((o) => (
+   621→   621→                      <OppCard key={o.id} opp={o} />
+   622→   622→                    ))
+   623→   623→                  )}
+   624→   624→                </div>
+   625→   625→              </div>
+   626→   626→            );
+   627→   627→          })}
+   628→   628→        </div>
+   629→   629→      </ScrollArea>
+   630→   630→    </Card>
+   631→   631→  );
+   632→   632→}
+   633→   633→
+   634→   634→function OppCard({ opp }: { opp: Opportunity }) {
+   635→   635→  // next incomplete follow-up
+   636→   636→  const nextFollowUp = opp.followUps
+   637→   637→    .filter((f) => !f.completed)
+   638→   638→    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+   639→   639→  const overdue = nextFollowUp && new Date(nextFollowUp.dueDate).getTime() < Date.now();
+   640→   640→
+   641→   641→  return (
+   642→   642→    <div className="group rounded-md border border-border bg-card p-3 transition-all hover:border-primary/40">
+   643→   643→      <div className="flex items-start justify-between gap-2">
+   644→   644→        <p className="line-clamp-2 text-sm font-medium leading-tight">{opp.name}</p>
+   645→   645→        {opp.account?.isStrategic && (
+   646→   646→          <Star className="mt-0.5 h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />
+   647→   647→        )}
+   648→   648→      </div>
+   649→   649→      <p className="mt-1 truncate text-[11px] text-muted-foreground">
+   650→   650→        {opp.account?.name ?? "—"}
+   651→   651→        {opp.contact?.name ? ` · ${opp.contact.name}` : ""}
+   652→   652→      </p>
+   653→   653→      <div className="mt-2 flex items-center justify-between">
+   654→   654→        <span className="text-sm font-semibold">{formatNGN(opp.value, true)}</span>
+   655→   655→        <Badge variant={sourceBadgeVariant(opp.source)} className="text-[9px]">
+   656→   656→          {opp.source.replace(/_/g, " ")}
+   657→   657→        </Badge>
+   658→   658→      </div>
+   659→   659→      {/* probability bar */}
+   660→   660→      <div className="mt-2 flex items-center gap-2">
+   661→   661→        <MiniBar
+   662→   662→          value={opp.probability}
+   663→   663→          max={100}
+   664→   664→          color={
+   665→   665→            opp.probability >= 60
+   666→   666→              ? "bg-primary"
+   667→   667→              : opp.probability >= 35
+   668→   668→              ? "bg-amber-500"
+   669→   669→              : "bg-muted-foreground"
+   670→   670→          }
+   671→   671→        />
+   672→   672→        <span className="w-8 text-[10px] text-muted-foreground">{opp.probability}%</span>
+   673→   673→      </div>
+   674→   674→      {/* next follow-up */}
+   675→   675→      {nextFollowUp && (
+   676→   676→        <div
+   677→   677→          className={`mt-2 flex items-center gap-1.5 text-[10px] ${
+   678→   678→            overdue ? "text-rose-400" : "text-muted-foreground"
+   679→   679→          }`}
+   680→   680→        >
+   681→   681→          <Clock className="h-3 w-3" />
+   682→   682→          <span className="truncate">{nextFollowUp.subject}</span>
+   683→   683→          <span className="ml-auto shrink-0">· {relativeTime(nextFollowUp.dueDate)}</span>
+   684→   684→        </div>
+   685→   685→      )}
+   686→   686→    </div>
+   687→   687→  );
+   688→   688→}
+   689→   689→
+   690→   690→// ============================================================
+   691→   691→// FOLLOW-UPS LIST (grouped by overdue / today / upcoming)
+   692→   692→// ============================================================
+   693→   693→function FollowUpsList({ followUps }: { followUps: FollowUp[] }) {
+   694→   694→  const today = startOfDay(new Date());
+   695→   695→  const tomorrow = new Date(today.getTime() + 86400000);
+   696→   696→
+   697→   697→  const groups = useMemo(() => {
+   698→   698→    const open = followUps.filter((f) => !f.completed);
+   699→   699→    const completed = followUps.filter((f) => f.completed);
+   700→   700→
+   701→   701→    const overdue = open
+   702→   702→      .filter((f) => new Date(f.dueDate) < today)
+   703→   703→      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+   704→   704→    const dueToday = open
+   705→   705→      .filter((f) => {
+   706→   706→        const d = new Date(f.dueDate);
+   707→   707→        return d >= today && d < tomorrow;
+   708→   708→      })
+   709→   709→      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+   710→   710→    const upcoming = open
+   711→   711→      .filter((f) => new Date(f.dueDate) >= tomorrow)
+   712→   712→      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+   713→   713→
+   714→   714→    return { overdue, dueToday, upcoming, completed };
+   715→   715→  }, [followUps, today, tomorrow]);
+   716→   716→
+   717→   717→  return (
+   718→   718→    <div className="space-y-5">
+   719→   719→      <FollowUpGroup
+   720→   720→        title="Overdue"
+   721→   721→        count={groups.overdue.length}
+   722→   722→        items={groups.overdue}
+   723→   723→        accent="danger"
+   724→   724→        icon={<AlertCircle className="h-4 w-4" />}
+   725→   725→      />
+   726→   726→      <FollowUpGroup
+   727→   727→        title="Due Today"
+   728→   728→        count={groups.dueToday.length}
+   729→   729→        items={groups.dueToday}
+   730→   730→        accent="warning"
+   731→   731→        icon={<Clock className="h-4 w-4" />}
+   732→   732→      />
+   733→   733→      <FollowUpGroup
+   734→   734→        title="Upcoming"
+   735→   735→        count={groups.upcoming.length}
+   736→   736→        items={groups.upcoming}
+   737→   737→        accent="default"
+   738→   738→        icon={<Calendar className="h-4 w-4" />}
+   739→   739→      />
+   740→   740→      <FollowUpGroup
+   741→   741→        title="Completed"
+   742→   742→        count={groups.completed.length}
+   743→   743→        items={groups.completed}
+   744→   744→        accent="default"
+   745→   745→        icon={<CheckCircle2 className="h-4 w-4" />}
+   746→   746→      />
+   747→   747→    </div>
+   748→   748→  );
+   749→   749→}
+   750→   750→
+   751→   751→function FollowUpGroup({
+   752→   752→  title,
+   753→   753→  count,
+   754→   754→  items,
+   755→   755→  accent,
+   756→   756→  icon,
+   757→   757→}: {
+   758→   758→  title: string;
+   759→   759→  count: number;
+   760→   760→  items: FollowUp[];
+   761→   761→  accent: "default" | "warning" | "danger";
+   762→   762→  icon: React.ReactNode;
+   763→   763→}) {
+   764→   764→  const accentText =
+   765→   765→    accent === "danger" ? "text-rose-400" : accent === "warning" ? "text-amber-400" : "text-muted-foreground";
+   766→   766→  return (
+   767→   767→    <Card className="p-5">
+   768→   768→      <SectionHeader
+   769→   769→        icon={<span className={accentText}>{icon}</span>}
+   770→   770→        title={title}
+   771→   771→        description={`${count} item${count === 1 ? "" : "s"}`}
+   772→   772→      />
+   773→   773→      <div className="mt-4 max-h-96 overflow-y-auto scroll-thin space-y-2">
+   774→   774→        {items.length === 0 ? (
+   775→   775→          <EmptyState
+   776→   776→            icon={<CheckCircle2 className="h-6 w-6" />}
+   777→   777→            title={`Nothing ${title.toLowerCase()}`}
+   778→   778→            hint="You're all caught up here."
+   779→   779→          />
+   780→   780→        ) : (
+   781→   781→          items.map((f) => (
+   782→   782→            <FollowUpItem key={f.id} f={f} />
+   783→   783→          ))
+   784→   784→        )}
+   785→   785→      </div>
+   786→   786→    </Card>
+   787→   787→  );
+   788→   788→}
+   789→   789→
+   790→   790→function FollowUpItem({ f }: { f: FollowUp }) {
+   791→   791→  const overdue = !f.completed && new Date(f.dueDate) < startOfDay(new Date());
+   792→   792→  const dueToday =
+   793→   793→    !f.completed &&
+   794→   794→    new Date(f.dueDate) >= startOfDay(new Date()) &&
+   795→   795→    new Date(f.dueDate) < new Date(startOfDay(new Date()).getTime() + 86400000);
+   796→   796→  return (
+   797→   797→    <div className="flex items-start gap-3 rounded-md border border-border/60 bg-card/50 p-3 transition-colors hover:bg-accent/30">
+   798→   798→      <div
+   799→   799→        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+   800→   800→          f.completed
+   801→   801→            ? "bg-primary/15 text-primary"
+   802→   802→            : overdue
+   803→   803→            ? "bg-rose-500/15 text-rose-400"
+   804→   804→            : dueToday
+   805→   805→            ? "bg-amber-500/15 text-amber-400"
+   806→   806→            : "bg-muted text-muted-foreground"
+   807→   807→        }`}
+   808→   808→      >
+   809→   809→        {followUpIcon(f.type)}
+   810→   810→      </div>
+   811→   811→      <div className="min-w-0 flex-1">
+   812→   812→        <div className="flex items-start justify-between gap-2">
+   813→   813→          <p className={`text-sm font-medium leading-tight ${f.completed ? "line-through text-muted-foreground" : ""}`}>
+   814→   814→            {f.subject}
+   815→   815→          </p>
+   816→   816→          {!f.completed && (
+   817→   817→            <span
+   818→   818→              className={`shrink-0 text-[11px] font-medium ${
+   819→   819→                overdue ? "text-rose-400" : dueToday ? "text-amber-400" : "text-muted-foreground"
+   820→   820→              }`}
+   821→   821→            >
+   822→   822→              {relativeTime(f.dueDate)}
+   823→   823→            </span>
+   824→   824→          )}
+   825→   825→        </div>
+   826→   826→        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+   827→   827→          {f.contact?.name && <span>{f.contact.name}</span>}
+   828→   828→          {f.opportunity && (
+   829→   829→            <>
+   830→   830→              <ChevronRight className="h-3 w-3" />
+   831→   831→              <span className="truncate">{f.opportunity.name}</span>
+   832→   832→              {f.opportunity.account && (
+   833→   833→                <>
+   834→   834→                  <span>·</span>
+   835→   835→                  <span className="truncate">{f.opportunity.account.name}</span>
+   836→   836→                </>
+   837→   837→              )}
+   838→   838→            </>
+   839→   839→          )}
+   840→   840→          {f.completed && (
+   841→   841→            <>
+   842→   842→              <span>·</span>
+   843→   843→              <span className="text-primary">Completed</span>
+   844→   844→            </>
+   845→   845→          )}
+   846→   846→        </div>
+   847→   847→        {f.notes && <p className="mt-1 text-[11px] text-muted-foreground/80">{f.notes}</p>}
+   848→   848→      </div>
+   849→   849→    </div>
+   850→   850→  );
+   851→   851→}
+   852→   852→
+   853→   853→// ============================================================
+   854→   854→// REFERRALS PANEL
+   855→   855→// ============================================================
+   856→   856→function ReferralsPanel({
+   857→   857→  referrals,
+   858→   858→  totalValue,
+   859→   859→  pctOfPipeline,
+   860→   860→}: {
+   861→   861→  referrals: Referral[];
+   862→   862→  totalValue: number;
+   863→   863→  pctOfPipeline: number;
+   864→   864→}) {
+   865→   865→  return (
+   866→   866→    <div className="space-y-5">
+   867→   867→      {/* referral stats */}
+   868→   868→      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+   869→   869→        <StatCard
+   870→   870→          label="Total Referral Value"
+   871→   871→          value={formatNGN(totalValue, true)}
+   872→   872→          sub={`${referrals.length} referrals generated`}
+   873→   873→          icon={<Handshake className="h-4 w-4" />}
+   874→   874→          accent="primary"
+   875→   875→        />
+   876→   876→        <StatCard
+   877→   877→          label="Share of Pipeline"
+   878→   878→          value={`${pctOfPipeline.toFixed(1)}%`}
+   879→   879→          sub="Referrals vs. total open pipeline"
+   880→   880→          icon={<TrendingUp className="h-4 w-4" />}
+   881→   881→        />
+   882→   882→        <StatCard
+   883→   883→          label="Active Referrers"
+   884→   884→          value={new Set(referrals.map((r) => r.referrerName)).size}
+   885→   885→          sub="People who sent business"
+   886→   886→          icon={<Users className="h-4 w-4" />}
+   887→   887→        />
+   888→   888→      </div>
+   889→   889→
+   890→   890→      <Card className="p-5">
+   891→   891→        <SectionHeader
+   892→   892→          icon={<Handshake className="h-4 w-4" />}
+   893→   893→          title="Referrals"
+   894→   894→          description="Business introduced by your network"
+   895→   895→        />
+   896→   896→        <div className="mt-4 max-h-96 overflow-y-auto scroll-thin space-y-2">
+   897→   897→          {referrals.length === 0 ? (
+   898→   898→            <EmptyState
+   899→   899→              icon={<Handshake className="h-6 w-6" />}
+   900→   900→              title="No referrals recorded"
+   901→   901→              hint="Track referrals here to measure word-of-mouth ROI."
+   902→   902→            />
+   903→   903→          ) : (
+   904→   904→            referrals.map((r) => (
+   905→   905→              <div
+   906→   906→                key={r.id}
+   907→   907→                className="flex items-start gap-3 rounded-md border border-border/60 bg-card/50 p-3 transition-colors hover:bg-accent/30"
+   908→   908→              >
+   909→   909→                <div
+   910→   910→                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${avatarColor(
+   911→   911→                    r.referrerName
+   912→   912→                  )}`}
+   913→   913→                >
+   914→   914→                  {r.referrerName
+   915→   915→                    .split(" ")
+   916→   916→                    .map((s) => s[0])
+   917→   917→                    .slice(0, 2)
+   918→   918→                    .join("")
+   919→   919→                    .toUpperCase()}
+   920→   920→                </div>
+   921→   921→                <div className="min-w-0 flex-1">
+   922→   922→                  <div className="flex items-start justify-between gap-2">
+   923→   923→                    <p className="text-sm font-medium leading-tight">{r.referrerName}</p>
+   924→   924→                    <span className="shrink-0 text-sm font-semibold text-primary">
+   925→   925→                      {formatNGN(r.value, true)}
+   926→   926→                    </span>
+   927→   927→                  </div>
+   928→   928→                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+   929→   929→                    <ChevronRight className="h-3 w-3" />
+   930→   930→                    <span className="truncate">{r.toAccount?.name ?? "—"}</span>
+   931→   931→                    <span>·</span>
+   932→   932→                    <span>{formatDate(r.createdAt)}</span>
+   933→   933→                  </div>
+   934→   934→                  {r.note && (
+   935→   935→                    <p className="mt-1.5 text-[11px] text-muted-foreground/80">{r.note}</p>
+   936→   936→                  )}
+   937→   937→                </div>
+   938→   938→              </div>
+   939→   939→            ))
+   940→   940→          )}
+   941→   941→        </div>
+   942→   942→      </Card>
+   943→   943→    </div>
+   944→   944→  );
+   945→   945→}
+   946→   946→

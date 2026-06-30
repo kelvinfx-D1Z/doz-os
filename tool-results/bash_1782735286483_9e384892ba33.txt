@@ -1,0 +1,300 @@
+4. **src/components/modules/strategic-planning.tsx** (EDITED — additive):
+   - Added import: `import { FocusScoreCard } from "@/components/doz/focus-score-card";`
+   - Inserted `<FocusScoreCard />` between the SectionHeader and the KPI row — top of the module, before the goal cascade. (Strategic Planning is intrinsically about alignment, so the score belongs here. Module-level access is already gated by role-aware nav from G1.)
+
+Testing:
+- Dev server (Next.js 16 Turbopack on port 3000) — Ready in ~1s, compiles cleanly.
+- Authenticated curl flow (csrf → callback/credentials with `founder@digitonezero.com` / `doz2025` — extracted Set-Cookie session-token manually because auth.ts forces `secure: true` on cookies):
+  - `GET /api/doz/focus` (no auth) → 401 `{"error":"unauthorized"}` ✓
+  - `GET /api/doz/focus` (authed) → 200 with payload: score 36, rating "SCATTERED", breakdown {strategicTasks:4, operationalTasks:10, adminTasks:0, distractionTasks:1, totalActive:15}, alignment {linkedToGoal:3, unlinked:12, alignmentPct:20}, weeklyGoalProgress:45, weeklyGoal {title:"This Week: Approve 3 POs, sign GTBank event, finish intern onboarding", progress:45, dueDate:"2026-06-30..."}, dailyTaskCompletion {done:0, total:4, pct:0}, distractionsCount:1, recommendations ["⚠ 1 distraction task detected — batch them into a 30-min block", "12 tasks aren't linked to any goal — link them or deprioritize", "Weekly objective is only 45% complete — accelerate"].
+  - Math verified: 20*0.4=8 + (4/15)*30=8 + max(0,20-5)=15 + (45/100)*10=4.5 = 35.5 → 36 ✓; 36<50 → SCATTERED ✓; distraction(1>0), unlinked(12>3), weekly-accelerate(45<50 AND Friday=past midweek) all fire; strategic-zero(4>0) and aligned-positiv(36<75) correctly don't fire; cap at 3 ✓.
+- `GET /` (authed) → 200, page compiles + renders cleanly (30KB HTML; client-side React hydrates and fetches `/api/doz/focus`).
+- `bun run lint` → EXIT 0, zero errors/warnings.
+- dev.log shows: `GET /api/doz/focus 200` (authed), `GET /api/doz/focus 401` (unauth), `GET / 200 in 52ms` — all expected, no compile errors.
+
+Stage Summary:
+- Focus & Alignment Score system is fully implemented and verified end-to-end via authenticated curl.
+- API: GET /api/doz/focus (auth-gated) computes the focus score (0-100), rating (ALIGNED/MODERATE/SCATTERED), task category breakdown, goal alignment %, weekly goal progress, today's task completion, distractions count, and 2-3 prioritised recommendations — all from real task + goal data. Score algorithm exactly per spec.
+- UI: FocusScoreCard renders a conic-gradient score ring colored by rating (emerald/amber/rose), a horizontal stacked breakdown bar (strategic/operational/admin/distraction with legend), a 4-tile stats row (Linked / Distractions / Weekly goal / Today), and a smart-icon recommendations list.
+- Integration: card added to (1) Command Center right column (gated FOUNDER/STAFF only — above Weekly Objective), and (2) Strategic Planning module top (between SectionHeader and KPI row — visible to anyone who can reach the module).
+- Color discipline: emerald primary, amber warning, rose danger, teal accent, muted/zinc for admin. NO indigo, NO blue.
+- Files: NEW src/app/api/doz/focus/route.ts (~225 lines), NEW src/components/doz/focus-score-card.tsx (~360 lines), EDITED src/components/modules/command-center.tsx (+6 lines: import + role-gated card), EDITED src/components/modules/strategic-planning.tsx (+6 lines: import + card).
+- Work record saved to /home/z/my-project/agent-ctx/G4-focus-score.md.
+
+---
+Task ID: G1
+Agent: Role-Aware Command Center Builder
+Task: Make the Command Center role-aware and personalized — when different users (Founder, Staff, Intern, Freelancer) log in, they see DIFFERENT dashboards scoped to their role, not the founder's company-wide view.
+
+Work Log:
+- READ /home/z/my-project/worklog.md (CRITICAL-ASSESSMENT entry confirmed this is the #1 gap). READ existing src/app/api/doz/dashboard/route.ts (148 lines, returns company-wide aggregate). READ existing src/components/modules/command-center.tsx (1629 lines, single founder-centric layout). READ src/lib/auth.ts (getSessionUser() helper confirmed). READ src/hooks/use-current-user.ts (useCurrentUser() hook returns {user, status}). READ prisma/schema.prisma (User, Task, Goal, DailyReport, CrewAssignment, Deliverable, Project, PaymentRequest, Sop, ActivityLog models confirmed). READ prisma/seed.ts (verified user accounts: founder@, ops@, chioma@, bola@freelance.ng with role FOUNDER/STAFF/INTERN/FREELANCER; password=doz2025). READ src/app/api/doz/tasks/route.ts (?scope=my-day pattern). READ src/app/api/doz/field/route.ts (daily report filing pattern). READ src/app/api/doz/sop/route.ts (TRAINING category for learning plan). READ src/lib/store.ts (useAppStore + ModuleId for module navigation).
+
+API changes — src/app/api/doz/dashboard/route.ts (rewritten, ~430 lines):
+- Added `import { getSessionUser } from "@/lib/auth"`; first thing GET() does is call getSessionUser() and return 401 if not authenticated.
+- Added 8 new parallel Prisma queries scoped to the current user: myTasksAll (all tasks assigned to user), myDoneToday (tasks completed today), myTodayReport (today's daily report), myRecentReports (last 5 reports), myCrewAssignments (for freelancer), myManagedProjects (for staff), mySubmittedRequests (payment requests user submitted), trainingSops (TRAINING category SOPs for intern learning plan).
+- All existing company-wide queries + aggregations preserved unchanged.
+- Built a comprehensive `myDay` object with 16 fields: tasks (due today/overdue, top 12), taskCount, overdueCount, doneToday, reportFiled (bool), todayReportId, weeklyObjective (prefers goal owned by user, falls back to company weekly goal), pendingApprovals (count of items user can action), pendingApprovalItems (with segregation-of-duties filter: user can action a PENDING request if they're the assigned approver OR approver is null AND they are NOT the requester; founder sees all), myProjects (where user is manager, active statuses only), myPendingRequests (user's own submitted, last 5), crewAssignments (with project + day rate, active statuses only), deliverables (for FREELANCER role only — fetched via separate db.deliverable.findMany on projects where user has crew assignment), recentReports (last 3, for intern), learningPlan (TRAINING SOPs), teamReportsToday (non-founder users who filed today), teamReportsTotal, teamActivity (recent activity from non-founder users, top 10).
+- Added `currentUser: { id, name, email, role, title }` to response — the ACTUAL logged-in user (vs the existing `founder` field which is always the FOUNDER record for the company-wide view).
+- Response now includes BOTH `currentUser` + `myDay` (user-scoped) AND all existing company-wide fields (founder, stats, topPriorities, weeklyGoal, goals, pendingApprovals, upcoming, openOpps, outstandingInvoices, overdueInvoices, serviceMix, interns, todayReports, recentActivity, aiInsights, pendingRfqs, followUpsDue, lostOpps, tasks). Founder needs the full view; non-founder roles use `currentUser` + `myDay`.
+
+UI changes — src/components/modules/command-center.tsx (added ~1100 lines, file now ~2780 lines):
+- Added imports: GraduationCap, Briefcase, Film, BookOpen, Send, Award, Lightbulb, Clapperboard from lucide-react; useAppStore + ModuleId from @/lib/store (for role views to navigate to Field Mode / SOP & Knowledge / Projects).
+- Extended DashboardData interface with `currentUser` + `myDay` fields. Added new MyDay + MyDayTask interfaces mirroring the API contract.
+- In CommandCenter component: after loading/error check, derive `displayName = user?.name ?? apiUser?.name ?? founder?.name` and `role = user?.role ?? apiUser?.role`. Build shared `roleViewProps` object with all handlers + state. Add three role-aware early returns (INTERN, FREELANCER, STAFF) — each renders `<RoleDashboard />` + the existing QuickAddTaskDialog + MyDayDialog (so all roles can still add tasks / view their full day). Founder (or unknown role) falls through to the existing layout.
+- Founder greeting now uses `firstName(displayName)` instead of `firstName(founderName)` — so founder sees "Good morning, Adaeze" (was already Adaeze, but now sourced from the session user).
+- Added 5 new shared sub-components + 3 role dashboard components at the bottom of the file:
+  1. `DailyReportBanner` — prominent amber-bordered banner if not filed ("You haven't filed your daily report yet" + "File Your Daily Report" button → navigates to Field Mode), green-bordered if filed ("Daily report filed ✓" + "View / Edit report" button).
+  2. `MyTasksList` — reusable task list with checkboxes, priority dots, distraction badges, project name, due date, "Add a task" button. Used by all 3 non-founder roles.
+  3. `RoleHeader` — reusable greeting header with date + personalized subtitle + role badges.
+  4. `InternDashboard` — focused, encouraging layout: header ("Here's your plan for today — stay focused, you've got this"), DailyReportBanner, 4 KPIs (Tasks Today / Done Today / Overdue / Weekly Goal %), 2-column grid with Your Tasks Today + Your Weekly Objective + Your Learning Plan (left) and Quick Actions + Your Recent Reports + Daily rhythm encouragement card (right). NO company financials, NO pipeline, NO approvals, NO AI insights.
+  5. `StaffDashboard` — operational layout: header ("Here's what needs your attention today" + role + project count badges), 4 KPIs (My Open Tasks / My Projects / Approvals I can action / Team Reports Today), 2-column grid with My Tasks Today + Pending Approvals (with Approve/Reject buttons, segregation-enforced) + My Projects (left) and My Submitted Requests + Weekly Objective + Team Activity (right).
+  6. `FreelancerDashboard` — crew-focused layout: header ("Here's your work for today" + Freelancer badge + assignment count), DailyReportBanner, 4 KPIs (Crew Assignments / My Tasks / My Deliverables / Total Day Rate), 2-column grid with My Crew Assignments (project + role + day rate + event date + venue) + My Tasks (left) and My Deliverables + Weekly Objective + Quick Links (right).
+- All role dashboards use the same dark theme + StatCard + StatusBadge + SectionHeader + EmptyState + MiniBar + PriorityDot primitives. Emerald primary, amber warning, rose danger. NO indigo/blue.
+
+Testing — verified end-to-end via authenticated curl + agent-browser:
+
+curl/JSON tests (all 4 roles):
+- FOUNDER: currentUser.name="Adaeze Okonkwo" role="FOUNDER"; myDay.pendingApprovals=2 (PR-2025-053 + PR-2025-051, both can be actioned); myDay.myProjects=3; founder.name (company record) preserved="Adaeze Okonkwo"; stats.pendingApprovals=2 (company-wide intact).
+- INTERN (Chioma): currentUser.name="Chioma Adeyemi" role="INTERN"; myDay.reportFiled=true (she already filed today); myDay.weeklyObjective="This Week: Approve 3 POs..."; myDay.learningPlan=1 item ("Intern Onboarding & Learning Plan"); myDay.recentReports=2; myDay.crewAssignments=0; myDay.pendingApprovals=0 (interns can't approve payments).
+- STAFF (Tunde): currentUser.name="Tunde Bakare" role="STAFF"; myDay.myProjects=1 (Access Bank Year-End Party EVT-2025-029 PLANNING 5%); myDay.pendingApprovals=1 (ONLY PR-2025-053 ₦300K — PR-2025-051 correctly EXCLUDED because Tunde requested it himself = segregation of duties); myDay.myPendingRequests=2 (PR-2025-052 APPROVED + PR-2025-051 PENDING — his own submissions tracked separately); myDay.teamReportsToday=3/12; myDay.teamActivity=3 items.
+- FREELANCER (Bola): currentUser.name="Bola Martins" role="FREELANCER"; myDay.crewAssignments=2 (GTBank ASSIGNED ₦120K + MTN CONFIRMED ₦120K, both PRODUCTION_MANAGER); myDay.deliverables=2 ("3-min brand film (master)" IN_PROGRESS + "Livestream multicam recording" PENDING, both on MTN project); myDay.reportFiled=false (amber banner shown).
+- UNAUTHENTICATED: GET /api/doz/dashboard → HTTP 401 ✓
+
+agent-browser UI tests (signed in via the role quick-buttons on the login overlay):
+- FOUNDER: "Good evening, Adaeze" + Today's Top Priorities + Pending Approvals + Revenue by Service Line + Open Opportunities + Intern Reports Today + AI Morning Briefing (G2) + Focus & Alignment (G4) — full company-wide layout intact.
+- INTERN: "Good evening, Chioma" + "Here's your plan for today — stay focused, you've got this." + green "Daily report filed ✓" banner ("Nice work, Chioma — your report for today is in. Keep the streak going.") + KPIs (Tasks Today 0 Inbox zero 🎉 / Done Today 0 / Overdue 0 / Weekly Goal 45%) + Your Tasks Today (empty: "No tasks due today — Ask your supervisor for assignments") + Your Weekly Objective (45% complete, due 30 Jun 2026) + Your Learning Plan (Intern Onboarding & Learning Plan · TRAINING · UPDATED TODAY) + Quick Actions (File daily report / Browse SOPs & training / View projects) + Your Recent Reports (26 JUN: "Updated vendor database (5 entries)" 7.0h blocker; 25 JUN: 🟢 "Researched 8 event vendors" 8.0h blocker) + Daily rhythm encouragement card. NO company financials/pipeline/approvals. Restricted sidebar (Command Center / Field Mode / Team Management / SOP & Knowledge only).
+- STAFF: "Good evening, Tunde" + "Here's what needs your attention today." + Operations Lead badge + KPIs (My Open Tasks 0 / My Projects 1 / Approvals I can action 1 ₦300K queued / Team Reports Today 3/12 Some pending) + My Tasks Today + Pending Approvals (only PR-2025-053 ₦300K "Pay AViti 50% deposit for FX6 rental" Requested by Bola Martins — PR-2025-051 correctly absent) + My Projects (Access Bank Year-End Party PLANNING EVT-2025-029 5% 10 Aug 2026) + My Submitted Requests (PR-2025-052 APPROVED ₦450K + PR-2025-051 PENDING ₦650K Awaiting approval) + Weekly Objective (45%) + Team Activity (Chioma submitted daily report / Grace delivered asset / Tunde created rfq).
+- FREELANCER: "Good evening, Bola" + "Here's your work for today." + amber "You haven't filed your daily report yet" banner + KPIs (Crew Assignments 2 / My Tasks 0 / My Deliverables 2 / Total Day Rate ₦240K) + My Crew Assignments (GTBank Annual Conference ASSIGNED ₦120K PRODUCTION_MANAGER 31 Jul Eko Convention Center; MTN Brand Film + Livestream CONFIRMED ₦120K PRODUCTION_MANAGER 10 Jul MTN HQ Falomo) + My Tasks (empty: "No tasks assigned to you — Reach out to the production manager") + My Deliverables ("3-min brand film (master)" IN PROGRESS in 4w; "Livestream multicam recording" PENDING in 2w) + Weekly Objective (45% in 4d) + Quick Links. Restricted sidebar (Command Center / Field Mode / Projects & Events / Team Management).
+
+- `bun run lint` → EXIT 0, zero errors/warnings.
+- Screenshots saved: /tmp/intern-dashboard.png, /tmp/staff-dashboard.png, /tmp/freelancer-dashboard.png.
+
+Stage Summary:
+- The #1 critical gap in DOZ OS is FIXED. The Command Center is now role-aware and personalized.
+- When Chioma (intern) logs in, she sees "Good evening, Chioma" with HER tasks, HER weekly objective, HER learning plan, HER recent reports, and a prominent daily-report filing prompt — NOT Adaeze's company-wide dashboard.
+- When Tunde (staff) logs in, he sees "Good evening, Tunde" with HIS projects, HIS actionable approvals (segregation-of-duties enforced — he can't approve his own requests), HIS submitted requests' status, and team activity.
+- When Bola (freelancer) logs in, he sees "Good evening, Bola" with HIS crew assignments (with day rates), HIS deliverables, HIS tasks, and a daily-report filing prompt.
+- When Adaeze (founder) logs in, she still sees the full company-wide dashboard (unchanged behavior, but greeting now sourced from session user).
+- API: dashboard/route.ts now returns `currentUser` + comprehensive `myDay` block (16 fields) alongside the existing company-wide payload. Auth-gated (401 if not signed in). Segregation of duties enforced at the API level (requester can never approve their own request).
+- UI: command-center.tsx now has 4 role-aware render paths (FOUNDER / STAFF / INTERN / FREELANCER) via early returns. 3 new dashboard sub-components + 3 shared helpers added. Same dark theme, same primitives, same color discipline (emerald/amber/rose, NO indigo/blue).
+- Files: src/app/api/doz/dashboard/route.ts (rewritten, ~430 lines), src/components/modules/command-center.tsx (extended, ~2780 lines total).
+- Work record saved to /home/z/my-project/agent-ctx/G1-role-aware-command-center.md.
+
+---
+Task ID: G5 (VERIFY)
+Agent: Main (orchestrator)
+Task: Final verification of all 4 gap fixes
+
+Work Log:
+- `bun run lint` → EXIT 0, zero errors
+- All new APIs verified via authenticated curl:
+  - /api/doz/focus → 200, Score: 36 (SCATTERED), alignment 20%, 1 distraction, 3 recommendations
+  - /api/doz/marketing → 200, 3 campaigns, 4 referral sources, 5 content items, growth metrics computed
+  - /api/doz/ai/briefing → 200, auto-generated and cached, "Top priority: Finalize GTBank proposal (₦113.8M pipeline)"
+- Browser-verified (founder dashboard via cookie auth):
+  - "Good evening, Adaeze" — personalized greeting (was always "Adaeze" before, now uses currentUser)
+  - "AI Morning Briefing" card auto-rendered with top priority + 2 risks + delegation suggestion — NO clicks needed
+  - "Focus & Alignment" card with score ring showing "36/100, SCATTERED", "20% aligned", "Tasks aren't clearly tied to goals — refocus before the day slips"
+  - "Marketing & Growth" in navigation (Grow group) — renders with Campaigns, Content Calendar, Referral Sources tabs
+  - Critical alert banner: "Invoice INV-2025-061 overdue 9 days — Recommend escalation call to Dr. Chinyere Alu"
+- Role-aware dashboards verified via curl: intern login returns currentUser.role=INTERN, staff returns STAFF, each gets scoped myDay data
+- Zero browser console errors
+
+Stage Summary — 4 Critical Gaps Fixed:
+1. ROLE-AWARE COMMAND CENTER: Interns see "Good morning, Chioma" with their tasks, report filing prompt, and learning plan — NOT the founder's dashboard. Staff see their projects and approvals. Freelancers see their crew assignments. The founder sees the company-wide view. Everyone now knows what THEY should be doing.
+2. PROACTIVE AI AUTO-BRIEFING: The AI Morning Briefing auto-appears on the dashboard — no clicks needed. It generates a 150-word briefing with top priority, 2 risks, and 1 delegation suggestion, cached for 1 hour. The AI is now a presence, not a tool.
+3. MARKETING & GROWTH MODULE: New module with lead source breakdown (shows the 70% referral dependency visibly), referral nurturing tracker (overdue nurture alerts), content calendar (Instagram/LinkedIn/YouTube), campaign ROI tracking, and growth metrics (conversion rate, CAC, pipeline velocity). Lead generation is now active, not passive.
+4. FOCUS & ALIGNMENT SCORE: A measurable focus score (0-100) that connects daily tasks to strategic goals. Current score: 36 (SCATTERED) — only 20% of tasks are linked to goals. The system now tells the founder when they're scattered and recommends specific actions to refocus.
+
+DOZ OS is now v3.1 — the system actively helps the team stay focused, aligned, and growing.
+
+---
+Task ID: U1-U2
+Agent: Main (orchestrator)
+Task: Schema for project vendor costs + vision banner on command center
+
+Work Log:
+- Added ProjectVendorCost model to schema: projectId, vendorId (optional, links to Vendor), vendorName (free text), item (what they provide), fee (total cost), amountPaid (advance+payments), balance (computed), status (UNPAID/PARTIAL/PAID), notes
+- Added vendorCosts relation to Project model, projectCosts relation to Vendor model
+- Seeded 3 sample project vendor costs for MTN project (FX6 rental PAID, lighting PARTIAL, sound UNPAID)
+- Added Company Vision Banner to Command Center — always visible after the greeting, shows "₦500M+ revenue · 25%+ margin · 40+ clients · EventCo launch by 2028" with Year 1 target subtitle
+- Lint clean, server running
+
+Stage Summary:
+- ProjectVendorCost model ready for project vendor management subagent
+- Vision banner always visible on Command Center
+- Next: 3 subagents for project vendor management UI, team CRUD, task management + DIDI actions
+
+---
+Task ID: U4-UI
+Agent: Team Management CRUD Builder
+Task: Add Team Management CRUD (create / edit / change-password / deactivate / reactivate) to the Team module — FOUNDER only
+
+Work Log:
+- READ existing /home/z/my-project/src/components/modules/team.tsx (2490 lines) before editing.
+- READ API contract at /home/z/my-project/src/app/api/doz/team/manage/route.ts (POST create, PATCH update / change_password, DELETE deactivate; all require FOUNDER).
+- READ /home/z/my-project/src/hooks/use-current-user.ts → useCurrentUser() returns { id, name, email, role, title }.
+- Verified the team module already contains the full management surface (all imports + dialogs + buttons already wired). Confirmed each requirement below is satisfied end-to-end:
+
+  1. "Add Member" button (Team tab header)
+     - Located in the filter-pills row, only rendered when `isFounder` (currentUser.role === "FOUNDER").
+     - Plus icon + primary Button. Opens `AddMemberDialog`.
+     - Dialog fields: Name (required), Email (required, type=email), Role (Select: FOUNDER/STAFF/INTERN/FREELANCER), Title, Phone, Capacity (number, default 40), Password (required, type=password, min 6 chars — enforced client-side AND server-side).
+     - Submit → POST /api/doz/team/manage { action:"create", name, email, role, title, phone, capacity, password }.
+     - Friendly error mapping for email_taken / weak_password; toast.success on 201; closes dialog; calls onCreated (= loadTeam) to refresh.
+
+  2. Edit button on each member card (FOUNDER only)
+     - Pencil icon button inside the card's founder-only action row.
+     - Opens `EditMemberDialog` with: Name, Title, Phone, Role, Capacity, Active (Switch).
+     - "Save Changes" → PATCH /api/doz/team/manage { action:"update", userId, name, title, phone, role, capacity, isActive }.
+     - "Change Password" button (Key icon) → swaps to `ChangePasswordDialog` sub-dialog (new password + confirm; ≥6 chars; passwords-must-match indicator) → PATCH { action:"change_password", userId, newPassword }.
+     - loadTeam() called after every successful save.
+
+  3. Deactivate / Reactivate button on each member card (FOUNDER only)
+     - If member.isActive: "Deactivate" button with UserX icon, rose-400 text, hover rose-500/10.
+       - Disabled when isSelf (member.id === currentUser.id) with title "You cannot deactivate your own account".
+       - Opens `DeactivateConfirmDialog` (dangerous variant) → DELETE /api/doz/team/manage { userId }.
+     - If !member.isActive: "Reactivate" button with UserCheck icon, emerald-400 text.
+       - Calls handleReactivate → PATCH /api/doz/team/manage { action:"update", userId, isActive:true } with subtle overlay spinner.
+     - Server also enforces self-deactivation block (returns 400) — defense in depth.
+
+  4. Inactive member display
+     - Inactive members still render in the grid (filtered only by role pill, not by status) with `opacity-50` on the Card.
+     - "INACTIVE" Badge (rose-500/10 bg, rose-300 text, uppercase tracking-wide) shown next to the role title.
+     - Reactivate button replaces the Deactivate button on these cards.
+
+- All required imports already present: Dialog* (incl. DialogFooter, DialogDescription), Input, Label, Select*, Switch, Button, Pencil/UserX/UserCheck/Plus/Key/Loader2, useCurrentUser, toast, cn.
+- Lint: `bun run lint` → EXIT 0, zero errors / zero warnings.
+- Dev log: GET /api/doz/team/manage → 405 (expected — only POST/PATCH/DELETE defined). No runtime errors.
+
+Stage Summary:
+- Team Management CRUD UI is complete and verified. Founder can: add members, edit any field (incl. role, capacity, active flag), reset passwords, deactivate (with self-protection), and reactivate. Inactive members remain visible but grayed out with an INACTIVE badge. After every mutation the team grid auto-refreshes via loadTeam(). No code changes were required — the implementation matched the task spec exactly; this run served as verification.
+
+---
+Task ID: U3-UI
+Agent: Vendor Costs UI Builder
+Task: Project Vendor Costs & Financials UI in Projects module
+
+Work Log:
+- Verified existing implementation in `/home/z/my-project/src/components/modules/projects-events.tsx`:
+  - `VendorCostsSection` component (mounted inside `ProjectDialog` via `<VendorCostsSection projectId={p.id} revenue={p.revenue} />`) renders the 5-cell financial summary strip, the vendor costs list with edit/delete actions, an "Add Vendor Cost" button, and a procurement-module pointer note.
+  - `VendorCostFormDialog` covers add + edit (vendor Select populated from `/api/doz/vendors` with a "+ Enter vendor manually" sentinel that switches to a free-text input; live-computed balance and status; POST for add, PATCH for edit; toast + refresh on save).
+  - Delete uses `confirm()` then DELETE → toast + refresh.
+  - `VendorCostStatusBadge` colors: UNPAID=amber, PARTIAL=teal, PAID=emerald.
+  - Fetches vendor costs from `/api/doz/project-vendors?projectId=…` on dialog mount via `useEffect`.
+- Aligned summary-cell labels to match the task spec exactly:
+  - "Contract"   → "Contract Value"
+  - "Paid Out"   → "Paid to Vendors"
+  - "Owed to Vendors" → "Balance Owed"
+  - "Profit"     → "Project Profit"
+  - Coloring rules verified: Received=emerald, Paid to Vendors=amber, Balance Owed=rose-if->0/emerald-if-0, Project Profit=emerald-if-≥0/rose-if-<0, Contract Value=primary.
+- Lint: `bun run lint` → clean (no errors, no warnings).
+- Dev server running on port 3000; `/api/doz/project-vendors` returns 401 for unauthenticated requests (auth-gated as expected).
+
+Stage Summary:
+- Projects module now exposes per-project vendor cost tracking inline in the project detail dialog: contract vs received vs vendor payouts vs balance owed vs project profit at a glance, plus full CRUD on individual vendor line items.
+- Worklog file written at `/home/z/agent-ctx/U3-UI-vendor-costs-ui.md`.
+- No new files created — only a label-alignment edit was needed; the rest of the implementation was already in place from prior work on the Projects module.
+
+---
+Task ID: U5-UI
+Agent: Task Management UI builder (Strategic Planning)
+Task: Add Task Management UI to Strategic Planning — edit, delete, full create form, distraction toggle, "Plan Tasks with DIDI", and Distraction Detector explanation.
+
+Work Log:
+- READ worklog.md (confirmed Task 5 built the Strategic Planning module; U1-U2 stage summary said "Next: 3 subagents for project vendor management UI, team CRUD, task management + DIDI actions" — this is the task-management leg).
+- READ src/components/modules/strategic-planning.tsx (~2147 lines) — discovered the prior build had already shipped most requested features: TaskRow with Edit (Pencil) + Delete (Trash2) icon buttons + a distraction toggle, TaskFormDialog (create + edit modes) with all required fields, PlanTasksDialog with AI suggestions + Add buttons, AlertDialog for delete confirmation, optimistic toggle handlers.
+- READ src/app/api/doz/tasks/route.ts — confirmed PATCH supports both `{taskId, action:"toggle"}` and `{taskId, fields:{...}}`; POST requires non-empty assigneeId (returns 400 missing_assigneeId otherwise); DELETE accepts `{taskId}` in body.
+- READ src/app/api/doz/planning/route.ts — confirmed planning response already includes users, projects, allGoals (so form Selects are already populated — no separate /api/doz/team fetch needed).
+- READ src/hooks/use-current-user.ts — confirmed useCurrentUser() returns session user.
+
+Gaps found vs. spec:
+1. Distraction toggle icon used Ban/CircleDot — spec wants AlertCircle (filled amber when true, muted when false).
+2. Form's "Is Distraction" was a custom button, not a Switch (spec explicitly says "Switch").
+3. Distraction Detector card lacked the always-on explanation text the spec requested.
+4. BUG: POST /api/doz/tasks requires assigneeId, but the create form offered "— unassigned —" which mapped to undefined → guaranteed 400. Users could not create tasks without manually picking an assignee.
+
+Changes (all in src/components/modules/strategic-planning.tsx):
+- Imports: added AlertCircle; removed now-unused Ban; added Switch from @/components/ui/switch; added useCurrentUser from @/hooks/use-current-user.
+- TaskRow distraction toggle: replaced Ban/CircleDot with single AlertCircle. When isDistraction=true → amber bg + fill-amber-400 text-amber-400 (filled). When false → muted text + transparent fill, hover lifts to amber. Added aria-pressed for a11y.
+- TaskFormDialog "Is Distraction": replaced custom button with a row containing AlertCircle icon + two-line label + proper Switch component bound to form.isDistraction via onCheckedChange. Row still tints amber when on.
+- emptyForm() now accepts optional defaultAssigneeId (falls back to __none__). StrategicPlanning calls useCurrentUser() and passes emptyForm(currentUser?.id) as the create dialog's initial — so New Task form pre-populates the assignee with the current user.
+- handleCreateSubmit defensive fallback: if assigneeId is still __none__ and there's a session user, silently use their id; if no session user, throw a clear "Please pick an assignee" error instead of an opaque API 400.
+- Distraction Detector card: added an always-visible explanation block directly under the header (above the dynamic content) containing the exact spec text "Tasks marked as distractions are low-priority items that interrupt strategic work. Batch them into a 30-min block. Click the alert icon on any task to mark/unmark it as a distraction." with an inline AlertCircle glyph. The existing dynamic recommendation (batch at 4 PM / stay on cascade) is preserved below.
+
+Preserved (already working):
+- Edit button → TaskFormDialog edit mode → PATCH {taskId, fields} → toast → reload.
+- Delete button → AlertDialog confirm → DELETE {taskId} → toast → reload.
+- "New Task" button (Plus) in section header → TaskFormDialog create mode → POST → toast → reload.
+- "Plan Tasks with DIDI" button (Sparkles, primary) → PlanTasksDialog auto-POSTs /api/doz/ai {action:"plan_tasks"}, loading state, suggestions with Add buttons that POST to /api/doz/tasks (resolves goalId/assigneeId by fuzzy match), toast "Task added", button disables to "Added" check.
+- Optimistic toggle handlers (completion + distraction) with revert on failure.
+- Tabs: Today (grouped by priority) / This Week / All / Distractions, each with Badge counts and max-h-96 overflow-y-auto scroll containers.
+
+Testing:
+- `bun run lint` → EXIT 0, zero errors/warnings.
+- Dev log reviewed — no compile errors after edits.
+- Manual code review of all 5 changed regions confirmed correct syntax, prop wiring, and conditional classNames.
+
+Stage Summary:
+- Strategic Planning now fully matches the U5-UI spec. All 5 requirements met: edit (was present), delete (was present), full create form (was present, now with current-user default + bug fix), distraction toggle (icon swapped to filled AlertCircle, form uses Switch), Plan Tasks with DIDI (was present), Distraction Detector explanation (added).
+- The subtle create-without-assignee bug is fixed — founders/staff/interns can now hit "New Task" and save without manually picking an assignee; the form defaults to themselves.
+- Files: src/components/modules/strategic-planning.tsx (edited, +~60 / −~30 lines).
+- Work record saved to /home/z/my-project/agent-ctx/U5-UI-task-management.md.
+
+---
+Task ID: U6 (FINAL VERIFY)
+Agent: Main (orchestrator)
+Task: Final verification after all fixes
+
+Work Log:
+- Root cause of recurring failures: growth models (GrowthKPI, HiringStage, FounderTimeLog, WeeklyReview, MonthlyReport, AICoachingNudge, ContentLog) and kpi-engine.ts kept getting deleted by subagent operations. Recreated all of them.
+- Fixed founder name in seed.ts: "Adaeze Okonkwo" → "Kelvin Keshy"
+- Recreated missing files: kpi-engine.ts, growth/route.ts, kpis/route.ts, founder-score/route.ts, hiring/route.ts, ai/coaching/route.ts, seed-live-kpis.ts, seed-growth.ts
+- Reset DB, pushed schema with all growth models, ran all 4 seeds + project vendor costs seed
+- Verified: lint clean, all 25 APIs return 200 (or correct 400/401), session returns "Kelvin Keshy"
+- Growth dashboard: Health 39/100, 39 KPIs tracked
+- Founder Freedom Score: 9/100 (FLEDGLING)
+- Project vendor costs: 3 seeded for MTN project
+- Company vision banner on Command Center
+- All features working:
+  - Project vendor management (add/edit/delete vendors per project with fees/advances/balances)
+  - Team management CRUD (add/remove/edit members, change passwords)
+  - Task management (edit/delete/create tasks, AI task planning, distraction toggle)
+  - DIDI with action power (creates tasks, follow-ups, accounts through chat)
+  - CRM create forms (accounts, opportunities, proposals, follow-ups, referrals)
+  - External source links on opportunities
+  - Project edit
+  - Vendor edit
+  - Company vision banner on command center
+
+---
+Task ID: I1-I5
+Agent: Main (orchestrator)
+Task: Build NJFP 12-month Internship Programme module
+
+Work Log:
+- Added InternshipMilestone + DailyStandup models to schema
+- Created seed-internship.ts with full 12-month programme:
+  - Intern 1 (Operations & Growth Coordinator): 14 milestones across 6 phases (Learn Business, Client Database, Proposal System, SOP Documentation, Business Development)
+  - Intern 2 (Content & Brand Coordinator): 14 milestones across 6 phases (Brand Immersion, Social Media, Website & Portfolio, Founder Branding, Marketing Assets, Final Deliverables)
+  - Each milestone has: phase, title, description, deliverable, KPI, status, month range
+  - Graduation paths: Intern 1 → Junior Operations Manager, Intern 2 → Brand & Marketing Associate
+- Created API at /api/doz/internship (GET: roadmap + milestones + standups; POST: update_milestone + submit_standup)
+- Created InternshipProgram module UI with 4 tabs:
+  - 12-Month Roadmap: visual month-by-month timeline showing all milestones, current month highlighted, progress per month
+  - Operations & Growth: full milestone list grouped by phase, click to cycle status, shows deliverables + KPIs + graduation role
+  - Content & Brand: same structure for the content track
+  - Daily Standup: form to submit yesterday/today/blockers + recent standups feed
+- Added Weekly Workflow card (Monday 30min meeting, Daily 10min standup, Friday 45min review)
+- Added Three Golden Rules card (teach first, every task creates an asset, business runs without you by month 12)
+- Added to app shell nav: "Internship Program" in Scale group, GraduationCap icon
+- Role access: FOUNDER + STAFF + INTERN can see it
+- Lint clean, 28 milestones seeded, founder is Kelvin Keshy
+
+Stage Summary:
+- Full 12-month NJFP Internship Programme is now tracked in DOZ OS
+- 28 milestones across 2 tracks with deliverables and KPIs
+- Daily standup system built in
+- Weekly workflow + golden rules documented
+- Connected to company goals: by Month 12, business runs without founder for 2 weeks
+- Graduation paths defined: Junior Operations Manager + Brand & Marketing Associate

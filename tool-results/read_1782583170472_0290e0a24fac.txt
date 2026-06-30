@@ -1,0 +1,1660 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useMemo, useCallback } from "react";
+     4→import { Card } from "@/components/ui/card";
+     5→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+     6→import {
+     7→  Table,
+     8→  TableBody,
+     9→  TableCell,
+    10→  TableHead,
+    11→  TableHeader,
+    12→  TableRow,
+    13→} from "@/components/ui/table";
+    14→import { Skeleton } from "@/components/ui/skeleton";
+    15→import { Badge } from "@/components/ui/badge";
+    16→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    17→import { Button } from "@/components/ui/button";
+    18→import { Input } from "@/components/ui/input";
+    19→import { Label } from "@/components/ui/label";
+    20→import { Textarea } from "@/components/ui/textarea";
+    21→import {
+    22→  Select,
+    23→  SelectContent,
+    24→  SelectItem,
+    25→  SelectTrigger,
+    26→  SelectValue,
+    27→} from "@/components/ui/select";
+    28→import {
+    29→  StatCard,
+    30→  StatusBadge,
+    31→  SectionHeader,
+    32→  EmptyState,
+    33→  MiniBar,
+    34→  PriorityDot,
+    35→} from "@/components/doz/ui-primitives";
+    36→import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
+    37→import { toast } from "sonner";
+    38→import { cn } from "@/lib/utils";
+    39→import {
+    40→  Users,
+    41→  UserCog,
+    42→  GraduationCap,
+    43→  Briefcase,
+    44→  CheckCircle2,
+    45→  Clock,
+    46→  AlertTriangle,
+    47→  FileText,
+    48→  Calendar,
+    49→  Smile,
+    50→  Phone,
+    51→  Mail,
+    52→  ListChecks,
+    53→  CalendarDays,
+    54→  Target,
+    55→  Sparkles,
+    56→  Lightbulb,
+    57→  Rocket,
+    58→  Inbox,
+    59→  Plus,
+    60→  Check,
+    61→  Circle,
+    62→  ListTodo,
+    63→  UserPlus,
+    64→  ChevronRight,
+    65→  Loader2,
+    66→} from "lucide-react";
+    67→
+    68→// ============================================================
+    69→// Types
+    70→// ============================================================
+    71→type Role = "FOUNDER" | "STAFF" | "INTERN" | "FREELANCER";
+    72→type Mood = "GREAT" | "OK" | "STRESSED" | null | undefined;
+    73→
+    74→interface MemberCount {
+    75→  tasksAssigned: number;
+    76→  dailyReports: number;
+    77→  weeklyReports: number;
+    78→  crewAssignments: number;
+    79→}
+    80→interface Member {
+    81→  id: string;
+    82→  name: string;
+    83→  role: Role;
+    84→  title: string | null;
+    85→  email: string | null;
+    86→  phone: string | null;
+    87→  capacity: number;
+    88→  isActive: boolean;
+    89→  _count: MemberCount;
+    90→  openTasks: number;
+    91→  lastReport: { reportDate: string; mood: Mood; hoursWorked: number } | null;
+    92→}
+    93→interface ReportUser {
+    94→  name: string;
+    95→  role: Role;
+    96→  title: string | null;
+    97→}
+    98→interface DailyReport {
+    99→  id: string;
+   100→  user: ReportUser;
+   101→  reportDate: string;
+   102→  tasksDone: string;
+   103→  tasksPlanned: string | null;
+   104→  blockers: string | null;
+   105→  hoursWorked: number;
+   106→  mood: Mood;
+   107→  createdAt: string;
+   108→}
+   109→interface WeeklyReport {
+   110→  id: string;
+   111→  user: ReportUser;
+   112→  weekStart: string;
+   113→  weekEnd: string;
+   114→  achievements: string | null;
+   115→  challenges: string | null;
+   116→  learnings: string | null;
+   117→  nextWeekPlan: string | null;
+   118→  createdAt: string;
+   119→}
+   120→interface TodayTask {
+   121→  id: string;
+   122→  title: string;
+   123→  status: string;
+   124→  priority: string;
+   125→  dueDate: string | null;
+   126→  assignee: { name: string; role: string };
+   127→}
+   128→// Weekly task — shape returned by /api/doz/tasks?assigneeId=xxx&scope=week
+   129→interface WeeklyTask {
+   130→  id: string;
+   131→  title: string;
+   132→  description: string | null;
+   133→  status: string;
+   134→  priority: string;
+   135→  category: string | null;
+   136→  isDistraction: boolean;
+   137→  dueDate: string | null;
+   138→  completedAt: string | null;
+   139→  assignee: { id: string; name: string; role: string } | null;
+   140→  creator: { id: string; name: string } | null;
+   141→  goal: { id: string; title: string } | null;
+   142→  project: { id: string; name: string } | null;
+   143→}
+   144→interface TeamData {
+   145→  stats: {
+   146→    totalMembers: number;
+   147→    interns: number;
+   148→    freelancers: number;
+   149→    staff: number;
+   150→    founder: number;
+   151→    reportingToday: number;
+   152→    reportingRate: number;
+   153→    openTasks: number;
+   154→    completedToday: number;
+   155→    avgHours: number;
+   156→  };
+   157→  members: Member[];
+   158→  dailyReports: DailyReport[];
+   159→  weeklyReports: WeeklyReport[];
+   160→  todayTasks: TodayTask[];
+   161→}
+   162→
+   163→// ============================================================
+   164→// Helpers
+   165→// ============================================================
+   166→const ROLE_BADGE_CLASS: Record<Role, string> = {
+   167→  FOUNDER: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+   168→  STAFF: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
+   169→  INTERN: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+   170→  FREELANCER: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
+   171→};
+   172→
+   173→const ROLE_ICON: Record<Role, React.ReactNode> = {
+   174→  FOUNDER: <UserCog className="h-3 w-3" />,
+   175→  STAFF: <Users className="h-3 w-3" />,
+   176→  INTERN: <GraduationCap className="h-3 w-3" />,
+   177→  FREELANCER: <Briefcase className="h-3 w-3" />,
+   178→};
+   179→
+   180→function moodEmoji(mood: Mood): string {
+   181→  switch (mood) {
+   182→    case "GREAT":
+   183→      return "😄";
+   184→    case "OK":
+   185→      return "😐";
+   186→    case "STRESSED":
+   187→      return "😟";
+   188→    default:
+   189→      return "—";
+   190→  }
+   191→}
+   192→
+   193→function isSameDay(d1: Date, d2: Date): boolean {
+   194→  return (
+   195→    d1.getFullYear() === d2.getFullYear() &&
+   196→    d1.getMonth() === d2.getMonth() &&
+   197→    d1.getDate() === d2.getDate()
+   198→  );
+   199→}
+   200→
+   201→function dateKey(d: string | Date): string {
+   202→  const date = typeof d === "string" ? new Date(d) : d;
+   203→  return date.toISOString().slice(0, 10);
+   204→}
+   205→
+   206→function splitLines(s: string | null): string[] {
+   207→  if (!s) return [];
+   208→  return s
+   209→    .split(/\r?\n/)
+   210→    .map((l) => l.trim())
+   211→    .filter(Boolean);
+   212→}
+   213→
+   214→// Utilization: assume 40h week is "full"; cap display at 100%
+   215→function utilizationPct(openTasks: number): number {
+   216→  // Heuristic indicator: more open tasks => higher util bar
+   217→  return Math.min(100, openTasks * 12);
+   218→}
+   219→
+   220→// Return ISO date (YYYY-MM-DD) for the Friday of the current week
+   221→function thisFridayISO(): string {
+   222→  const now = new Date();
+   223→  const day = now.getDay(); // 0 Sun ... 6 Sat
+   224→  // Friday = 5. Shift forward (or back if Saturday)
+   225→  const diff = day <= 5 ? 5 - day : 5 - day + 7;
+   226→  const fri = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+   227→  const y = fri.getFullYear();
+   228→  const m = (fri.getMonth() + 1).toString().padStart(2, "0");
+   229→  const d = fri.getDate().toString().padStart(2, "0");
+   230→  return `${y}-${m}-${d}`;
+   231→}
+   232→
+   233→// Check if a date string falls within the current week (Mon-Sun)
+   234→function isThisWeek(d: string | null | undefined): boolean {
+   235→  if (!d) return false;
+   236→  const date = new Date(d);
+   237→  const now = new Date();
+   238→  const day = now.getDay();
+   239→  const mondayOffset = day === 0 ? -6 : 1 - day;
+   240→  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+   241→  const sunday = new Date(monday);
+   242→  sunday.setDate(monday.getDate() + 6);
+   243→  sunday.setHours(23, 59, 59, 999);
+   244→  return date >= monday && date <= sunday;
+   245→}
+   246→
+   247→// ============================================================
+   248→// Filter pill
+   249→// ============================================================
+   250→function FilterPill({
+   251→  active,
+   252→  onClick,
+   253→  count,
+   254→  children,
+   255→}: {
+   256→  active: boolean;
+   257→  onClick: () => void;
+   258→  count?: number;
+   259→  children: React.ReactNode;
+   260→}) {
+   261→  return (
+   262→    <button
+   263→      type="button"
+   264→      onClick={onClick}
+   265→      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+   266→        active
+   267→          ? "border-primary/40 bg-primary/10 text-primary"
+   268→          : "border-border bg-transparent text-muted-foreground hover:bg-accent/30 hover:text-foreground"
+   269→      }`}
+   270→    >
+   271→      {children}
+   272→      {typeof count === "number" && (
+   273→        <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold leading-4">
+   274→          {count}
+   275→        </span>
+   276→      )}
+   277→    </button>
+   278→  );
+   279→}
+   280→
+   281→// ============================================================
+   282→// Member card
+   283→// ============================================================
+   284→function MemberCard({ m }: { m: Member }) {
+   285→  const today = new Date();
+   286→  const reportedToday =
+   287→    m.lastReport && isSameDay(new Date(m.lastReport.reportDate), today);
+   288→
+   289→  return (
+   290→    <Card className="flex flex-col gap-3 p-4">
+   291→      {/* Header */}
+   292→      <div className="flex items-start gap-3">
+   293→        <Avatar className="h-10 w-10 shrink-0">
+   294→          <AvatarFallback className={avatarColor(m.name)}>
+   295→            {initials(m.name)}
+   296→          </AvatarFallback>
+   297→        </Avatar>
+   298→        <div className="min-w-0 flex-1">
+   299→          <div className="flex items-center justify-between gap-2">
+   300→            <p className="truncate font-semibold leading-tight">{m.name}</p>
+   301→            <span
+   302→              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ROLE_BADGE_CLASS[m.role]}`}
+   303→            >
+   304→              {ROLE_ICON[m.role]}
+   305→              {m.role}
+   306→            </span>
+   307→          </div>
+   308→          <p className="truncate text-xs text-muted-foreground">
+   309→            {m.title ?? m.role.toLowerCase()}
+   310→          </p>
+   311→        </div>
+   312→      </div>
+   313→
+   314→      {/* Contact */}
+   315→      <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+   316→        {m.email && (
+   317→          <span className="flex items-center gap-1.5 truncate">
+   318→            <Mail className="h-3 w-3 shrink-0" />
+   319→            <span className="truncate">{m.email}</span>
+   320→          </span>
+   321→        )}
+   322→        {m.phone && (
+   323→          <span className="flex items-center gap-1.5 truncate">
+   324→            <Phone className="h-3 w-3 shrink-0" />
+   325→            <span className="truncate">{m.phone}</span>
+   326→          </span>
+   327→        )}
+   328→      </div>
+   329→
+   330→      {/* Capacity + utilization */}
+   331→      <div>
+   332→        <div className="mb-1 flex items-center justify-between text-[11px]">
+   333→          <span className="text-muted-foreground">Capacity</span>
+   334→          <span className="font-medium">
+   335→            {m.capacity} hrs/week
+   336→          </span>
+   337→        </div>
+   338→        <MiniBar
+   339→          value={utilizationPct(m.openTasks)}
+   340→          max={100}
+   341→          color={
+   342→            m.openTasks >= 6
+   343→              ? "bg-rose-500"
+   344→              : m.openTasks >= 3
+   345→                ? "bg-amber-500"
+   346→                : "bg-primary"
+   347→          }
+   348→        />
+   349→      </div>
+   350→
+   351→      {/* Stats row */}
+   352→      <div className="grid grid-cols-3 gap-1.5 text-center">
+   353→        <div className="rounded-md bg-muted/40 py-1.5">
+   354→          <p className="text-sm font-semibold">{m.openTasks}</p>
+   355→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   356→            Open
+   357→          </p>
+   358→        </div>
+   359→        <div className="rounded-md bg-muted/40 py-1.5">
+   360→          <p className="text-sm font-semibold">
+   361→            {m._count.dailyReports + m._count.weeklyReports}
+   362→          </p>
+   363→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   364→            Reports
+   365→          </p>
+   366→        </div>
+   367→        <div className="rounded-md bg-muted/40 py-1.5">
+   368→          <p className="text-sm font-semibold">{m._count.crewAssignments}</p>
+   369→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   370→            Crew
+   371→          </p>
+   372→        </div>
+   373→      </div>
+   374→
+   375→      {/* Last report indicator */}
+   376→      <div className="flex items-center justify-between border-t border-border pt-2 text-[11px]">
+   377→        <span className="flex items-center gap-1.5">
+   378→          <span
+   379→            className={`inline-block h-2 w-2 rounded-full ${
+   380→              reportedToday ? "bg-emerald-500" : "bg-amber-500"
+   381→            }`}
+   382→          />
+   383→          <span className={reportedToday ? "text-emerald-400" : "text-amber-400"}>
+   384→            {reportedToday ? "Reported today" : "No report today"}
+   385→          </span>
+   386→        </span>
+   387→        {m.lastReport && (
+   388→          <span className="flex items-center gap-1 text-muted-foreground">
+   389→            <Smile className="h-3 w-3" />
+   390→            <span className="text-base leading-none">
+   391→              {moodEmoji(m.lastReport.mood)}
+   392→            </span>
+   393→            <span className="ml-1">{m.lastReport.hoursWorked}h</span>
+   394→          </span>
+   395→        )}
+   396→      </div>
+   397→    </Card>
+   398→  );
+   399→}
+   400→
+   401→// ============================================================
+   402→// Daily report card
+   403→// ============================================================
+   404→function DailyReportCard({ r }: { r: DailyReport }) {
+   405→  const doneLines = splitLines(r.tasksDone);
+   406→  const plannedLines = splitLines(r.tasksPlanned);
+   407→  const blockerLines = splitLines(r.blockers);
+   408→  const hasBlockers =
+   409→    blockerLines.length > 0 &&
+   410→    !blockerLines.every((l) => l.toLowerCase() === "none");
+   411→
+   412→  return (
+   413→    <Card className="flex flex-col gap-3 p-4">
+   414→      {/* Header */}
+   415→      <div className="flex items-start justify-between gap-3">
+   416→        <div className="flex items-center gap-2.5">
+   417→          <Avatar className="h-8 w-8">
+   418→            <AvatarFallback className={avatarColor(r.user.name)}>
+   419→              {initials(r.user.name)}
+   420→            </AvatarFallback>
+   421→          </Avatar>
+   422→          <div>
+   423→            <p className="text-sm font-semibold leading-tight">{r.user.name}</p>
+   424→            <p className="text-[11px] text-muted-foreground">
+   425→              {r.user.title ?? r.user.role}
+   426→            </p>
+   427→          </div>
+   428→        </div>
+   429→        <div className="flex items-center gap-2">
+   430→          <span className="text-base leading-none">{moodEmoji(r.mood)}</span>
+   431→          <Badge
+   432→            variant="outline"
+   433→            className="border-border bg-muted/40 text-[11px] font-medium"
+   434→          >
+   435→            <Clock className="mr-1 h-3 w-3" />
+   436→            {r.hoursWorked}h
+   437→          </Badge>
+   438→          <span className="text-[11px] text-muted-foreground">
+   439→            {formatDate(r.reportDate)}
+   440→          </span>
+   441→        </div>
+   442→      </div>
+   443→
+   444→      {/* Done */}
+   445→      <div>
+   446→        <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
+   447→          <CheckCircle2 className="h-3 w-3" />
+   448→          Done
+   449→        </p>
+   450→        {doneLines.length > 0 ? (
+   451→          <ul className="space-y-1">
+   452→            {doneLines.map((line, i) => (
+   453→              <li
+   454→                key={i}
+   455→                className="flex items-start gap-1.5 text-[12px] leading-snug"
+   456→              >
+   457→                <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+   458→                <span>{line}</span>
+   459→              </li>
+   460→            ))}
+   461→          </ul>
+   462→        ) : (
+   463→          <p className="text-[12px] italic text-muted-foreground">—</p>
+   464→        )}
+   465→      </div>
+   466→
+   467→      {/* Planned */}
+   468→      {plannedLines.length > 0 && (
+   469→        <div>
+   470→          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   471→            <Target className="h-3 w-3" />
+   472→            Planned
+   473→          </p>
+   474→          <ul className="space-y-1">
+   475→            {plannedLines.map((line, i) => (
+   476→              <li
+   477→                key={i}
+   478→                className="flex items-start gap-1.5 text-[12px] leading-snug"
+   479→              >
+   480→                <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-muted-foreground" />
+   481→                <span>{line}</span>
+   482→              </li>
+   483→            ))}
+   484→          </ul>
+   485→        </div>
+   486→      )}
+   487→
+   488→      {/* Blockers */}
+   489→      {hasBlockers && (
+   490→        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5">
+   491→          <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+   492→            <AlertTriangle className="h-3 w-3" />
+   493→            Blockers
+   494→          </p>
+   495→          <ul className="space-y-1">
+   496→            {blockerLines.map((line, i) => (
+   497→              <li
+   498→                key={i}
+   499→                className="flex items-start gap-1.5 text-[12px] leading-snug text-amber-200/90"
+   500→              >
+   501→                <span className="mt-1 inline-block h-1 w-1 shrink-0 rounded-full bg-amber-400" />
+   502→                <span>{line}</span>
+   503→              </li>
+   504→            ))}
+   505→          </ul>
+   506→        </div>
+   507→      )}
+   508→    </Card>
+   509→  );
+   510→}
+   511→
+   512→// ============================================================
+   513→// Missing report card (flag for interns who haven't reported)
+   514→// ============================================================
+   515→function MissingReportCard({ name, title }: { name: string; title?: string | null }) {
+   516→  return (
+   517→    <Card className="border-amber-500/40 bg-amber-500/5 p-4">
+   518→      <div className="flex items-center gap-3">
+   519→        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
+   520→          <AlertTriangle className="h-4 w-4" />
+   521→        </div>
+   522→        <div className="min-w-0 flex-1">
+   523→          <p className="text-sm font-semibold text-amber-200">
+   524→            {name} — No daily report submitted
+   525→          </p>
+   526→          <p className="text-[11px] text-amber-300/70">
+   527→            {title ?? "Intern"} · Please follow up by 6:00 PM
+   528→          </p>
+   529→        </div>
+   530→      </div>
+   531→    </Card>
+   532→  );
+   533→}
+   534→
+   535→// ============================================================
+   536→// Weekly report card
+   537→// ============================================================
+   538→function WeeklyReportCard({ r }: { r: WeeklyReport }) {
+   539→  const sections: Array<{
+   540→    label: string;
+   541→    icon: React.ReactNode;
+   542→    color: string;
+   543→    text: string | null;
+   544→  }> = [
+   545→    {
+   546→      label: "Achievements",
+   547→      icon: <Sparkles className="h-3 w-3" />,
+   548→      color: "text-emerald-400",
+   549→      text: r.achievements,
+   550→    },
+   551→    {
+   552→      label: "Challenges",
+   553→      icon: <AlertTriangle className="h-3 w-3" />,
+   554→      color: "text-amber-400",
+   555→      text: r.challenges,
+   556→    },
+   557→    {
+   558→      label: "Learnings",
+   559→      icon: <Lightbulb className="h-3 w-3" />,
+   560→      color: "text-teal-400",
+   561→      text: r.learnings,
+   562→    },
+   563→    {
+   564→      label: "Next Week Plan",
+   565→      icon: <Rocket className="h-3 w-3" />,
+   566→      color: "text-primary",
+   567→      text: r.nextWeekPlan,
+   568→    },
+   569→  ];
+   570→
+   571→  return (
+   572→    <Card className="flex flex-col gap-3 p-4">
+   573→      {/* Header */}
+   574→      <div className="flex items-start justify-between gap-3 border-b border-border pb-3">
+   575→        <div className="flex items-center gap-2.5">
+   576→          <Avatar className="h-9 w-9">
+   577→            <AvatarFallback className={avatarColor(r.user.name)}>
+   578→              {initials(r.user.name)}
+   579→            </AvatarFallback>
+   580→          </Avatar>
+   581→          <div>
+   582→            <p className="text-sm font-semibold leading-tight">{r.user.name}</p>
+   583→            <p className="text-[11px] text-muted-foreground">
+   584→              {r.user.title ?? r.user.role}
+   585→            </p>
+   586→          </div>
+   587→        </div>
+   588→        <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] font-medium">
+   589→          <CalendarDays className="h-3 w-3 text-muted-foreground" />
+   590→          <span>
+   591→            {formatDate(r.weekStart)} → {formatDate(r.weekEnd)}
+   592→          </span>
+   593→        </div>
+   594→      </div>
+   595→
+   596→      {/* Sections */}
+   597→      <div className="grid gap-3 sm:grid-cols-2">
+   598→        {sections.map((s) => {
+   599→          const lines = splitLines(s.text);
+   600→          return (
+   601→            <div key={s.label}>
+   602→              <p
+   603→                className={`mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${s.color}`}
+   604→              >
+   605→                {s.icon}
+   606→                {s.label}
+   607→              </p>
+   608→              {lines.length > 0 ? (
+   609→                <ul className="space-y-1">
+   610→                  {lines.map((line, i) => (
+   611→                    <li
+   612→                      key={i}
+   613→                      className="flex items-start gap-1.5 text-[12px] leading-snug"
+   614→                    >
+   615→                      <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+   616→                      <span>{line}</span>
+   617→                    </li>
+   618→                  ))}
+   619→                </ul>
+   620→              ) : (
+   621→                <p className="text-[12px] italic text-muted-foreground">—</p>
+   622→              )}
+   623→            </div>
+   624→          );
+   625→        })}
+   626→      </div>
+   627→    </Card>
+   628→  );
+   629→}
+   630→
+   631→// ============================================================
+   632→// Today's tasks table — grouped by priority
+   633→// ============================================================
+   634→const PRIORITY_GROUPS = [
+   635→  { key: "URGENT", label: "Urgent", color: "text-rose-400" },
+   636→  { key: "HIGH", label: "High", color: "text-amber-400" },
+   637→  { key: "MEDIUM", label: "Medium", color: "text-teal-400" },
+   638→  { key: "LOW", label: "Low", color: "text-zinc-400" },
+   639→];
+   640→
+   641→function TodayTasksTable({ tasks }: { tasks: TodayTask[] }) {
+   642→  if (tasks.length === 0) {
+   643→    return (
+   644→      <EmptyState
+   645→        icon={<Inbox className="h-8 w-8" />}
+   646→        title="No open tasks"
+   647→        hint="All tasks assigned to the team are completed."
+   648→      />
+   649→    );
+   650→  }
+   651→
+   652→  return (
+   653→    <div className="space-y-5">
+   654→      {PRIORITY_GROUPS.map((grp) => {
+   655→        const groupTasks = tasks.filter((t) => t.priority === grp.key);
+   656→        if (groupTasks.length === 0) return null;
+   657→        return (
+   658→          <div key={grp.key} className="space-y-2">
+   659→            <div className="flex items-center gap-2">
+   660→              <span
+   661→                className={`inline-block h-2 w-2 rounded-full ${
+   662→                  grp.key === "URGENT"
+   663→                    ? "bg-rose-500"
+   664→                    : grp.key === "HIGH"
+   665→                      ? "bg-amber-500"
+   666→                      : grp.key === "MEDIUM"
+   667→                        ? "bg-teal-500"
+   668→                        : "bg-zinc-500"
+   669→                }`}
+   670→              />
+   671→              <h3 className={`text-sm font-semibold ${grp.color}`}>
+   672→                {grp.label}
+   673→              </h3>
+   674→              <span className="text-[11px] text-muted-foreground">
+   675→                {groupTasks.length} task{groupTasks.length === 1 ? "" : "s"}
+   676→              </span>
+   677→            </div>
+   678→            <Card className="overflow-hidden p-0">
+   679→              <Table>
+   680→                <TableHeader>
+   681→                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+   682→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   683→                      Task
+   684→                    </TableHead>
+   685→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   686→                      Assignee
+   687→                    </TableHead>
+   688→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   689→                      Status
+   690→                    </TableHead>
+   691→                    <TableHead className="h-9 text-[11px] uppercase tracking-wide">
+   692→                      Due
+   693→                    </TableHead>
+   694→                  </TableRow>
+   695→                </TableHeader>
+   696→                <TableBody>
+   697→                  {groupTasks.map((t) => (
+   698→                    <TableRow key={t.id}>
+   699→                      <TableCell className="py-2.5 text-[13px] font-medium">
+   700→                        {t.title}
+   701→                      </TableCell>
+   702→                      <TableCell className="py-2.5">
+   703→                        <div className="flex items-center gap-2">
+   704→                          <Avatar className="h-6 w-6">
+   705→                            <AvatarFallback
+   706→                              className={`text-[10px] ${avatarColor(t.assignee.name)}`}
+   707→                            >
+   708→                              {initials(t.assignee.name)}
+   709→                            </AvatarFallback>
+   710→                          </Avatar>
+   711→                          <div className="leading-tight">
+   712→                            <p className="text-[12px] font-medium">
+   713→                              {t.assignee.name}
+   714→                            </p>
+   715→                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   716→                              {t.assignee.role}
+   717→                            </p>
+   718→                          </div>
+   719→                        </div>
+   720→                      </TableCell>
+   721→                      <TableCell className="py-2.5">
+   722→                        <StatusBadge status={t.status} />
+   723→                      </TableCell>
+   724→                      <TableCell className="py-2.5 text-[12px] text-muted-foreground">
+   725→                        {t.dueDate ? relativeTime(t.dueDate) : "—"}
+   726→                      </TableCell>
+   727→                    </TableRow>
+   728→                  ))}
+   729→                </TableBody>
+   730→              </Table>
+   731→            </Card>
+   732→          </div>
+   733→        );
+   734→      })}
+   735→    </div>
+   736→  );
+   737→}
+   738→
+   739→// ============================================================
+   740→// Weekly Tasks Tab — intern task assignment
+   741→// ============================================================
+   742→function WeeklyTasksTab({ interns }: { interns: Member[] }) {
+   743→  const [selectedId, setSelectedId] = useState<string | null>(
+   744→    interns[0]?.id ?? null,
+   745→  );
+   746→  const [tasks, setTasks] = useState<WeeklyTask[]>([]);
+   747→  const [loading, setLoading] = useState(false);
+   748→  const [togglingId, setTogglingId] = useState<string | null>(null);
+   749→
+   750→  // Assign-form state
+   751→  const [title, setTitle] = useState("");
+   752→  const [priority, setPriority] = useState("MEDIUM");
+   753→  const [dueDate, setDueDate] = useState(thisFridayISO());
+   754→  const [description, setDescription] = useState("");
+   755→  const [submitting, setSubmitting] = useState(false);
+   756→
+   757→  const loadTasks = useCallback(async () => {
+   758→    if (!selectedId) {
+   759→      setTasks([]);
+   760→      return;
+   761→    }
+   762→    setLoading(true);
+   763→    try {
+   764→      const res = await fetch(
+   765→        `/api/doz/tasks?assigneeId=${encodeURIComponent(selectedId)}&scope=week`,
+   766→        { cache: "no-store" },
+   767→      );
+   768→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   769→      const json = (await res.json()) as { tasks: WeeklyTask[] };
+   770→      setTasks(json.tasks ?? []);
+   771→    } catch {
+   772→      setTasks([]);
+   773→      toast.error("Couldn't load weekly tasks");
+   774→    } finally {
+   775→      setLoading(false);
+   776→    }
+   777→  }, [selectedId]);
+   778→
+   779→  useEffect(() => {
+   780→    loadTasks();
+   781→  }, [loadTasks]);
+   782→
+   783→  // ---- handlers
+   784→  const handleToggle = useCallback(
+   785→    async (taskId: string, currentlyDone: boolean) => {
+   786→      if (togglingId) return;
+   787→      setTogglingId(taskId);
+   788→      // optimistic update
+   789→      setTasks((prev) =>
+   790→        prev.map((t) =>
+   791→          t.id === taskId
+   792→            ? {
+   793→                ...t,
+   794→                status: currentlyDone ? "TODO" : "DONE",
+   795→                completedAt: currentlyDone
+   796→                  ? null
+   797→                  : new Date().toISOString(),
+   798→              }
+   799→            : t,
+   800→        ),
+   801→      );
+   802→      try {
+   803→        const res = await fetch("/api/doz/tasks", {
+   804→          method: "PATCH",
+   805→          headers: { "Content-Type": "application/json" },
+   806→          body: JSON.stringify({ taskId, action: "toggle" }),
+   807→        });
+   808→        if (!res.ok) {
+   809→          const j = await res.json().catch(() => ({}));
+   810→          throw new Error(j.error || `HTTP ${res.status}`);
+   811→        }
+   812→        toast.success(currentlyDone ? "Task reopened" : "Task completed", {
+   813→          description: currentlyDone
+   814→            ? "Marked as TODO."
+   815→            : "Nicely done — keep the momentum.",
+   816→        });
+   817→      } catch (e) {
+   818→        // revert
+   819→        setTasks((prev) =>
+   820→          prev.map((t) =>
+   821→            t.id === taskId
+   822→              ? {
+   823→                  ...t,
+   824→                  status: currentlyDone ? "DONE" : "TODO",
+   825→                  completedAt: currentlyDone
+   826→                    ? new Date().toISOString()
+   827→                    : null,
+   828→                }
+   829→              : t,
+   830→          ),
+   831→        );
+   832→        toast.error("Couldn't update task", {
+   833→          description: e instanceof Error ? e.message : "Try again.",
+   834→        });
+   835→      } finally {
+   836→        setTogglingId(null);
+   837→      }
+   838→    },
+   839→    [togglingId],
+   840→  );
+   841→
+   842→  const handleAssign = useCallback(
+   843→    async (e: React.FormEvent) => {
+   844→      e.preventDefault();
+   845→      if (!title.trim()) {
+   846→        toast.error("Title is required");
+   847→        return;
+   848→      }
+   849→      if (!selectedId) {
+   850→        toast.error("Select an intern first");
+   851→        return;
+   852→      }
+   853→      setSubmitting(true);
+   854→      try {
+   855→        const res = await fetch("/api/doz/tasks", {
+   856→          method: "POST",
+   857→          headers: { "Content-Type": "application/json" },
+   858→          body: JSON.stringify({
+   859→            title: title.trim(),
+   860→            description: description.trim() || null,
+   861→            priority,
+   862→            assigneeId: selectedId,
+   863→            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+   864→          }),
+   865→        });
+   866→        if (!res.ok) {
+   867→          const j = await res.json().catch(() => ({}));
+   868→          throw new Error(j.error || `HTTP ${res.status}`);
+   869→        }
+   870→        const intern = interns.find((i) => i.id === selectedId);
+   871→        toast.success("Task assigned", {
+   872→          description: intern
+   873→            ? `"${title.trim()}" → ${intern.name}.`
+   874→            : `"${title.trim()}" assigned.`,
+   875→        });
+   876→        setTitle("");
+   877→        setDescription("");
+   878→        setPriority("MEDIUM");
+   879→        setDueDate(thisFridayISO());
+   880→        loadTasks();
+   881→      } catch (e) {
+   882→        toast.error("Couldn't assign task", {
+   883→          description: e instanceof Error ? e.message : "Try again.",
+   884→        });
+   885→      } finally {
+   886→        setSubmitting(false);
+   887→      }
+   888→    },
+   889→    [title, description, priority, dueDate, selectedId, interns, loadTasks],
+   890→  );
+   891→
+   892→  // ---- derived
+   893→  const selectedIntern = interns.find((i) => i.id === selectedId) ?? null;
+   894→  const doneCount = tasks.filter((t) => t.status === "DONE").length;
+   895→  const pendingCount = tasks.length - doneCount;
+   896→  const completionPct =
+   897→    tasks.length === 0 ? 0 : Math.round((doneCount / tasks.length) * 100);
+   898→
+   899→  // No interns at all
+   900→  if (interns.length === 0) {
+   901→    return (
+   902→      <EmptyState
+   903→        icon={<GraduationCap className="h-8 w-8" />}
+   904→        title="No interns on the team"
+   905→        hint="Add interns via the Team tab to assign weekly tasks."
+   906→      />
+   907→    );
+   908→  }
+   909→
+   910→  return (
+   911→    <div className="space-y-4">
+   912→      <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+   913→        <ListTodo className="h-3.5 w-3.5" />
+   914→        <span>
+   915→          Assign weekly tasks to interns. Due dates filter to{" "}
+   916→          <strong className="text-foreground">this week (Mon–Sun)</strong>.
+   917→        </span>
+   918→      </div>
+   919→
+   920→      {/* Intern selector */}
+   921→      <div className="flex flex-wrap gap-2">
+   922→        {interns.map((i) => {
+   923→          const isSelected = i.id === selectedId;
+   924→          return (
+   925→            <button
+   926→              key={i.id}
+   927→              type="button"
+   928→              onClick={() => setSelectedId(i.id)}
+   929→              className={cn(
+   930→                "flex items-center gap-2 rounded-lg border p-2 pr-3 transition-all hover:bg-accent/30",
+   931→                isSelected
+   932→                  ? "border-primary bg-primary/5 ring-2 ring-primary/40"
+   933→                  : "border-border",
+   934→              )}
+   935→              aria-pressed={isSelected}
+   936→            >
+   937→              <Avatar className="h-8 w-8">
+   938→                <AvatarFallback
+   939→                  className={cn("text-[11px] font-semibold", avatarColor(i.name))}
+   940→                >
+   941→                  {initials(i.name)}
+   942→                </AvatarFallback>
+   943→              </Avatar>
+   944→              <div className="text-left leading-tight">
+   945→                <p className="text-xs font-semibold">{i.name}</p>
+   946→                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   947→                  {i.title?.replace(/^Intern\s*—?\s*/, "") ?? "Intern"}
+   948→                </p>
+   949→              </div>
+   950→            </button>
+   951→          );
+   952→        })}
+   953→      </div>
+   954→
+   955→      <div className="grid gap-4 lg:grid-cols-5">
+   956→        {/* LEFT: Selected intern's weekly tasks (3/5) */}
+   957→        <div className="space-y-4 lg:col-span-3">
+   958→          {selectedIntern && (
+   959→            <Card className="p-5">
+   960→              <SectionHeader
+   961→                title={`${selectedIntern.name.split(" ")[0]}'s Week`}
+   962→                description={`Tasks due this week · ${selectedIntern.title ?? "Intern"}`}
+   963→                icon={<CalendarDays className="h-4 w-4" />}
+   964→                action={
+   965→                  <Badge variant="outline" className="gap-1 text-xs text-muted-foreground">
+   966→                    <Clock className="h-3 w-3" />
+   967→                    {tasks.length} task{tasks.length === 1 ? "" : "s"}
+   968→                  </Badge>
+   969→                }
+   970→              />
+   971→
+   972→              {/* Summary row */}
+   973→              {!loading && tasks.length > 0 && (
+   974→                <div className="mt-4 grid grid-cols-3 gap-2">
+   975→                  <div className="rounded-md border border-border bg-muted/30 p-2 text-center">
+   976→                    <p className="text-lg font-semibold">{tasks.length}</p>
+   977→                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
+   978→                  </div>
+   979→                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2 text-center">
+   980→                    <p className="text-lg font-semibold text-amber-400">{pendingCount}</p>
+   981→                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pending</p>
+   982→                  </div>
+   983→                  <div className="rounded-md border border-primary/30 bg-primary/[0.06] p-2 text-center">
+   984→                    <p className="text-lg font-semibold text-primary">{doneCount}</p>
+   985→                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Done</p>
+   986→                  </div>
+   987→                </div>
+   988→              )}
+   989→
+   990→              {/* Completion MiniBar */}
+   991→              {!loading && tasks.length > 0 && (
+   992→                <div className="mt-3">
+   993→                  <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+   994→                    <span>Week completion</span>
+   995→                    <span className="font-semibold text-primary">{completionPct}%</span>
+   996→                  </div>
+   997→                  <MiniBar value={doneCount} max={Math.max(1, tasks.length)} color="bg-primary" />
+   998→                </div>
+   999→              )}
+  1000→
+  1001→              {/* Task list */}
+  1002→              <div className="mt-4 max-h-[460px] overflow-y-auto scroll-thin space-y-2 pr-1">
+  1003→                {loading ? (
+  1004→                  <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+  1005→                    <Loader2 className="h-4 w-4 animate-spin" /> Loading weekly tasks…
+  1006→                  </div>
+  1007→                ) : tasks.length === 0 ? (
+  1008→                  <EmptyState
+  1009→                    icon={<CheckCircle2 className="h-6 w-6" />}
+  1010→                    title="No tasks assigned this week"
+  1011→                    hint="Use the form on the right to assign a task to this intern."
+  1012→                  />
+  1013→                ) : (
+  1014→                  tasks.map((t) => {
+  1015→                    const done = t.status === "DONE";
+  1016→                    const overdue = t.dueDate
+  1017→                      ? new Date(t.dueDate).getTime() < Date.now()
+  1018→                      : false;
+  1019→                    const isToggling = togglingId === t.id;
+  1020→                    return (
+  1021→                      <div
+  1022→                        key={t.id}
+  1023→                        className="flex items-start gap-3 rounded-md border border-border bg-card/40 p-3 transition-colors hover:bg-accent/40"
+  1024→                      >
+  1025→                        <button
+  1026→                          type="button"
+  1027→                          onClick={() => handleToggle(t.id, done)}
+  1028→                          disabled={isToggling}
+  1029→                          aria-label={done ? "Reopen task" : "Complete task"}
+  1030→                          className={cn(
+  1031→                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50",
+  1032→                            done
+  1033→                              ? "border-primary bg-primary text-primary-foreground"
+  1034→                              : "border-muted-foreground/40 hover:border-primary hover:bg-primary/10",
+  1035→                          )}
+  1036→                        >
+  1037→                          {isToggling ? (
+  1038→                            <Loader2 className="h-3 w-3 animate-spin" />
+  1039→                          ) : done ? (
+  1040→                            <Check className="h-3 w-3" />
+  1041→                          ) : null}
+  1042→                        </button>
+  1043→                        <span className="mt-1.5">
+  1044→                          <PriorityDot priority={t.priority} />
+  1045→                        </span>
+  1046→                        <div className="min-w-0 flex-1">
+  1047→                          <div className="flex flex-wrap items-center gap-2">
+  1048→                            <p
+  1049→                              className={cn(
+  1050→                                "text-sm font-medium",
+  1051→                                done && "text-muted-foreground line-through",
+  1052→                                overdue && !done && "text-red-400",
+  1053→                              )}
+  1054→                            >
+  1055→                              {t.title}
+  1056→                            </p>
+  1057→                            <StatusBadge status={t.status} />
+  1058→                            {t.priority === "URGENT" && (
+  1059→                              <Badge
+  1060→                                variant="outline"
+  1061→                                className="border-red-500/40 bg-red-500/10 text-[9px] font-bold uppercase tracking-wide text-red-400"
+  1062→                              >
+  1063→                                Urgent
+  1064→                              </Badge>
+  1065→                            )}
+  1066→                            {t.category && (
+  1067→                              <Badge
+  1068→                                variant="outline"
+  1069→                                className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+  1070→                              >
+  1071→                                {t.category.replace(/_/g, " ")}
+  1072→                              </Badge>
+  1073→                            )}
+  1074→                          </div>
+  1075→                          {t.description && (
+  1076→                            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+  1077→                              {t.description}
+  1078→                            </p>
+  1079→                          )}
+  1080→                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+  1081→                            {t.project && <span>{t.project.name}</span>}
+  1082→                            {t.dueDate && (
+  1083→                              <>
+  1084→                                {t.project && (
+  1085→                                  <span className="text-muted-foreground/40">·</span>
+  1086→                                )}
+  1087→                                <span
+  1088→                                  className={cn(
+  1089→                                    "inline-flex items-center gap-1",
+  1090→                                    overdue && !done && "text-red-400",
+  1091→                                  )}
+  1092→                                >
+  1093→                                  <Calendar className="h-3 w-3" />
+  1094→                                  {formatDate(t.dueDate)}
+  1095→                                </span>
+  1096→                              </>
+  1097→                            )}
+  1098→                            {t.creator && (
+  1099→                              <>
+  1100→                                <span className="text-muted-foreground/40">·</span>
+  1101→                                <span>by {t.creator.name.split(" ")[0]}</span>
+  1102→                              </>
+  1103→                            )}
+  1104→                          </div>
+  1105→                        </div>
+  1106→                      </div>
+  1107→                    );
+  1108→                  })
+  1109→                )}
+  1110→              </div>
+  1111→            </Card>
+  1112→          )}
+  1113→        </div>
+  1114→
+  1115→        {/* RIGHT: Assign new task form (2/5) */}
+  1116→        <div className="lg:col-span-2">
+  1117→          <Card className="p-5">
+  1118→            <SectionHeader
+  1119→              title="Assign New Task"
+  1120→              description={
+  1121→                selectedIntern
+  1122→                  ? `To ${selectedIntern.name}`
+  1123→                  : "Select an intern first"
+  1124→              }
+  1125→              icon={<UserPlus className="h-4 w-4" />}
+  1126→            />
+  1127→            <form onSubmit={handleAssign} className="mt-4 space-y-3">
+  1128→              <div className="space-y-1.5">
+  1129→                <Label htmlFor="wt-title">Title</Label>
+  1130→                <Input
+  1131→                  id="wt-title"
+  1132→                  value={title}
+  1133→                  onChange={(e) => setTitle(e.target.value)}
+  1134→                  placeholder="e.g. Edit MTN brand film v2 cut"
+  1135→                  required
+  1136→                />
+  1137→              </div>
+  1138→              <div className="grid grid-cols-2 gap-3">
+  1139→                <div className="space-y-1.5">
+  1140→                  <Label htmlFor="wt-priority">Priority</Label>
+  1141→                  <Select value={priority} onValueChange={setPriority}>
+  1142→                    <SelectTrigger id="wt-priority">
+  1143→                      <SelectValue placeholder="Priority" />
+  1144→                    </SelectTrigger>
+  1145→                    <SelectContent>
+  1146→                      <SelectItem value="URGENT">Urgent</SelectItem>
+  1147→                      <SelectItem value="HIGH">High</SelectItem>
+  1148→                      <SelectItem value="MEDIUM">Medium</SelectItem>
+  1149→                      <SelectItem value="LOW">Low</SelectItem>
+  1150→                    </SelectContent>
+  1151→                  </Select>
+  1152→                </div>
+  1153→                <div className="space-y-1.5">
+  1154→                  <Label htmlFor="wt-due">Due date</Label>
+  1155→                  <Input
+  1156→                    id="wt-due"
+  1157→                    type="date"
+  1158→                    value={dueDate}
+  1159→                    onChange={(e) => setDueDate(e.target.value)}
+  1160→                  />
+  1161→                </div>
+  1162→              </div>
+  1163→              <div className="space-y-1.5">
+  1164→                <Label htmlFor="wt-desc">Description (optional)</Label>
+  1165→                <Textarea
+  1166→                  id="wt-desc"
+  1167→                  value={description}
+  1168→                  onChange={(e) => setDescription(e.target.value)}
+  1169→                  placeholder="Any context, links, or sub-steps…"
+  1170→                  rows={3}
+  1171→                />
+  1172→              </div>
+  1173→              <Button
+  1174→                type="submit"
+  1175→                disabled={submitting || !title.trim() || !selectedId}
+  1176→                className="w-full gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+  1177→              >
+  1178→                {submitting ? (
+  1179→                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1180→                ) : (
+  1181→                  <UserPlus className="h-3.5 w-3.5" />
+  1182→                )}
+  1183→                Assign Task
+  1184→              </Button>
+  1185→            </form>
+  1186→          </Card>
+  1187→
+  1188→          {/* All interns quick summary */}
+  1189→          <Card className="mt-4 p-4">
+  1190→            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+  1191→              <GraduationCap className="h-3.5 w-3.5" />
+  1192→              Team weekly snapshot
+  1193→            </div>
+  1194→            <p className="text-[11px] text-muted-foreground">
+  1195→              This is the current load across all interns this week.
+  1196→            </p>
+  1197→            <div className="mt-3 space-y-2">
+  1198→              {interns.map((i) => (
+  1199→                <InternWeekSummary
+  1200→                  key={i.id}
+  1201→                  intern={i}
+  1202→                  isSelected={i.id === selectedId}
+  1203→                  onSelect={() => setSelectedId(i.id)}
+  1204→                />
+  1205→              ))}
+  1206→            </div>
+  1207→          </Card>
+  1208→        </div>
+  1209→      </div>
+  1210→    </div>
+  1211→  );
+  1212→}
+  1213→
+  1214→// Lazy-load per-intern weekly task summary (count + MiniBar)
+  1215→function InternWeekSummary({
+  1216→  intern,
+  1217→  isSelected,
+  1218→  onSelect,
+  1219→}: {
+  1220→  intern: Member;
+  1221→  isSelected: boolean;
+  1222→  onSelect: () => void;
+  1223→}) {
+  1224→  const [summary, setSummary] = useState<{
+  1225→    total: number;
+  1226→    done: number;
+  1227→  } | null>(null);
+  1228→
+  1229→  useEffect(() => {
+  1230→    let alive = true;
+  1231→    (async () => {
+  1232→      try {
+  1233→        const res = await fetch(
+  1234→          `/api/doz/tasks?assigneeId=${encodeURIComponent(intern.id)}&scope=week`,
+  1235→          { cache: "no-store" },
+  1236→        );
+  1237→        if (!res.ok) return;
+  1238→        const json = (await res.json()) as { tasks: WeeklyTask[] };
+  1239→        const tasks = json.tasks ?? [];
+  1240→        if (alive) {
+  1241→          setSummary({
+  1242→            total: tasks.length,
+  1243→            done: tasks.filter((t) => t.status === "DONE").length,
+  1244→          });
+  1245→        }
+  1246→      } catch {
+  1247→        // ignore
+  1248→      }
+  1249→    })();
+  1250→    return () => {
+  1251→      alive = false;
+  1252→    };
+  1253→  }, [intern.id]);
+  1254→
+  1255→  const total = summary?.total ?? 0;
+  1256→  const done = summary?.done ?? 0;
+  1257→  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  1258→
+  1259→  return (
+  1260→    <button
+  1261→      type="button"
+  1262→      onClick={onSelect}
+  1263→      className={cn(
+  1264→        "flex w-full items-center gap-2.5 rounded-md border p-2 text-left transition-colors hover:bg-accent/30",
+  1265→        isSelected ? "border-primary/40 bg-primary/5" : "border-border",
+  1266→      )}
+  1267→    >
+  1268→      <Avatar className="h-7 w-7 shrink-0">
+  1269→        <AvatarFallback
+  1270→          className={cn("text-[10px] font-semibold", avatarColor(intern.name))}
+  1271→        >
+  1272→          {initials(intern.name)}
+  1273→        </AvatarFallback>
+  1274→      </Avatar>
+  1275→      <div className="min-w-0 flex-1">
+  1276→        <div className="flex items-center justify-between">
+  1277→          <p className="truncate text-xs font-semibold">{intern.name}</p>
+  1278→          <span className="ml-2 shrink-0 text-[10px] tabular-nums text-muted-foreground">
+  1279→            {done}/{total}
+  1280→          </span>
+  1281→        </div>
+  1282→        <div className="mt-1">
+  1283→          <MiniBar
+  1284→            value={done}
+  1285→            max={Math.max(1, total)}
+  1286→            color={pct >= 80 ? "bg-primary" : pct >= 40 ? "bg-amber-500" : "bg-zinc-500"}
+  1287→          />
+  1288→        </div>
+  1289→      </div>
+  1290→      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1291→    </button>
+  1292→  );
+  1293→}
+  1294→
+  1295→// ============================================================
+  1296→// Loading skeleton
+  1297→// ============================================================
+  1298→function TeamSkeleton() {
+  1299→  return (
+  1300→    <div className="space-y-5">
+  1301→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+  1302→        {Array.from({ length: 6 }).map((_, i) => (
+  1303→          <Skeleton key={i} className="h-24 w-full" />
+  1304→        ))}
+  1305→      </div>
+  1306→      <Skeleton className="h-10 w-full max-w-md" />
+  1307→      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  1308→        {Array.from({ length: 6 }).map((_, i) => (
+  1309→          <Skeleton key={i} className="h-56 w-full" />
+  1310→        ))}
+  1311→      </div>
+  1312→    </div>
+  1313→  );
+  1314→}
+  1315→
+  1316→// ============================================================
+  1317→// Main component
+  1318→// ============================================================
+  1319→export function Team() {
+  1320→  const [data, setData] = useState<TeamData | null>(null);
+  1321→  const [error, setError] = useState<string | null>(null);
+  1322→  const [filter, setFilter] = useState<Role | "ALL">("ALL");
+  1323→
+  1324→  useEffect(() => {
+  1325→    let cancelled = false;
+  1326→    (async () => {
+  1327→      try {
+  1328→        const res = await fetch("/api/doz/team");
+  1329→        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  1330→        const json = (await res.json()) as TeamData;
+  1331→        if (!cancelled) setData(json);
+  1332→      } catch (e) {
+  1333→        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load team");
+  1334→      }
+  1335→    })();
+  1336→    return () => {
+  1337→      cancelled = true;
+  1338→    };
+  1339→  }, []);
+  1340→
+  1341→  // ---- Filtered members
+  1342→  const filteredMembers = useMemo(() => {
+  1343→    if (!data) return [];
+  1344→    if (filter === "ALL") return data.members;
+  1345→    return data.members.filter((m) => m.role === filter);
+  1346→  }, [data, filter]);
+  1347→
+  1348→  // ---- Filter counts
+  1349→  const filterCounts = useMemo(() => {
+  1350→    if (!data) return { ALL: 0, FOUNDER: 0, STAFF: 0, INTERN: 0, FREELANCER: 0 };
+  1351→    const c = { ALL: data.members.length, FOUNDER: 0, STAFF: 0, INTERN: 0, FREELANCER: 0 };
+  1352→    for (const m of data.members) c[m.role]++;
+  1353→    return c;
+  1354→  }, [data]);
+  1355→
+  1356→  // ---- Daily reports grouped by date (desc)
+  1357→  const dailyByDate = useMemo(() => {
+  1358→    if (!data) return [] as Array<{ date: string; reports: DailyReport[] }>;
+  1359→    const map = new Map<string, DailyReport[]>();
+  1360→    for (const r of data.dailyReports) {
+  1361→      const k = dateKey(r.reportDate);
+  1362→      const arr = map.get(k) ?? [];
+  1363→      arr.push(r);
+  1364→      map.set(k, arr);
+  1365→    }
+  1366→    return Array.from(map.entries())
+  1367→      .map(([date, reports]) => ({ date, reports }))
+  1368→      .sort((a, b) => (a.date < b.date ? 1 : -1));
+  1369→  }, [data]);
+  1370→
+  1371→  // ---- Interns who have NOT reported today
+  1372→  const internsMissingToday = useMemo(() => {
+  1373→    if (!data) return [] as Array<{ name: string; title: string | null }>;
+  1374→    const today = new Date();
+  1375→    return data.members
+  1376→      .filter((m) => m.role === "INTERN")
+  1377→      .filter(
+  1378→        (m) => !m.lastReport || !isSameDay(new Date(m.lastReport.reportDate), today)
+  1379→      )
+  1380→      .map((m) => ({ name: m.name, title: m.title }));
+  1381→  }, [data]);
+  1382→
+  1383→  // ---- Loading state
+  1384→  if (!data && !error) {
+  1385→    return (
+  1386→      <div className="space-y-5">
+  1387→        <SectionHeader
+  1388→          title="Team Management"
+  1389→          description="Interns, freelancers, daily reports & accountability"
+  1390→          icon={<Users className="h-5 w-5" />}
+  1391→        />
+  1392→        <TeamSkeleton />
+  1393→      </div>
+  1394→    );
+  1395→  }
+  1396→
+  1397→  // ---- Error state
+  1398→  if (error) {
+  1399→    return (
+  1400→      <div className="space-y-5">
+  1401→        <SectionHeader
+  1402→          title="Team Management"
+  1403→          description="Interns, freelancers, daily reports & accountability"
+  1404→          icon={<Users className="h-5 w-5" />}
+  1405→        />
+  1406→        <EmptyState
+  1407→          icon={<AlertTriangle className="h-8 w-8" />}
+  1408→          title="Failed to load team data"
+  1409→          hint={error}
+  1410→        />
+  1411→      </div>
+  1412→    );
+  1413→  }
+  1414→
+  1415→  const s = data!.stats;
+  1416→  const reportingRateLow = s.reportingRate < 80;
+  1417→
+  1418→  return (
+  1419→    <div className="space-y-5">
+  1420→      <SectionHeader
+  1421→        title="Team Management"
+  1422→        description="Interns, freelancers, daily reports & accountability"
+  1423→        icon={<Users className="h-5 w-5" />}
+  1424→      />
+  1425→
+  1426→      {/* KPI ROW */}
+  1427→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+  1428→        <StatCard
+  1429→          label="Team Members"
+  1430→          value={s.totalMembers}
+  1431→          sub={`${s.founder + s.staff} core`}
+  1432→          icon={<Users className="h-4 w-4" />}
+  1433→        />
+  1434→        <StatCard
+  1435→          label="Interns"
+  1436→          value={s.interns}
+  1437→          sub={`${s.reportingToday} reporting today`}
+  1438→          icon={<GraduationCap className="h-4 w-4" />}
+  1439→          accent="primary"
+  1440→        />
+  1441→        <StatCard
+  1442→          label="Freelancers"
+  1443→          value={s.freelancers}
+  1444→          sub="On-call crew"
+  1445→          icon={<Briefcase className="h-4 w-4" />}
+  1446→        />
+  1447→        <StatCard
+  1448→          label="Reporting Rate"
+  1449→          value={`${s.reportingRate}%`}
+  1450→          sub={`${s.reportingToday}/${s.interns} interns today`}
+  1451→          icon={<CheckCircle2 className="h-4 w-4" />}
+  1452→          accent={reportingRateLow ? "danger" : "primary"}
+  1453→        />
+  1454→        <StatCard
+  1455→          label="Open Tasks"
+  1456→          value={s.openTasks}
+  1457→          sub={`${s.completedToday} done today`}
+  1458→          icon={<FileText className="h-4 w-4" />}
+  1459→          accent={s.openTasks >= 10 ? "warning" : "default"}
+  1460→        />
+  1461→        <StatCard
+  1462→          label="Avg Hours/Day"
+  1463→          value={`${s.avgHours}h`}
+  1464→          sub="Across today's reports"
+  1465→          icon={<Clock className="h-4 w-4" />}
+  1466→        />
+  1467→      </div>
+  1468→
+  1469→      {/* TABS */}
+  1470→      <Tabs defaultValue="team" className="space-y-4">
+  1471→        <TabsList className="flex w-full max-w-2xl flex-wrap gap-1">
+  1472→          <TabsTrigger value="team" className="flex-1">
+  1473→            <Users className="mr-1.5 h-3.5 w-3.5" />
+  1474→            Team
+  1475→          </TabsTrigger>
+  1476→          <TabsTrigger value="daily" className="flex-1">
+  1477→            <Calendar className="mr-1.5 h-3.5 w-3.5" />
+  1478→            Daily Reports
+  1479→          </TabsTrigger>
+  1480→          <TabsTrigger value="weekly" className="flex-1">
+  1481→            <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+  1482→            Weekly Reports
+  1483→          </TabsTrigger>
+  1484→          <TabsTrigger value="tasks" className="flex-1">
+  1485→            <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+  1486→            Today&apos;s Tasks
+  1487→          </TabsTrigger>
+  1488→          <TabsTrigger value="weekly-tasks" className="flex-1">
+  1489→            <ListTodo className="mr-1.5 h-3.5 w-3.5" />
+  1490→            Weekly Tasks
+  1491→          </TabsTrigger>
+  1492→        </TabsList>
+  1493→
+  1494→        {/* ============== TEAM TAB ============== */}
+  1495→        <TabsContent value="team" className="space-y-4">
+  1496→          {/* Filter pills */}
+  1497→          <div className="flex flex-wrap items-center gap-2">
+  1498→            <FilterPill
+  1499→              active={filter === "ALL"}
+  1500→              onClick={() => setFilter("ALL")}
+  1501→              count={filterCounts.ALL}
+  1502→            >
+  1503→              All
+  1504→            </FilterPill>
+  1505→            <FilterPill
+  1506→              active={filter === "FOUNDER"}
+  1507→              onClick={() => setFilter("FOUNDER")}
+  1508→              count={filterCounts.FOUNDER}
+  1509→            >
+  1510→              Founder
+  1511→            </FilterPill>
+  1512→            <FilterPill
+  1513→              active={filter === "STAFF"}
+  1514→              onClick={() => setFilter("STAFF")}
+  1515→              count={filterCounts.STAFF}
+  1516→            >
+  1517→              Staff
+  1518→            </FilterPill>
+  1519→            <FilterPill
+  1520→              active={filter === "INTERN"}
+  1521→              onClick={() => setFilter("INTERN")}
+  1522→              count={filterCounts.INTERN}
+  1523→            >
+  1524→              Interns
+  1525→            </FilterPill>
+  1526→            <FilterPill
+  1527→              active={filter === "FREELANCER"}
+  1528→              onClick={() => setFilter("FREELANCER")}
+  1529→              count={filterCounts.FREELANCER}
+  1530→            >
+  1531→              Freelancers
+  1532→            </FilterPill>
+  1533→          </div>
+  1534→
+  1535→          {/* Member cards grid */}
+  1536→          {filteredMembers.length === 0 ? (
+  1537→            <EmptyState
+  1538→              icon={<Users className="h-8 w-8" />}
+  1539→              title="No members in this filter"
+  1540→              hint="Try selecting a different role."
+  1541→            />
+  1542→          ) : (
+  1543→            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  1544→              {filteredMembers.map((m) => (
+  1545→                <MemberCard key={m.id} m={m} />
+  1546→              ))}
+  1547→            </div>
+  1548→          )}
+  1549→        </TabsContent>
+  1550→
+  1551→        {/* ============== DAILY REPORTS TAB ============== */}
+  1552→        <TabsContent value="daily" className="space-y-4">
+  1553→          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+  1554→            <Calendar className="h-3.5 w-3.5" />
+  1555→            <span>
+  1556→              Showing all daily reports, grouped by date. Today&apos;s reports
+  1557→              appear first.
+  1558→            </span>
+  1559→          </div>
+  1560→
+  1561→          {internsMissingToday.length > 0 && (
+  1562→            <div className="space-y-2">
+  1563→              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+  1564→                <AlertTriangle className="h-3 w-3" />
+  1565→                Missing today&apos;s report ({internsMissingToday.length})
+  1566→              </p>
+  1567→              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+  1568→                {internsMissingToday.map((m) => (
+  1569→                  <MissingReportCard
+  1570→                    key={m.name}
+  1571→                    name={m.name}
+  1572→                    title={m.title}
+  1573→                  />
+  1574→                ))}
+  1575→              </div>
+  1576→            </div>
+  1577→          )}
+  1578→
+  1579→          {dailyByDate.length === 0 ? (
+  1580→            <EmptyState
+  1581→              icon={<FileText className="h-8 w-8" />}
+  1582→              title="No daily reports yet"
+  1583→              hint="Interns should submit a report by 6:00 PM daily."
+  1584→            />
+  1585→          ) : (
+  1586→            <div className="max-h-[800px] space-y-5 overflow-y-auto scroll-thin pr-1">
+  1587→              {dailyByDate.map((group) => {
+  1588→                const isToday = isSameDay(new Date(group.date), new Date());
+  1589→                return (
+  1590→                  <div key={group.date} className="space-y-2">
+  1591→                    <div className="flex items-center gap-2">
+  1592→                      <h3 className="text-sm font-semibold">
+  1593→                        {formatDate(group.date)}
+  1594→                      </h3>
+  1595→                      {isToday && (
+  1596→                        <Badge
+  1597→                          variant="outline"
+  1598→                          className="border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-300"
+  1599→                        >
+  1600→                          TODAY
+  1601→                        </Badge>
+  1602→                      )}
+  1603→                      <span className="text-[11px] text-muted-foreground">
+  1604→                        {group.reports.length} report
+  1605→                        {group.reports.length === 1 ? "" : "s"}
+  1606→                      </span>
+  1607→                    </div>
+  1608→                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  1609→                      {group.reports.map((r) => (
+  1610→                        <DailyReportCard key={r.id} r={r} />
+  1611→                      ))}
+  1612→                    </div>
+  1613→                  </div>
+  1614→                );
+  1615→              })}
+  1616→            </div>
+  1617→          )}
+  1618→        </TabsContent>
+  1619→
+  1620→        {/* ============== WEEKLY REPORTS TAB ============== */}
+  1621→        <TabsContent value="weekly" className="space-y-4">
+  1622→          {data!.weeklyReports.length === 0 ? (
+  1623→            <EmptyState
+  1624→              icon={<CalendarDays className="h-8 w-8" />}
+  1625→              title="No weekly reports"
+  1626→              hint="Weekly reports are submitted every Friday by interns."
+  1627→            />
+  1628→          ) : (
+  1629→            <div className="max-h-[800px] space-y-3 overflow-y-auto scroll-thin pr-1">
+  1630→              {data!.weeklyReports.map((r) => (
+  1631→                <WeeklyReportCard key={r.id} r={r} />
+  1632→              ))}
+  1633→            </div>
+  1634→          )}
+  1635→        </TabsContent>
+  1636→
+  1637→        {/* ============== TODAY'S TASKS TAB ============== */}
+  1638→        <TabsContent value="tasks" className="space-y-4">
+  1639→          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+  1640→            <ListChecks className="h-3.5 w-3.5" />
+  1641→            <span>
+  1642→              {data!.todayTasks.length} open task
+  1643→              {data!.todayTasks.length === 1 ? "" : "s"} across the team, grouped
+  1644→              by priority.
+  1645→            </span>
+  1646→          </div>
+  1647→          <TodayTasksTable tasks={data!.todayTasks} />
+  1648→        </TabsContent>
+  1649→
+  1650→        {/* ============== WEEKLY TASKS TAB ============== */}
+  1651→        <TabsContent value="weekly-tasks" className="space-y-4">
+  1652→          <WeeklyTasksTab
+  1653→            interns={data!.members.filter((m) => m.role === "INTERN")}
+  1654→          />
+  1655→        </TabsContent>
+  1656→      </Tabs>
+  1657→    </div>
+  1658→  );
+  1659→}
+  1660→

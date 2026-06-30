@@ -1,0 +1,1175 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useMemo } from "react";
+     4→import {
+     5→  Shield,
+     6→  CheckCircle2,
+     7→  XCircle,
+     8→  Truck,
+     9→  FileText,
+    10→  Star,
+    11→  AlertTriangle,
+    12→  ArrowRight,
+    13→  Banknote,
+    14→  Users2,
+    15→  Clock,
+    16→  Wallet,
+    17→  TrendingUp,
+    18→  ChevronDown,
+    19→  Plus,
+    20→} from "lucide-react";
+    21→import { Card } from "@/components/ui/card";
+    22→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    23→import { VendorApplications } from "@/components/doz/vendor-applications";
+    24→import { AddVendorForm } from "@/components/doz/vendor-apply";
+    25→import {
+    26→  Table,
+    27→  TableBody,
+    28→  TableCell,
+    29→  TableHead,
+    30→  TableHeader,
+    31→  TableRow,
+    32→} from "@/components/ui/table";
+    33→import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+    34→import { StatCard, StatusBadge, SectionHeader, EmptyState, MiniBar } from "@/components/doz/ui-primitives";
+    35→import { formatNGN, formatDate, relativeTime } from "@/lib/format";
+    36→import { Skeleton } from "@/components/ui/skeleton";
+    37→import { Badge } from "@/components/ui/badge";
+    38→import { Button } from "@/components/ui/button";
+    39→import { toast } from "sonner";
+    40→import { cn } from "@/lib/utils";
+    41→
+    42→// ============================================================
+    43→// Types
+    44→// ============================================================
+    45→interface Stats {
+    46→  pendingApprovals: number;
+    47→  pendingPaymentsValue: number;
+    48→  openRfqs: number;
+    49→  totalVendorSpend: number;
+    50→  activeVendors: number;
+    51→  overduePayments: number;
+    52→  segregationViolations: number;
+    53→  avgVendorRating: number;
+    54→}
+    55→
+    56→interface Vendor {
+    57→  id: string;
+    58→  name: string;
+    59→  category: string;
+    60→  contactName: string | null;
+    61→  phone: string | null;
+    62→  email: string | null;
+    63→  rating: number;
+    64→  totalSpent: number;
+    65→  isActive: boolean;
+    66→  _count: { quotes: number; pos: number };
+    67→}
+    68→
+    69→interface Quote {
+    70→  id: string;
+    71→  amount: number;
+    72→  deliveryDays: number | null;
+    73→  notes: string | null;
+    74→  isRecommended: boolean;
+    75→  isApproved: boolean;
+    76→  vendor: { name: string; rating: number };
+    77→}
+    78→
+    79→interface Rfq {
+    80→  id: string;
+    81→  code: string | null;
+    82→  title: string;
+    83→  description: string | null;
+    84→  category: string | null;
+    85→  budget: number | null;
+    86→  status: string;
+    87→  neededBy: string | null;
+    88→  project: { name: string } | null;
+    89→  quotes: Quote[];
+    90→}
+    91→
+    92→interface PurchaseOrder {
+    93→  id: string;
+    94→  code: string | null;
+    95→  vendor: { name: string };
+    96→  project: { name: string } | null;
+    97→  amount: number;
+    98→  description: string | null;
+    99→  status: string;
+   100→  issuedAt: string | null;
+   101→}
+   102→
+   103→interface Person {
+   104→  name: string;
+   105→  role: string;
+   106→}
+   107→
+   108→interface PaymentRequest {
+   109→  id: string;
+   110→  code: string | null;
+   111→  amount: number;
+   112→  description: string | null;
+   113→  status: string;
+   114→  requesterId: string;
+   115→  approverId: string | null;
+   116→  payerId: string | null;
+   117→  requester: Person;
+   118→  approver: Person | null;
+   119→  payer: Person | null;
+   120→  project: { name: string } | null;
+   121→  purchaseOrder: { code: string | null } | null;
+   122→  requestedAt: string;
+   123→  approvedAt: string | null;
+   124→  paidAt: string | null;
+   125→}
+   126→
+   127→interface Approval {
+   128→  id: string;
+   129→  entityType: string;
+   130→  entityId: string;
+   131→  decision: string;
+   132→  comment: string | null;
+   133→  approver: { name: string };
+   134→  createdAt: string;
+   135→}
+   136→
+   137→interface ProcurementData {
+   138→  stats: Stats;
+   139→  vendors: Vendor[];
+   140→  rfqs: Rfq[];
+   141→  purchaseOrders: PurchaseOrder[];
+   142→  paymentRequests: PaymentRequest[];
+   143→  approvals: Approval[];
+   144→}
+   145→
+   146→// ============================================================
+   147→// Helpers
+   148→// ============================================================
+   149→const ROLE_LABEL: Record<string, string> = {
+   150→  FOUNDER: "Founder",
+   151→  STAFF: "Staff",
+   152→  INTERN: "Intern",
+   153→  FREELANCER: "Freelancer",
+   154→};
+   155→
+   156→function RoleBadge({ role }: { role: string }) {
+   157→  const color =
+   158→    role === "FOUNDER"
+   159→      ? "bg-primary/15 text-primary"
+   160→      : role === "STAFF"
+   161→      ? "bg-teal-500/15 text-teal-300"
+   162→      : role === "INTERN"
+   163→      ? "bg-amber-500/15 text-amber-300"
+   164→      : "bg-muted text-muted-foreground";
+   165→  return (
+   166→    <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide", color)}>
+   167→      {ROLE_LABEL[role] ?? role}
+   168→    </span>
+   169→  );
+   170→}
+   171→
+   172→function Stars({ rating, size = 12 }: { rating: number; size?: number }) {
+   173→  return (
+   174→    <span className="inline-flex items-center gap-0.5">
+   175→      {[1, 2, 3, 4, 5].map((i) => (
+   176→        <Star
+   177→          key={i}
+   178→          style={{ width: size, height: size }}
+   179→          className={cn(
+   180→            i <= rating ? "fill-amber-400 text-amber-400" : "fill-none text-muted-foreground/40"
+   181→          )}
+   182→        />
+   183→      ))}
+   184→    </span>
+   185→  );
+   186→}
+   187→
+   188→// ============================================================
+   189→// 3-step segregation indicator
+   190→// ============================================================
+   191→function SegregationSteps({ pr }: { pr: PaymentRequest }) {
+   192→  const reqDone = true; // requester always filled
+   193→  const apprDone = pr.status === "APPROVED" || pr.status === "PAID";
+   194→  const payDone = pr.status === "PAID";
+   195→
+   196→  return (
+   197→    <div className="flex items-center gap-2">
+   198→      {/* REQUEST */}
+   199→      <div className="flex flex-col items-center gap-1">
+   200→        <div
+   201→          className={cn(
+   202→            "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-bold",
+   203→            reqDone
+   204→              ? "border-primary/40 bg-primary/15 text-primary"
+   205→              : "border-muted bg-muted text-muted-foreground"
+   206→          )}
+   207→        >
+   208→          {reqDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : "1"}
+   209→        </div>
+   210→        <div className="text-center">
+   211→          <p className="text-[10px] font-semibold leading-tight">{pr.requester.name.split(" ")[0]}</p>
+   212→          <RoleBadge role={pr.requester.role} />
+   213→        </div>
+   214→      </div>
+   215→
+   216→      <div className={cn("h-0.5 flex-1", apprDone ? "bg-primary/40" : "bg-muted")} />
+   217→
+   218→      {/* APPROVE */}
+   219→      <div className="flex flex-col items-center gap-1">
+   220→        <div
+   221→          className={cn(
+   222→            "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-bold",
+   223→            apprDone
+   224→              ? "border-primary/40 bg-primary/15 text-primary"
+   225→              : "border-amber-500/40 bg-amber-500/10 text-amber-400"
+   226→          )}
+   227→        >
+   228→          {apprDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : "2"}
+   229→        </div>
+   230→        <div className="text-center">
+   231→          {pr.approver ? (
+   232→            <>
+   233→              <p className="text-[10px] font-semibold leading-tight">{pr.approver.name.split(" ")[0]}</p>
+   234→              <RoleBadge role={pr.approver.role} />
+   235→            </>
+   236→          ) : (
+   237→            <>
+   238→              <p className="text-[10px] font-semibold leading-tight text-muted-foreground">Pending</p>
+   239→              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-amber-400">
+   240→                Awaiting
+   241→              </span>
+   242→            </>
+   243→          )}
+   244→        </div>
+   245→      </div>
+   246→
+   247→      <div className={cn("h-0.5 flex-1", payDone ? "bg-primary/40" : "bg-muted")} />
+   248→
+   249→      {/* PAY */}
+   250→      <div className="flex flex-col items-center gap-1">
+   251→        <div
+   252→          className={cn(
+   253→            "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-bold",
+   254→            payDone
+   255→              ? "border-primary/40 bg-primary/15 text-primary"
+   256→              : "border-muted bg-muted text-muted-foreground"
+   257→          )}
+   258→        >
+   259→          {payDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : "3"}
+   260→        </div>
+   261→        <div className="text-center">
+   262→          {pr.payer ? (
+   263→            <>
+   264→              <p className="text-[10px] font-semibold leading-tight">{pr.payer.name.split(" ")[0]}</p>
+   265→              <RoleBadge role={pr.payer.role} />
+   266→            </>
+   267→          ) : (
+   268→            <>
+   269→              <p className="text-[10px] font-semibold leading-tight text-muted-foreground">Awaiting</p>
+   270→              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+   271→                Pay
+   272→              </span>
+   273→            </>
+   274→          )}
+   275→        </div>
+   276→      </div>
+   277→    </div>
+   278→  );
+   279→}
+   280→
+   281→// ============================================================
+   282→// Payment request card
+   283→// ============================================================
+   284→function PaymentRequestCard({
+   285→  pr,
+   286→  onAction,
+   287→  acting,
+   288→}: {
+   289→  pr: PaymentRequest;
+   290→  onAction: (id: string, action: "APPROVE" | "REJECT" | "PAY") => void;
+   291→  acting: string | null;
+   292→}) {
+   293→  return (
+   294→    <Card className="p-4">
+   295→      <div className="flex flex-wrap items-start justify-between gap-3">
+   296→        <div className="min-w-0 flex-1">
+   297→          <div className="flex flex-wrap items-center gap-2">
+   298→            <span className="font-mono text-xs font-semibold text-primary">{pr.code}</span>
+   299→            <StatusBadge status={pr.status} />
+   300→            {pr.purchaseOrder?.code && (
+   301→              <span className="text-[10px] text-muted-foreground">PO: {pr.purchaseOrder.code}</span>
+   302→            )}
+   303→          </div>
+   304→          <p className="mt-1.5 text-sm font-semibold">{pr.description ?? "—"}</p>
+   305→          <p className="text-xs text-muted-foreground">
+   306→            {pr.project?.name ?? "No project"} · requested {relativeTime(pr.requestedAt)}
+   307→          </p>
+   308→        </div>
+   309→        <div className="text-right">
+   310→          <p className="text-lg font-bold tracking-tight text-primary">{formatNGN(pr.amount)}</p>
+   311→          {pr.paidAt && <p className="text-[10px] text-muted-foreground">paid {formatDate(pr.paidAt)}</p>}
+   312→          {pr.approvedAt && !pr.paidAt && (
+   313→            <p className="text-[10px] text-muted-foreground">approved {formatDate(pr.approvedAt)}</p>
+   314→          )}
+   315→        </div>
+   316→      </div>
+   317→
+   318→      <div className="mt-4 border-t border-border pt-4">
+   319→        <SegregationSteps pr={pr} />
+   320→      </div>
+   321→
+   322→      {pr.status === "PENDING" && (
+   323→        <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+   324→          <Button
+   325→            size="sm"
+   326→            variant="outline"
+   327→            className="h-7 gap-1.5 border-rose-500/40 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+   328→            disabled={acting === pr.id}
+   329→            onClick={() => onAction(pr.id, "REJECT")}
+   330→          >
+   331→            <XCircle className="h-3.5 w-3.5" /> Reject
+   332→          </Button>
+   333→          <Button
+   334→            size="sm"
+   335→            className="h-7 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+   336→            disabled={acting === pr.id}
+   337→            onClick={() => onAction(pr.id, "APPROVE")}
+   338→          >
+   339→            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+   340→          </Button>
+   341→        </div>
+   342→      )}
+   343→      {pr.status === "APPROVED" && (
+   344→        <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+   345→          <Button
+   346→            size="sm"
+   347→            className="h-7 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+   348→            disabled={acting === pr.id}
+   349→            onClick={() => onAction(pr.id, "PAY")}
+   350→          >
+   351→            <Banknote className="h-3.5 w-3.5" /> Mark Paid
+   352→          </Button>
+   353→        </div>
+   354→      )}
+   355→    </Card>
+   356→  );
+   357→}
+   358→
+   359→// ============================================================
+   360→// Workflow visualization (3-column flow header)
+   361→// ============================================================
+   362→function WorkflowFlow({ requests }: { requests: PaymentRequest[] }) {
+   363→  const counts = {
+   364→    pending: requests.filter((r) => r.status === "PENDING").length,
+   365→    approved: requests.filter((r) => r.status === "APPROVED").length,
+   366→    paid: requests.filter((r) => r.status === "PAID").length,
+   367→  };
+   368→  const stages = [
+   369→    {
+   370→      label: "Request",
+   371→      icon: <FileText className="h-4 w-4" />,
+   372→      count: requests.length,
+   373→      desc: "Raised by Ops / Freelancer",
+   374→      color: "text-amber-400",
+   375→      bg: "bg-amber-500/10 border-amber-500/30",
+   376→    },
+   377→    {
+   378→      label: "Approve",
+   379→      icon: <Shield className="h-4 w-4" />,
+   380→      count: counts.approved + counts.paid,
+   381→      desc: "Founder reviews & signs off",
+   382→      color: "text-teal-300",
+   383→      bg: "bg-teal-500/10 border-teal-500/30",
+   384→    },
+   385→    {
+   386→      label: "Pay",
+   387→      icon: <Banknote className="h-4 w-4" />,
+   388→      count: counts.paid,
+   389→      desc: "Finance executes payment",
+   390→      color: "text-primary",
+   391→      bg: "bg-primary/10 border-primary/30",
+   392→    },
+   393→  ];
+   394→  return (
+   395→    <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-stretch">
+   396→      {stages.map((s, i) => (
+   397→        <div key={s.label} className="contents">
+   398→          <Card className={cn("flex items-center gap-3 p-4", s.bg, "border")}>
+   399→            <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg bg-background/60", s.color)}>
+   400→              {s.icon}
+   401→            </div>
+   402→            <div className="min-w-0 flex-1">
+   403→              <div className="flex items-center gap-2">
+   404→                <p className="text-sm font-semibold">{s.label}</p>
+   405→                <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+   406→                  {s.count}
+   407→                </Badge>
+   408→              </div>
+   409→              <p className="text-[10px] text-muted-foreground">{s.desc}</p>
+   410→            </div>
+   411→          </Card>
+   412→          {i < stages.length - 1 && (
+   413→            <div className="hidden items-center justify-center md:flex">
+   414→              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+   415→            </div>
+   416→          )}
+   417→        </div>
+   418→      ))}
+   419→    </div>
+   420→  );
+   421→}
+   422→
+   423→// ============================================================
+   424→// Approvals Tab
+   425→// ============================================================
+   426→function ApprovalsTab({
+   427→  paymentRequests,
+   428→  onAction,
+   429→  acting,
+   430→}: {
+   431→  paymentRequests: PaymentRequest[];
+   432→  onAction: (id: string, action: "APPROVE" | "REJECT" | "PAY") => void;
+   433→  acting: string | null;
+   434→}) {
+   435→  const pending = paymentRequests.filter((p) => p.status === "PENDING");
+   436→  const approved = paymentRequests.filter((p) => p.status === "APPROVED");
+   437→  const paid = paymentRequests.filter((p) => p.status === "PAID");
+   438→  const rejected = paymentRequests.filter((p) => p.status === "REJECTED");
+   439→
+   440→  return (
+   441→    <div className="space-y-6">
+   442→      <div>
+   443→        <SectionHeader
+   444→          title="Workflow"
+   445→          description="Every payment moves through three independent hands"
+   446→          icon={<ArrowRight className="h-5 w-5" />}
+   447→        />
+   448→        <div className="mt-4">
+   449→          <WorkflowFlow requests={paymentRequests} />
+   450→        </div>
+   451→      </div>
+   452→
+   453→      {pending.length > 0 && (
+   454→        <div>
+   455→          <SectionHeader
+   456→            title={`Pending Approval — ${pending.length}`}
+   457→            description="Awaiting founder / approver decision"
+   458→            icon={<Clock className="h-5 w-5 text-amber-400" />}
+   459→          />
+   460→          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+   461→            {pending.map((pr) => (
+   462→              <PaymentRequestCard key={pr.id} pr={pr} onAction={onAction} acting={acting} />
+   463→            ))}
+   464→          </div>
+   465→        </div>
+   466→      )}
+   467→
+   468→      {approved.length > 0 && (
+   469→        <div>
+   470→          <SectionHeader
+   471→            title={`Approved — Awaiting Payment (${approved.length})`}
+   472→            description="Cleared for finance to execute"
+   473→            icon={<Banknote className="h-5 w-5 text-teal-300" />}
+   474→          />
+   475→          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+   476→            {approved.map((pr) => (
+   477→              <PaymentRequestCard key={pr.id} pr={pr} onAction={onAction} acting={acting} />
+   478→            ))}
+   479→          </div>
+   480→        </div>
+   481→      )}
+   482→
+   483→      {paid.length > 0 && (
+   484→        <div>
+   485→          <SectionHeader
+   486→            title={`Paid — ${paid.length}`}
+   487→            description="Completed transactions"
+   488→            icon={<CheckCircle2 className="h-5 w-5 text-primary" />}
+   489→          />
+   490→          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+   491→            {paid.map((pr) => (
+   492→              <PaymentRequestCard key={pr.id} pr={pr} onAction={onAction} acting={acting} />
+   493→            ))}
+   494→          </div>
+   495→        </div>
+   496→      )}
+   497→
+   498→      {rejected.length > 0 && (
+   499→        <div>
+   500→          <SectionHeader
+   501→            title={`Rejected — ${rejected.length}`}
+   502→            description="Declined payment requests"
+   503→            icon={<XCircle className="h-5 w-5 text-rose-400" />}
+   504→          />
+   505→          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+   506→            {rejected.map((pr) => (
+   507→              <PaymentRequestCard key={pr.id} pr={pr} onAction={onAction} acting={acting} />
+   508→            ))}
+   509→          </div>
+   510→        </div>
+   511→      )}
+   512→
+   513→      {paymentRequests.length === 0 && (
+   514→        <EmptyState
+   515→          icon={<FileText className="h-8 w-8" />}
+   516→          title="No payment requests"
+   517→          hint="New payment requests will appear here for approval."
+   518→        />
+   519→      )}
+   520→    </div>
+   521→  );
+   522→}
+   523→
+   524→// ============================================================
+   525→// RFQs Tab
+   526→// ============================================================
+   527→function RfqCard({ rfq }: { rfq: Rfq }) {
+   528→  const [open, setOpen] = useState(rfq.status === "QUOTES_RECEIVED");
+   529→  const sorted = [...rfq.quotes].sort((a, b) => a.amount - b.amount);
+   530→  const lowest = sorted.length > 0 ? sorted[0].amount : null;
+   531→  const recommended = rfq.quotes.find((q) => q.isRecommended);
+   532→  const budgetVariance =
+   533→    rfq.budget && lowest !== null ? rfq.budget - lowest : null;
+   534→
+   535→  return (
+   536→    <Collapsible open={open} onOpenChange={setOpen}>
+   537→      <Card className="p-4">
+   538→        <CollapsibleTrigger asChild>
+   539→          <button className="flex w-full items-center gap-3 text-left">
+   540→            <div className="min-w-0 flex-1">
+   541→              <div className="flex flex-wrap items-center gap-2">
+   542→                <span className="font-mono text-xs font-semibold text-primary">{rfq.code}</span>
+   543→                <StatusBadge status={rfq.status} />
+   544→                {rfq.category && (
+   545→                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+   546→                    {rfq.category.replace(/_/g, " ")}
+   547→                  </Badge>
+   548→                )}
+   549→                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+   550→                  {rfq.quotes.length} quote{rfq.quotes.length === 1 ? "" : "s"}
+   551→                </Badge>
+   552→              </div>
+   553→              <p className="mt-1 text-sm font-semibold">{rfq.title}</p>
+   554→              <p className="text-xs text-muted-foreground">
+   555→                {rfq.project?.name ?? "No project"} · needed {rfq.neededBy ? relativeTime(rfq.neededBy) : "—"}
+   556→              </p>
+   557→            </div>
+   558→            <div className="text-right">
+   559→              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Budget</p>
+   560→              <p className="font-mono text-sm font-semibold">{rfq.budget ? formatNGN(rfq.budget) : "—"}</p>
+   561→            </div>
+   562→            <ChevronDown
+   563→              className={cn(
+   564→                "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+   565→                open && "rotate-180"
+   566→              )}
+   567→            />
+   568→          </button>
+   569→        </CollapsibleTrigger>
+   570→
+   571→        <CollapsibleContent>
+   572→          <div className="mt-4 border-t border-border pt-4">
+   573→            {rfq.description && (
+   574→              <p className="mb-3 text-xs text-muted-foreground">{rfq.description}</p>
+   575→            )}
+   576→
+   577→            {sorted.length === 0 ? (
+   578→              <EmptyState
+   579→                icon={<Truck className="h-6 w-6" />}
+   580→                title="No quotes yet"
+   581→                hint="Distribute RFQ to vendors and capture quotes here."
+   582→              />
+   583→            ) : (
+   584→              <>
+   585→                <Table>
+   586→                  <TableHeader>
+   587→                    <TableRow>
+   588→                      <TableHead className="h-8 text-[10px]">Vendor</TableHead>
+   589→                      <TableHead className="h-8 text-[10px]">Amount</TableHead>
+   590→                      <TableHead className="h-8 text-[10px]">Delivery</TableHead>
+   591→                      <TableHead className="h-8 text-[10px]">Rating</TableHead>
+   592→                      <TableHead className="h-8 text-[10px]">Notes</TableHead>
+   593→                    </TableRow>
+   594→                  </TableHeader>
+   595→                  <TableBody>
+   596→                    {sorted.map((q) => {
+   597→                      const isLowest = q.amount === lowest;
+   598→                      return (
+   599→                        <TableRow key={q.id} className={cn(isLowest && "bg-primary/5")}>
+   600→                          <TableCell className="py-2">
+   601→                            <div className="flex flex-wrap items-center gap-1.5">
+   602→                              <span className="text-xs font-semibold">{q.vendor.name}</span>
+   603→                              {isLowest && (
+   604→                                <Badge className="h-5 gap-0.5 bg-primary/15 px-1.5 text-[9px] text-primary">
+   605→                                  <TrendingUp className="h-2.5 w-2.5" /> LOWEST
+   606→                                </Badge>
+   607→                              )}
+   608→                              {q.isRecommended && (
+   609→                                <Badge className="h-5 gap-0.5 bg-amber-500/15 px-1.5 text-[9px] text-amber-400">
+   610→                                  <Star className="h-2.5 w-2.5 fill-amber-400" /> RECOMMENDED
+   611→                                </Badge>
+   612→                              )}
+   613→                              {q.isApproved && (
+   614→                                <Badge className="h-5 gap-0.5 bg-primary/15 px-1.5 text-[9px] text-primary">
+   615→                                  <CheckCircle2 className="h-2.5 w-2.5" /> APPROVED
+   616→                                </Badge>
+   617→                              )}
+   618→                            </div>
+   619→                          </TableCell>
+   620→                          <TableCell className="py-2">
+   621→                            <span className="font-mono text-xs font-semibold">{formatNGN(q.amount)}</span>
+   622→                          </TableCell>
+   623→                          <TableCell className="py-2 text-xs text-muted-foreground">
+   624→                            {q.deliveryDays ? `${q.deliveryDays}d` : "—"}
+   625→                          </TableCell>
+   626→                          <TableCell className="py-2">
+   627→                            <Stars rating={q.vendor.rating} />
+   628→                          </TableCell>
+   629→                          <TableCell className="max-w-[260px] py-2 text-xs text-muted-foreground">
+   630→                            {q.notes ?? "—"}
+   631→                          </TableCell>
+   632→                        </TableRow>
+   633→                      );
+   634→                    })}
+   635→                  </TableBody>
+   636→                </Table>
+   637→
+   638→                {budgetVariance !== null && (
+   639→                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/30 p-2.5 text-xs">
+   640→                    <span className="text-muted-foreground">Budget vs lowest:</span>
+   641→                    <span
+   642→                      className={cn(
+   643→                        "font-semibold",
+   644→                        budgetVariance >= 0 ? "text-primary" : "text-rose-400"
+   645→                      )}
+   646→                    >
+   647→                      {budgetVariance >= 0 ? "+" : "-"}
+   648→                      {formatNGN(Math.abs(budgetVariance))}
+   649→                    </span>
+   650→                    <span className="text-muted-foreground">
+   651→                      ({budgetVariance >= 0 ? "under budget" : "OVER budget"})
+   652→                    </span>
+   653→                    {recommended && (
+   654→                      <span className="ml-auto text-muted-foreground">
+   655→                        Recommended:{" "}
+   656→                        <span className="font-semibold text-amber-400">{recommended.vendor.name}</span> ·{" "}
+   657→                        {formatNGN(recommended.amount)}
+   658→                      </span>
+   659→                    )}
+   660→                  </div>
+   661→                )}
+   662→              </>
+   663→            )}
+   664→          </div>
+   665→        </CollapsibleContent>
+   666→      </Card>
+   667→    </Collapsible>
+   668→  );
+   669→}
+   670→
+   671→function RfqsTab({ rfqs }: { rfqs: Rfq[] }) {
+   672→  return (
+   673→    <div className="space-y-3">
+   674→      {rfqs.length === 0 ? (
+   675→        <EmptyState
+   676→          icon={<FileText className="h-8 w-8" />}
+   677→          title="No RFQs"
+   678→          hint="Raise a new RFQ to start collecting vendor quotes."
+   679→        />
+   680→      ) : (
+   681→        rfqs.map((r) => <RfqCard key={r.id} rfq={r} />)
+   682→      )}
+   683→    </div>
+   684→  );
+   685→}
+   686→
+   687→// ============================================================
+   688→// Purchase Orders Tab
+   689→// ============================================================
+   690→function PurchaseOrdersTab({ pos }: { pos: PurchaseOrder[] }) {
+   691→  if (pos.length === 0) {
+   692→    return (
+   693→      <EmptyState
+   694→        icon={<FileText className="h-8 w-8" />}
+   695→        title="No purchase orders"
+   696→        hint="Approved quotes can be converted to purchase orders."
+   697→      />
+   698→    );
+   699→  }
+   700→  return (
+   701→    <Card className="overflow-hidden p-0">
+   702→      <Table>
+   703→        <TableHeader>
+   704→          <TableRow>
+   705→            <TableHead className="text-[10px]">PO Code</TableHead>
+   706→            <TableHead className="text-[10px]">Vendor</TableHead>
+   707→            <TableHead className="text-[10px]">Project</TableHead>
+   708→            <TableHead className="text-[10px]">Description</TableHead>
+   709→            <TableHead className="text-right text-[10px]">Amount</TableHead>
+   710→            <TableHead className="text-[10px]">Status</TableHead>
+   711→            <TableHead className="text-[10px]">Issued</TableHead>
+   712→          </TableRow>
+   713→        </TableHeader>
+   714→        <TableBody>
+   715→          {pos.map((p) => (
+   716→            <TableRow key={p.id}>
+   717→              <TableCell className="py-2.5">
+   718→                <span className="font-mono text-xs font-semibold text-primary">{p.code}</span>
+   719→              </TableCell>
+   720→              <TableCell className="py-2.5 text-xs font-medium">{p.vendor.name}</TableCell>
+   721→              <TableCell className="py-2.5 text-xs text-muted-foreground">
+   722→                {p.project?.name ?? "—"}
+   723→              </TableCell>
+   724→              <TableCell className="max-w-[280px] py-2.5 text-xs text-muted-foreground">
+   725→                {p.description ?? "—"}
+   726→              </TableCell>
+   727→              <TableCell className="py-2.5 text-right font-mono text-xs font-semibold">
+   728→                {formatNGN(p.amount)}
+   729→              </TableCell>
+   730→              <TableCell className="py-2.5">
+   731→                <StatusBadge status={p.status} />
+   732→              </TableCell>
+   733→              <TableCell className="py-2.5 text-xs text-muted-foreground">
+   734→                {p.issuedAt ? formatDate(p.issuedAt) : "—"}
+   735→              </TableCell>
+   736→            </TableRow>
+   737→          ))}
+   738→        </TableBody>
+   739→      </Table>
+   740→    </Card>
+   741→  );
+   742→}
+   743→
+   744→// ============================================================
+   745→// Vendors Tab
+   746→// ============================================================
+   747→function VendorsTab({ vendors }: { vendors: Vendor[] }) {
+   748→  const [sortBy, setSortBy] = useState<"totalSpent" | "rating" | "name">("totalSpent");
+   749→
+   750→  const sorted = useMemo(() => {
+   751→    const copy = [...vendors];
+   752→    if (sortBy === "totalSpent") copy.sort((a, b) => b.totalSpent - a.totalSpent);
+   753→    if (sortBy === "rating") copy.sort((a, b) => b.rating - a.rating);
+   754→    if (sortBy === "name") copy.sort((a, b) => a.name.localeCompare(b.name));
+   755→    return copy;
+   756→  }, [vendors, sortBy]);
+   757→
+   758→  const maxSpent = Math.max(1, ...vendors.map((v) => v.totalSpent));
+   759→
+   760→  return (
+   761→    <div className="space-y-4">
+   762→      <div className="flex flex-wrap items-center gap-2">
+   763→        <span className="text-xs text-muted-foreground">Sort by:</span>
+   764→        {(["totalSpent", "rating", "name"] as const).map((k) => (
+   765→          <Button
+   766→            key={k}
+   767→            size="sm"
+   768→            variant={sortBy === k ? "default" : "outline"}
+   769→            className="h-7 text-xs"
+   770→            onClick={() => setSortBy(k)}
+   771→          >
+   772→            {k === "totalSpent" ? "Total Spend" : k === "rating" ? "Rating" : "Name (A-Z)"}
+   773→          </Button>
+   774→        ))}
+   775→      </div>
+   776→
+   777→      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+   778→        {sorted.map((v) => (
+   779→          <Card key={v.id} className="p-4">
+   780→            <div className="flex items-start justify-between gap-2">
+   781→              <div className="min-w-0">
+   782→                <p className="truncate text-sm font-semibold">{v.name}</p>
+   783→                <Badge variant="outline" className="mt-1 h-5 px-1.5 text-[10px]">
+   784→                  {v.category.replace(/_/g, " ")}
+   785→                </Badge>
+   786→              </div>
+   787→              {v.isActive ? (
+   788→                <Badge className="h-5 gap-1 bg-primary/15 px-1.5 text-[9px] text-primary">
+   789→                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> ACTIVE
+   790→                </Badge>
+   791→              ) : (
+   792→                <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
+   793→                  INACTIVE
+   794→                </Badge>
+   795→              )}
+   796→            </div>
+   797→
+   798→            <div className="mt-3 flex items-center gap-2">
+   799→              <Stars rating={v.rating} />
+   800→              <span className="text-[10px] text-muted-foreground">{v.rating.toFixed(1)} / 5</span>
+   801→            </div>
+   802→
+   803→            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+   804→              {v.contactName && <p className="truncate">{v.contactName}</p>}
+   805→              {v.phone && <p className="truncate font-mono">{v.phone}</p>}
+   806→              {v.email && <p className="truncate">{v.email}</p>}
+   807→            </div>
+   808→
+   809→            <div className="mt-3 border-t border-border pt-3">
+   810→              <div className="flex items-center justify-between text-xs">
+   811→                <span className="text-muted-foreground">Total spent</span>
+   812→                <span className="font-mono font-semibold text-primary">{formatNGN(v.totalSpent, true)}</span>
+   813→              </div>
+   814→              <div className="mt-1.5">
+   815→                <MiniBar value={v.totalSpent} max={maxSpent} color="bg-primary" />
+   816→              </div>
+   817→              <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+   818→                <span>{v._count.quotes} quotes</span>
+   819→                <span>·</span>
+   820→                <span>{v._count.pos} POs</span>
+   821→              </div>
+   822→            </div>
+   823→          </Card>
+   824→        ))}
+   825→      </div>
+   826→
+   827→      {vendors.length === 0 && (
+   828→        <EmptyState
+   829→          icon={<Users2 className="h-8 w-8" />}
+   830→          title="No vendors"
+   831→          hint="Add vendors to start raising RFQs and POs."
+   832→        />
+   833→      )}
+   834→    </div>
+   835→  );
+   836→}
+   837→
+   838→// ============================================================
+   839→// Control banner
+   840→// ============================================================
+   841→function ControlBanner({ violations }: { violations: number }) {
+   842→  const ok = violations === 0;
+   843→  return (
+   844→    <Card
+   845→      className={cn(
+   846→        "relative overflow-hidden border p-5",
+   847→        ok ? "border-primary/30 bg-primary/[0.04]" : "border-rose-500/40 bg-rose-500/[0.05]"
+   848→      )}
+   849→    >
+   850→      <div className="flex flex-wrap items-start gap-4">
+   851→        <div
+   852→          className={cn(
+   853→            "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
+   854→            ok ? "bg-primary/15 text-primary" : "bg-rose-500/15 text-rose-400"
+   855→          )}
+   856→        >
+   857→          {ok ? <Shield className="h-6 w-6" /> : <AlertTriangle className="h-6 w-6" />}
+   858→        </div>
+   859→        <div className="min-w-0 flex-1">
+   860→          <div className="flex flex-wrap items-center gap-2">
+   861→            <h3 className="text-base font-semibold tracking-tight">Procurement Control</h3>
+   862→            <span
+   863→              className={cn(
+   864→                "rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+   865→                ok ? "bg-primary/15 text-primary" : "bg-rose-500/20 text-rose-400"
+   866→              )}
+   867→            >
+   868→              {ok ? "Policy Enforced" : "Violation Detected"}
+   869→            </span>
+   870→          </div>
+   871→          <p className="mt-1 text-sm text-muted-foreground">
+   872→            <span className="font-mono font-semibold text-foreground">Requester ≠ Approver ≠ Payer.</span>{" "}
+   873→            No single person may request, approve, AND pay a transaction. Every payment in DOZ OS is routed
+   874→            through three independent hands.
+   875→          </p>
+   876→          <div className="mt-3 flex flex-wrap items-center gap-4 text-xs">
+   877→            <div className="flex items-center gap-1.5">
+   878→              {ok ? (
+   879→                <CheckCircle2 className="h-4 w-4 text-primary" />
+   880→              ) : (
+   881→                <XCircle className="h-4 w-4 text-rose-400" />
+   882→              )}
+   883→              <span className="text-muted-foreground">Segregation violations</span>
+   884→              <span
+   885→                className={cn(
+   886→                  "font-mono font-bold",
+   887→                  ok ? "text-primary" : "text-rose-400"
+   888→                )}
+   889→              >
+   890→                {violations}
+   891→              </span>
+   892→            </div>
+   893→            <div className="hidden items-center gap-1.5 text-muted-foreground sm:flex">
+   894→              <ArrowRight className="h-3.5 w-3.5 text-amber-400" />
+   895→              <span>Request</span>
+   896→              <ArrowRight className="h-3.5 w-3.5 text-teal-300" />
+   897→              <span>Approve</span>
+   898→              <ArrowRight className="h-3.5 w-3.5 text-primary" />
+   899→              <span>Pay</span>
+   900→            </div>
+   901→          </div>
+   902→        </div>
+   903→      </div>
+   904→    </Card>
+   905→  );
+   906→}
+   907→
+   908→// ============================================================
+   909→// Loading skeleton
+   910→// ============================================================
+   911→function SkeletonGrid() {
+   912→  return (
+   913→    <div className="space-y-6">
+   914→      <Skeleton className="h-24 w-full" />
+   915→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+   916→        {Array.from({ length: 6 }).map((_, i) => (
+   917→          <Skeleton key={i} className="h-24 w-full" />
+   918→        ))}
+   919→      </div>
+   920→      <Skeleton className="h-10 w-full" />
+   921→      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+   922→        {Array.from({ length: 4 }).map((_, i) => (
+   923→          <Skeleton key={i} className="h-40 w-full" />
+   924→        ))}
+   925→      </div>
+   926→    </div>
+   927→  );
+   928→}
+   929→
+   930→// ============================================================
+   931→// Main component
+   932→// ============================================================
+   933→export function Procurement() {
+   934→  const [data, setData] = useState<ProcurementData | null>(null);
+   935→  const [loading, setLoading] = useState(true);
+   936→  const [acting, setActing] = useState<string | null>(null);
+   937→  const [showApply, setShowApply] = useState(false);
+   938→
+   939→  const load = async () => {
+   940→    setLoading(true);
+   941→    try {
+   942→      const res = await fetch("/api/doz/procurement", { cache: "no-store" });
+   943→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   944→      const json = await res.json();
+   945→      setData(json);
+   946→    } catch (e) {
+   947→      toast.error("Failed to load procurement data");
+   948→      console.error(e);
+   949→    } finally {
+   950→      setLoading(false);
+   951→    }
+   952→  };
+   953→
+   954→  useEffect(() => {
+   955→    load();
+   956→  }, []);
+   957→
+   958→  // acting user for approve/pay — pick the Founder (Kelvin Keshy) by default
+   959→  // resolved from any existing payment request where she acted as approver.
+   960→  const actingApproverId = useMemo(() => {
+   961→    if (!data) return null;
+   962→    const paid = data.paymentRequests.find((p) => p.approverId && p.approver?.role === "FOUNDER");
+   963→    return paid?.approverId ?? null;
+   964→  }, [data]);
+   965→
+   966→  // acting payer — Finance Officer (Ngozi Eze, STAFF) — resolved from a PAID request
+   967→  const actingPayerId = useMemo(() => {
+   968→    if (!data) return null;
+   969→    const paid = data.paymentRequests.find((p) => p.status === "PAID" && p.payerId);
+   970→    return paid?.payerId ?? null;
+   971→  }, [data]);
+   972→
+   973→  async function handleAction(id: string, action: "APPROVE" | "REJECT" | "PAY") {
+   974→    if (!data) return;
+   975→    const pr = data.paymentRequests.find((p) => p.id === id);
+   976→    if (!pr) return;
+   977→
+   978→    // Validate segregation client-side first (the API will re-validate).
+   979→    if (action === "APPROVE" || action === "REJECT") {
+   980→      if (!actingApproverId) {
+   981→        toast.error("No acting approver resolved");
+   982→        return;
+   983→      }
+   984→      if (actingApproverId === pr.requesterId) {
+   985→        toast.error("Segregation violation: requester cannot approve their own request", {
+   986→          description: "Choose a different approver.",
+   987→        });
+   988→        return;
+   989→      }
+   990→    }
+   991→    if (action === "PAY") {
+   992→      if (!actingPayerId) {
+   993→        toast.error("No acting payer resolved");
+   994→        return;
+   995→      }
+   996→      if (actingPayerId === pr.requesterId || actingPayerId === pr.approverId) {
+   997→        toast.error("Segregation violation: payer must differ from requester and approver");
+   998→        return;
+   999→      }
+  1000→    }
+  1001→
+  1002→    setActing(id);
+  1003→    try {
+  1004→      const payload: Record<string, unknown> = { id, action };
+  1005→      if (action === "APPROVE" || action === "REJECT") {
+  1006→        payload.approverId = actingApproverId;
+  1007→        payload.comment = action === "APPROVE" ? "Approved from DOZ OS" : "Rejected from DOZ OS";
+  1008→      }
+  1009→      if (action === "PAY") {
+  1010→        payload.payerId = actingPayerId;
+  1011→      }
+  1012→
+  1013→      const res = await fetch("/api/doz/procurement", {
+  1014→        method: "POST",
+  1015→        headers: { "Content-Type": "application/json" },
+  1016→        body: JSON.stringify(payload),
+  1017→      });
+  1018→
+  1019→      if (!res.ok) {
+  1020→        const err = await res.json().catch(() => ({}));
+  1021→        toast.error(err.error ?? `Failed to ${action.toLowerCase()}`);
+  1022→        return;
+  1023→      }
+  1024→
+  1025→      const actionLabel = action === "APPROVE" ? "approved" : action === "REJECT" ? "rejected" : "marked paid";
+  1026→      toast.success(`${pr.code} ${actionLabel}`, {
+  1027→        description:
+  1028→          action === "APPROVE"
+  1029→            ? "Routed to finance for payment"
+  1030→            : action === "PAY"
+  1031→            ? "Payment recorded"
+  1032→            : "Request declined",
+  1033→      });
+  1034→      await load();
+  1035→    } catch (e) {
+  1036→      toast.error("Network error — please retry");
+  1037→      console.error(e);
+  1038→    } finally {
+  1039→      setActing(null);
+  1040→    }
+  1041→  }
+  1042→
+  1043→  if (loading || !data) {
+  1044→    return (
+  1045→      <div className="space-y-4">
+  1046→        <SectionHeader title="Procurement & Vendor Management" />
+  1047→        <SkeletonGrid />
+  1048→      </div>
+  1049→    );
+  1050→  }
+  1051→
+  1052→  const { stats, vendors, rfqs, purchaseOrders, paymentRequests } = data;
+  1053→
+  1054→  return (
+  1055→    <div className="space-y-5">
+  1056→      <SectionHeader
+  1057→        title="Procurement & Vendor Management"
+  1058→        description="RFQs, quotes, purchase orders, and 3-way segregated payments"
+  1059→        icon={<Truck className="h-5 w-5" />}
+  1060→        action={
+  1061→          <Button
+  1062→            size="sm"
+  1063→            onClick={() => setShowApply(true)}
+  1064→            className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+  1065→          >
+  1066→            <Plus className="h-3.5 w-3.5" />
+  1067→            Add Vendor
+  1068→          </Button>
+  1069→        }
+  1070→      />
+  1071→
+  1072→      <ControlBanner violations={stats.segregationViolations} />
+  1073→
+  1074→      {/* KPI row */}
+  1075→      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+  1076→        <StatCard
+  1077→          label="Pending Approvals"
+  1078→          value={stats.pendingApprovals}
+  1079→          sub={`${formatNGN(stats.pendingPaymentsValue, true)} awaiting`}
+  1080→          icon={<Clock className="h-4 w-4 text-amber-400" />}
+  1081→          accent="warning"
+  1082→        />
+  1083→        <StatCard
+  1084→          label="Open RFQs"
+  1085→          value={stats.openRfqs}
+  1086→          sub="Awaiting quotes"
+  1087→          icon={<FileText className="h-4 w-4" />}
+  1088→        />
+  1089→        <StatCard
+  1090→          label="Active Vendors"
+  1091→          value={stats.activeVendors}
+  1092→          sub={`Avg rating ${stats.avgVendorRating.toFixed(1)}★`}
+  1093→          icon={<Users2 className="h-4 w-4" />}
+  1094→        />
+  1095→        <StatCard
+  1096→          label="Total Vendor Spend"
+  1097→          value={formatNGN(stats.totalVendorSpend, true)}
+  1098→          sub="Lifetime"
+  1099→          icon={<Wallet className="h-4 w-4 text-primary" />}
+  1100→          accent="primary"
+  1101→        />
+  1102→        <StatCard
+  1103→          label="Overdue Payments"
+  1104→          value={stats.overduePayments}
+  1105→          sub={stats.overduePayments === 0 ? "All on schedule" : "Needs attention"}
+  1106→          icon={<AlertTriangle className="h-4 w-4 text-rose-400" />}
+  1107→          accent={stats.overduePayments > 0 ? "danger" : "default"}
+  1108→        />
+  1109→        <StatCard
+  1110→          label="Avg Vendor Rating"
+  1111→          value={`${stats.avgVendorRating.toFixed(1)}★`}
+  1112→          sub={`Across ${vendors.length} vendors`}
+  1113→          icon={<Star className="h-4 w-4 text-amber-400" />}
+  1114→        />
+  1115→      </div>
+  1116→
+  1117→      <Tabs defaultValue="approvals" className="w-full">
+  1118→        <TabsList className="h-9 w-full justify-start overflow-x-auto">
+  1119→          <TabsTrigger value="approvals" className="gap-1.5 text-xs">
+  1120→            <Shield className="h-3.5 w-3.5" />
+  1121→            Approvals
+  1122→            {stats.pendingApprovals > 0 && (
+  1123→              <Badge className="ml-1 h-4 bg-amber-500/20 px-1 text-[9px] text-amber-400">
+  1124→                {stats.pendingApprovals}
+  1125→              </Badge>
+  1126→            )}
+  1127→          </TabsTrigger>
+  1128→          <TabsTrigger value="rfqs" className="gap-1.5 text-xs">
+  1129→            <FileText className="h-3.5 w-3.5" />
+  1130→            RFQs & Quotes
+  1131→          </TabsTrigger>
+  1132→          <TabsTrigger value="pos" className="gap-1.5 text-xs">
+  1133→            <Truck className="h-3.5 w-3.5" />
+  1134→            Purchase Orders
+  1135→          </TabsTrigger>
+  1136→          <TabsTrigger value="vendors" className="gap-1.5 text-xs">
+  1137→            <Users2 className="h-3.5 w-3.5" />
+  1138→            Vendors
+  1139→          </TabsTrigger>
+  1140→          <TabsTrigger value="onboarding" className="gap-1.5 text-xs">
+  1141→            <Plus className="h-3.5 w-3.5" />
+  1142→            Onboarding
+  1143→          </TabsTrigger>
+  1144→        </TabsList>
+  1145→
+  1146→        <TabsContent value="approvals" className="mt-4">
+  1147→          <ApprovalsTab
+  1148→            paymentRequests={paymentRequests}
+  1149→            onAction={handleAction}
+  1150→            acting={acting}
+  1151→          />
+  1152→        </TabsContent>
+  1153→
+  1154→        <TabsContent value="rfqs" className="mt-4">
+  1155→          <RfqsTab rfqs={rfqs} />
+  1156→        </TabsContent>
+  1157→
+  1158→        <TabsContent value="pos" className="mt-4">
+  1159→          <PurchaseOrdersTab pos={purchaseOrders} />
+  1160→        </TabsContent>
+  1161→
+  1162→        <TabsContent value="vendors" className="mt-4">
+  1163→          <VendorsTab vendors={vendors} />
+  1164→        </TabsContent>
+  1165→
+  1166→        <TabsContent value="onboarding" className="mt-4">
+  1167→          <VendorApplications />
+  1168→        </TabsContent>
+  1169→      </Tabs>
+  1170→
+  1171→      {showApply && <AddVendorForm onClose={() => setShowApply(false)} onSaved={load} />}
+  1172→    </div>
+  1173→  );
+  1174→}
+  1175→

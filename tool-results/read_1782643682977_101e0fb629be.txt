@@ -1,0 +1,840 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState, useRef } from "react";
+     4→import {
+     5→  Sparkles,
+     6→  Target,
+     7→  AlertTriangle,
+     8→  FileText,
+     9→  MessageSquare,
+    10→  Send,
+    11→  Bot,
+    12→  Zap,
+    13→  TrendingUp,
+    14→  Shield,
+    15→  Circle,
+    16→  CornerDownRight,
+    17→} from "lucide-react";
+    18→import { Card } from "@/components/ui/card";
+    19→import { Button } from "@/components/ui/button";
+    20→import { Input } from "@/components/ui/input";
+    21→import { Skeleton } from "@/components/ui/skeleton";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { ScrollArea } from "@/components/ui/scroll-area";
+    24→import { StatCard, SectionHeader, EmptyState } from "@/components/doz/ui-primitives";
+    25→import { formatNGN, relativeTime } from "@/lib/format";
+    26→import { toast } from "sonner";
+    27→import { cn } from "@/lib/utils";
+    28→import ReactMarkdown from "react-markdown";
+    29→
+    30→// ============================================================
+    31→// Types
+    32→// ============================================================
+    33→
+    34→type Action = "daily_plan" | "risk_check" | "proposal_draft" | "chat";
+    35→
+    36→interface Insight {
+    37→  id: string;
+    38→  type: string;
+    39→  severity: string;
+    40→  title: string;
+    41→  message: string;
+    42→  isRead: boolean;
+    43→  createdAt: string;
+    44→  entityType: string | null;
+    45→  entityId: string | null;
+    46→}
+    47→
+    48→interface ContextSummary {
+    49→  pipelineValue: number;
+    50→  outstandingAmount: number;
+    51→  overdueAmount: number;
+    52→  pendingApprovals: number;
+    53→  openTasks: number;
+    54→  overdueTasks: number;
+    55→  activeProjects: number;
+    56→  distractions: number;
+    57→  cashPosition: number;
+    58→  topPriorities: string[];
+    59→  upcomingDeadlines: string[];
+    60→}
+    61→
+    62→interface AiData {
+    63→  insights: Insight[];
+    64→  stats: { critical: number; warnings: number; info: number; unread: number };
+    65→  contextSummary: ContextSummary | null;
+    66→}
+    67→
+    68→interface ChatExchange {
+    69→  role: "user" | "assistant";
+    70→  content: string;
+    71→  action?: Action;
+    72→}
+    73→
+    74→// ============================================================
+    75→// Severity + type styling
+    76→// ============================================================
+    77→
+    78→function severityDot(sev: string): string {
+    79→  switch (sev) {
+    80→    case "CRITICAL":
+    81→      return "bg-red-500";
+    82→    case "WARNING":
+    83→      return "bg-amber-500";
+    84→    case "INFO":
+    85→      return "bg-teal-500";
+    86→    default:
+    87→      return "bg-zinc-500";
+    88→  }
+    89→}
+    90→
+    91→function severityBorder(sev: string): string {
+    92→  switch (sev) {
+    93→    case "CRITICAL":
+    94→      return "border-l-red-500";
+    95→    case "WARNING":
+    96→      return "border-l-amber-500";
+    97→    case "INFO":
+    98→      return "border-l-teal-500";
+    99→    default:
+   100→      return "border-l-zinc-500";
+   101→  }
+   102→}
+   103→
+   104→function typeBadgeColor(t: string): string {
+   105→  switch (t) {
+   106→    case "OVERDUE":
+   107→      return "bg-red-500/15 text-red-400 border-red-500/30";
+   108→    case "BUDGET_OVERRUN":
+   109→      return "bg-rose-500/15 text-rose-400 border-rose-500/30";
+   110→    case "RISK":
+   111→      return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+   112→    case "DISTRACTION":
+   113→      return "bg-orange-500/15 text-orange-400 border-orange-500/30";
+   114→    case "OPPORTUNITY":
+   115→      return "bg-primary/15 text-primary border-primary/30";
+   116→    case "DAILY_PLAN":
+   117→      return "bg-teal-500/15 text-teal-400 border-teal-500/30";
+   118→    default:
+   119→      return "bg-muted text-muted-foreground border-border";
+   120→  }
+   121→}
+   122→
+   123→// ============================================================
+   124→// Quick prompts
+   125→// ============================================================
+   126→
+   127→const QUICK_PROMPTS = [
+   128→  "What should I delegate today?",
+   129→  "Which project is at risk of going over budget?",
+   130→  "Draft a follow-up to GTBank",
+   131→  "Summarize this week's wins",
+   132→];
+   133→
+   134→// ============================================================
+   135→// Component
+   136→// ============================================================
+   137→
+   138→export function AiChiefOfStaff() {
+   139→  const [data, setData] = useState<AiData | null>(null);
+   140→  const [loading, setLoading] = useState(true);
+   141→  const [error, setError] = useState<string | null>(null);
+   142→
+   143→  // AI console state
+   144→  const [busy, setBusy] = useState<Action | null>(null);
+   145→  const [history, setHistory] = useState<ChatExchange[]>([]);
+   146→  const [chatMode, setChatMode] = useState(false);
+   147→  const [chatInput, setChatInput] = useState("");
+   148→  const [lastResponse, setLastResponse] = useState<string | null>(null);
+   149→  const responseRef = useRef<HTMLDivElement>(null);
+   150→
+   151→  // fetch insights + context
+   152→  useEffect(() => {
+   153→    let cancelled = false;
+   154→    (async () => {
+   155→      try {
+   156→        const res = await fetch("/api/doz/ai");
+   157→        if (!res.ok) throw new Error("Failed to load AI insights");
+   158→        const json = (await res.json()) as AiData;
+   159→        if (cancelled) return;
+   160→        setData(json);
+   161→      } catch (e) {
+   162→        if (!cancelled) setError(e instanceof Error ? e.message : "Unknown error");
+   163→      } finally {
+   164→        if (!cancelled) setLoading(false);
+   165→      }
+   166→    })();
+   167→    return () => {
+   168→      cancelled = true;
+   169→    };
+   170→  }, []);
+   171→
+   172→  async function runAction(action: Action, msg?: string, oppName?: string) {
+   173→    if (busy) return;
+   174→    setBusy(action);
+   175→    const userMessage =
+   176→      msg ?? (action === "chat" ? chatInput.trim() : undefined);
+   177→
+   178→    if (action === "chat") {
+   179→      if (!userMessage) {
+   180→        toast.error("Please enter a question first");
+   181→        setBusy(null);
+   182→        return;
+   183→      }
+   184→      setHistory((h) => [...h, { role: "user", content: userMessage, action }]);
+   185→      setChatInput("");
+   186→    }
+   187→
+   188→    try {
+   189→      const res = await fetch("/api/doz/ai", {
+   190→        method: "POST",
+   191→        headers: { "Content-Type": "application/json" },
+   192→        body: JSON.stringify({
+   193→          action,
+   194→          message: action === "chat" ? userMessage : undefined,
+   195→          opportunityName: oppName,
+   196→        }),
+   197→      });
+   198→      if (!res.ok) throw new Error("AI request failed");
+   199→      const json = (await res.json()) as { response: string; error?: boolean };
+   200→      const text = json.response ?? "No response.";
+   201→      setLastResponse(text);
+   202→      setHistory((h) => [...h, { role: "assistant", content: text, action }]);
+   203→      // keep only last 3 exchanges (1 exchange = user + assistant = 2 messages)
+   204→      if (history.length > 4) {
+   205→        setHistory((h) => h.slice(-4));
+   206→      }
+   207→      if (json.error) {
+   208→        toast.warning("AI offline — showing cached recommendation");
+   209→      }
+   210→    } catch (e) {
+   211→      toast.error(e instanceof Error ? e.message : "AI request failed");
+   212→    } finally {
+   213→      setBusy(null);
+   214→      setTimeout(() => {
+   215→        responseRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+   216→      }, 100);
+   217→    }
+   218→  }
+   219→
+   220→  function handleQuickPrompt(prompt: string) {
+   221→    setChatMode(true);
+   222→    setChatInput(prompt);
+   223→    void runAction("chat", prompt);
+   224→  }
+   225→
+   226→  // ---------- loading ----------
+   227→  if (loading) {
+   228→    return (
+   229→      <div className="space-y-6 p-4 md:p-6">
+   230→        <Skeleton className="h-28 w-full" />
+   231→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+   232→          {Array.from({ length: 4 }).map((_, i) => (
+   233→            <Skeleton key={i} className="h-24 w-full" />
+   234→          ))}
+   235→        </div>
+   236→        <div className="grid lg:grid-cols-3 gap-6">
+   237→          <div className="lg:col-span-2 space-y-6">
+   238→            <Skeleton className="h-96 w-full" />
+   239→            <Skeleton className="h-64 w-full" />
+   240→          </div>
+   241→          <div className="space-y-6">
+   242→            <Skeleton className="h-72 w-full" />
+   243→            <Skeleton className="h-56 w-full" />
+   244→          </div>
+   245→        </div>
+   246→      </div>
+   247→    );
+   248→  }
+   249→
+   250→  if (error || !data) {
+   251→    return (
+   252→      <div className="p-4 md:p-6">
+   253→        <EmptyState
+   254→          icon={<AlertTriangle className="h-8 w-8" />}
+   255→          title="Couldn't load AI Chief of Staff"
+   256→          hint={error ?? "Unknown error"}
+   257→        />
+   258→      </div>
+   259→    );
+   260→  }
+   261→
+   262→  const { insights, stats, contextSummary } = data;
+   263→
+   264→  return (
+   265→    <div className="space-y-6 p-4 md:p-6">
+   266→      {/* ---------- Hero banner ---------- */}
+   267→      <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5 md:p-6">
+   268→        <div className="flex flex-wrap items-start justify-between gap-4">
+   269→          <div className="flex items-start gap-4">
+   270→            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+   271→              <Sparkles className="h-6 w-6" />
+   272→            </div>
+   273→            <div>
+   274→              <div className="flex items-center gap-2">
+   275→                <h1 className="text-xl md:text-2xl font-semibold tracking-tight">AI Chief of Staff</h1>
+   276→                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400 ring-1 ring-emerald-500/30">
+   277→                  <span className="relative flex h-1.5 w-1.5">
+   278→                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+   279→                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+   280→                  </span>
+   281→                  Online
+   282→                </span>
+   283→              </div>
+   284→              <p className="text-sm text-muted-foreground mt-1">
+   285→                Your digital Operations Director — daily plans, risk checks, proposals & chat.
+   286→              </p>
+   287→            </div>
+   288→          </div>
+   289→          <div className="hidden sm:flex items-center gap-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+   290→            <Bot className="h-4 w-4 text-primary" />
+   291→            <span className="font-mono">ops-director · v1</span>
+   292→          </div>
+   293→        </div>
+   294→      </Card>
+   295→
+   296→      {/* ---------- KPI row ---------- */}
+   297→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+   298→        <StatCard
+   299→          label="Critical Alerts"
+   300→          value={stats.critical}
+   301→          sub={`${stats.critical} critical insight${stats.critical === 1 ? "" : "s"}`}
+   302→          icon={<AlertTriangle className="h-5 w-5 text-red-400" />}
+   303→          accent="danger"
+   304→        />
+   305→        <StatCard
+   306→          label="Warnings"
+   307→          value={stats.warnings}
+   308→          sub="items needing attention"
+   309→          icon={<AlertTriangle className="h-5 w-5 text-amber-400" />}
+   310→          accent="warning"
+   311→        />
+   312→        <StatCard
+   313→          label="Open Tasks"
+   314→          value={contextSummary?.openTasks ?? 0}
+   315→          sub={`${contextSummary?.overdueTasks ?? 0} overdue`}
+   316→          icon={<Target className="h-5 w-5 text-primary" />}
+   317→          accent="primary"
+   318→        />
+   319→        <StatCard
+   320→          label="Unread Insights"
+   321→          value={stats.unread}
+   322→          sub="new from the AI"
+   323→          icon={<Sparkles className="h-5 w-5 text-teal-400" />}
+   324→        />
+   325→      </div>
+   326→
+   327→      {/* ---------- Main layout ---------- */}
+   328→      <div className="grid lg:grid-cols-3 gap-6">
+   329→        {/* ----- LEFT COLUMN ----- */}
+   330→        <div className="lg:col-span-2 space-y-6">
+   331→          {/* === AI Console === */}
+   332→          <Card className="p-5">
+   333→            <SectionHeader
+   334→              title="AI Console"
+   335→              description="Generate a plan, scan for risk, draft a proposal, or ask a question."
+   336→              icon={<Sparkles className="h-5 w-5" />}
+   337→            />
+   338→
+   339→            {/* action buttons */}
+   340→            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+   341→              <ActionButton
+   342→                label="Daily Plan"
+   343→                icon={<Target className="h-4 w-4" />}
+   344→                onClick={() => {
+   345→                  setChatMode(false);
+   346→                  void runAction("daily_plan");
+   347→                }}
+   348→                active={busy === "daily_plan"}
+   349→                disabled={!!busy}
+   350→              />
+   351→              <ActionButton
+   352→                label="Risk Check"
+   353→                icon={<AlertTriangle className="h-4 w-4" />}
+   354→                onClick={() => {
+   355→                  setChatMode(false);
+   356→                  void runAction("risk_check");
+   357→                }}
+   358→                active={busy === "risk_check"}
+   359→                disabled={!!busy}
+   360→              />
+   361→              <ActionButton
+   362→                label="Draft Proposal"
+   363→                icon={<FileText className="h-4 w-4" />}
+   364→                onClick={() => {
+   365→                  setChatMode(false);
+   366→                  void runAction("proposal_draft", undefined, undefined);
+   367→                }}
+   368→                active={busy === "proposal_draft"}
+   369→                disabled={!!busy}
+   370→              />
+   371→              <ActionButton
+   372→                label="Ask Question"
+   373→                icon={<MessageSquare className="h-4 w-4" />}
+   374→                onClick={() => setChatMode((v) => !v)}
+   375→                active={chatMode}
+   376→                disabled={!!busy}
+   377→              />
+   378→            </div>
+   379→
+   380→            {/* chat input */}
+   381→            {chatMode && (
+   382→              <form
+   383→                className="mt-3 flex gap-2"
+   384→                onSubmit={(e) => {
+   385→                  e.preventDefault();
+   386→                  void runAction("chat");
+   387→                }}
+   388→              >
+   389→                <Input
+   390→                  value={chatInput}
+   391→                  onChange={(e) => setChatInput(e.target.value)}
+   392→                  placeholder="Ask the Operations Director…"
+   393→                  disabled={!!busy}
+   394→                  autoFocus
+   395→                />
+   396→                <Button type="submit" disabled={!!busy || !chatInput.trim()} size="sm">
+   397→                  <Send className="h-4 w-4" />
+   398→                </Button>
+   399→              </form>
+   400→            )}
+   401→
+   402→            {/* response area */}
+   403→            <div ref={responseRef} className="mt-4">
+   404→              {busy ? (
+   405→                <ThinkingIndicator action={busy} />
+   406→              ) : lastResponse ? (
+   407→                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+   408→                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-primary/15">
+   409→                    <Bot className="h-4 w-4 text-primary" />
+   410→                    <span className="text-xs font-semibold uppercase tracking-wider text-primary">
+   411→                      Operations Director
+   412→                    </span>
+   413→                  </div>
+   414→                  <MarkdownRender content={lastResponse} />
+   415→                </div>
+   416→              ) : (
+   417→                <div className="rounded-lg border border-dashed border-border p-6 text-center">
+   418→                  <Sparkles className="mx-auto h-8 w-8 text-muted-foreground/50" />
+   419→                  <p className="mt-2 text-sm font-medium">No output yet</p>
+   420→                  <p className="text-xs text-muted-foreground">
+   421→                    Click an action above to get a daily plan, risk report, or proposal draft.
+   422→                  </p>
+   423→                </div>
+   424→              )}
+   425→
+   426→              {/* history */}
+   427→              {history.length > 0 && (
+   428→                <div className="mt-4">
+   429→                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+   430→                    Recent exchanges
+   431→                  </p>
+   432→                  <ScrollArea className="max-h-72">
+   433→                    <div className="space-y-2 pr-2">
+   434→                      {history
+   435→                        .slice()
+   436→                        .reverse()
+   437→                        .slice(0, 6)
+   438→                        .map((m, i) => (
+   439→                          <div
+   440→                            key={i}
+   441→                            className={cn(
+   442→                              "rounded-md border p-2 text-sm",
+   443→                              m.role === "user"
+   444→                                ? "border-border bg-muted/30"
+   445→                                : "border-primary/15 bg-primary/5"
+   446→                            )}
+   447→                          >
+   448→                            <div className="flex items-center gap-1.5 mb-1">
+   449→                              <span
+   450→                                className={cn(
+   451→                                  "text-[10px] font-semibold uppercase tracking-wider",
+   452→                                  m.role === "user" ? "text-muted-foreground" : "text-primary"
+   453→                                )}
+   454→                              >
+   455→                                {m.role === "user" ? "You" : "AI"}
+   456→                              </span>
+   457→                              {m.action && (
+   458→                                <Badge
+   459→                                  variant="outline"
+   460→                                  className="ml-auto text-[9px] px-1 py-0 font-mono"
+   461→                                >
+   462→                                  {m.action.replace("_", " ")}
+   463→                                </Badge>
+   464→                              )}
+   465→                            </div>
+   466→                            {m.role === "user" ? (
+   467→                              <p className="text-sm">{m.content}</p>
+   468→                            ) : (
+   469→                              <MarkdownRender content={m.content} compact />
+   470→                            )}
+   471→                          </div>
+   472→                        ))}
+   473→                    </div>
+   474→                  </ScrollArea>
+   475→                </div>
+   476→              )}
+   477→            </div>
+   478→          </Card>
+   479→
+   480→          {/* === Active Insights === */}
+   481→          <Card className="p-5">
+   482→            <SectionHeader
+   483→              title="Active Insights"
+   484→              description={`${insights.length} stored insights — generated by the AI from your operating data.`}
+   485→              icon={<Zap className="h-5 w-5" />}
+   486→              action={
+   487→                <Badge variant="outline" className="text-[10px]">
+   488→                  {stats.unread} unread
+   489→                </Badge>
+   490→              }
+   491→            />
+   492→            <div className="mt-4 max-h-[28rem] overflow-y-auto pr-1 scroll-thin">
+   493→              {insights.length === 0 ? (
+   494→                <EmptyState
+   495→                  icon={<Sparkles className="h-8 w-8" />}
+   496→                  title="No insights yet"
+   497→                  hint="Run a daily plan or risk check to generate insights."
+   498→                />
+   499→              ) : (
+   500→                <ul className="space-y-2">
+   501→                  {insights.map((ins) => (
+   502→                    <li
+   503→                      key={ins.id}
+   504→                      className={cn(
+   505→                        "rounded-lg border border-l-4 bg-card p-3 transition-colors hover:bg-accent/20",
+   506→                        severityBorder(ins.severity),
+   507→                        !ins.isRead && "ring-1 ring-primary/20 bg-primary/5"
+   508→                      )}
+   509→                    >
+   510→                      <div className="flex items-start gap-3">
+   511→                        <span
+   512→                          className={cn(
+   513→                            "mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full",
+   514→                            severityDot(ins.severity)
+   515→                          )}
+   516→                          aria-label={ins.severity}
+   517→                        />
+   518→                        <div className="min-w-0 flex-1">
+   519→                          <div className="flex flex-wrap items-center gap-2">
+   520→                            <p className="font-medium text-sm">{ins.title}</p>
+   521→                            <span
+   522→                              className={cn(
+   523→                                "rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+   524→                                typeBadgeColor(ins.type)
+   525→                              )}
+   526→                            >
+   527→                              {ins.type.replace(/_/g, " ")}
+   528→                            </span>
+   529→                            {!ins.isRead && (
+   530→                              <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
+   531→                                New
+   532→                              </span>
+   533→                            )}
+   534→                          </div>
+   535→                          <p className="text-xs text-muted-foreground mt-1">{ins.message}</p>
+   536→                          <p className="text-[10px] text-muted-foreground/70 mt-1.5">
+   537→                            {relativeTime(ins.createdAt)}
+   538→                            {ins.entityType ? ` · ${ins.entityType}` : ""}
+   539→                          </p>
+   540→                        </div>
+   541→                      </div>
+   542→                    </li>
+   543→                  ))}
+   544→                </ul>
+   545→              )}
+   546→            </div>
+   547→          </Card>
+   548→        </div>
+   549→
+   550→        {/* ----- RIGHT COLUMN ----- */}
+   551→        <div className="space-y-6">
+   552→          {/* === Live Context === */}
+   553→          <Card className="p-5">
+   554→            <SectionHeader
+   555→              title="Live Context"
+   556→              description="What the AI sees right now."
+   557→              icon={<TrendingUp className="h-5 w-5" />}
+   558→            />
+   559→            {!contextSummary ? (
+   560→              <EmptyState
+   561→                icon={<TrendingUp className="h-6 w-6" />}
+   562→                title="Context unavailable"
+   563→                hint="Could not build the AI context summary."
+   564→              />
+   565→            ) : (
+   566→              <ul className="mt-4 space-y-2">
+   567→                <ContextRow
+   568→                  label="Pipeline value"
+   569→                  value={formatNGN(contextSummary.pipelineValue, true)}
+   570→                  icon={<TrendingUp className="h-3.5 w-3.5" />}
+   571→                  tone="primary"
+   572→                />
+   573→                <ContextRow
+   574→                  label="Outstanding invoices"
+   575→                  value={formatNGN(contextSummary.outstandingAmount, true)}
+   576→                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
+   577→                  tone={contextSummary.outstandingAmount > 0 ? "warning" : "default"}
+   578→                />
+   579→                <ContextRow
+   580→                  label="Overdue invoices"
+   581→                  value={formatNGN(contextSummary.overdueAmount, true)}
+   582→                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
+   583→                  tone={contextSummary.overdueAmount > 0 ? "danger" : "default"}
+   584→                />
+   585→                <ContextRow
+   586→                  label="Cash position"
+   587→                  value={formatNGN(contextSummary.cashPosition, true)}
+   588→                  icon={<Shield className="h-3.5 w-3.5" />}
+   589→                  tone={contextSummary.cashPosition < 0 ? "danger" : "primary"}
+   590→                />
+   591→                <ContextRow
+   592→                  label="Pending approvals"
+   593→                  value={String(contextSummary.pendingApprovals)}
+   594→                  icon={<Shield className="h-3.5 w-3.5" />}
+   595→                  tone={contextSummary.pendingApprovals > 0 ? "warning" : "default"}
+   596→                />
+   597→                <ContextRow
+   598→                  label="Open tasks"
+   599→                  value={`${contextSummary.openTasks} (${contextSummary.overdueTasks} overdue)`}
+   600→                  icon={<Target className="h-3.5 w-3.5" />}
+   601→                  tone={contextSummary.overdueTasks > 0 ? "warning" : "default"}
+   602→                />
+   603→                <ContextRow
+   604→                  label="Active projects"
+   605→                  value={String(contextSummary.activeProjects)}
+   606→                  icon={<Zap className="h-3.5 w-3.5" />}
+   607→                  tone="default"
+   608→                />
+   609→                <ContextRow
+   610→                  label="Distractions"
+   611→                  value={String(contextSummary.distractions)}
+   612→                  icon={<Circle className="h-3.5 w-3.5" />}
+   613→                  tone={contextSummary.distractions > 0 ? "warning" : "default"}
+   614→                />
+   615→              </ul>
+   616→            )}
+   617→
+   618→            {/* top priorities list */}
+   619→            {contextSummary && contextSummary.topPriorities.length > 0 && (
+   620→              <div className="mt-4 border-t border-border pt-3">
+   621→                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+   622→                  Top priorities
+   623→                </p>
+   624→                <ul className="space-y-1">
+   625→                  {contextSummary.topPriorities.slice(0, 5).map((p, i) => (
+   626→                    <li key={i} className="flex items-start gap-2 text-xs">
+   627→                      <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+   628→                      <span className="text-foreground/80">{p}</span>
+   629→                    </li>
+   630→                  ))}
+   631→                </ul>
+   632→              </div>
+   633→            )}
+   634→
+   635→            {/* upcoming deadlines list */}
+   636→            {contextSummary && contextSummary.upcomingDeadlines.length > 0 && (
+   637→              <div className="mt-4 border-t border-border pt-3">
+   638→                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+   639→                  Upcoming deadlines
+   640→                </p>
+   641→                <ul className="space-y-1">
+   642→                  {contextSummary.upcomingDeadlines.slice(0, 6).map((p, i) => (
+   643→                    <li key={i} className="flex items-start gap-2 text-xs">
+   644→                      <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" />
+   645→                      <span className="text-foreground/80">{p}</span>
+   646→                    </li>
+   647→                  ))}
+   648→                </ul>
+   649→              </div>
+   650→            )}
+   651→          </Card>
+   652→
+   653→          {/* === Quick Prompts === */}
+   654→          <Card className="p-5">
+   655→            <SectionHeader
+   656→              title="Quick Prompts"
+   657→              description="Click to send a question to the AI."
+   658→              icon={<MessageSquare className="h-5 w-5" />}
+   659→            />
+   660→            <div className="mt-4 flex flex-col gap-2">
+   661→              {QUICK_PROMPTS.map((q) => (
+   662→                <button
+   663→                  key={q}
+   664→                  type="button"
+   665→                  disabled={!!busy}
+   666→                  onClick={() => handleQuickPrompt(q)}
+   667→                  className={cn(
+   668→                    "group flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-left text-sm transition-all",
+   669→                    "hover:border-primary/40 hover:bg-primary/5 disabled:opacity-50 disabled:cursor-not-allowed"
+   670→                  )}
+   671→                >
+   672→                  <span className="flex items-center gap-2">
+   673→                    <Sparkles className="h-3.5 w-3.5 text-primary opacity-70 group-hover:opacity-100" />
+   674→                    <span>{q}</span>
+   675→                  </span>
+   676→                  <Send className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+   677→                </button>
+   678→              ))}
+   679→            </div>
+   680→            <p className="mt-3 text-[10px] text-muted-foreground">
+   681→              Prompts run via the chat action — your response appears in the AI Console.
+   682→            </p>
+   683→          </Card>
+   684→        </div>
+   685→      </div>
+   686→    </div>
+   687→  );
+   688→}
+   689→
+   690→// ============================================================
+   691→// Sub-components
+   692→// ============================================================
+   693→
+   694→function ActionButton({
+   695→  label,
+   696→  icon,
+   697→  onClick,
+   698→  active,
+   699→  disabled,
+   700→}: {
+   701→  label: string;
+   702→  icon: React.ReactNode;
+   703→  onClick: () => void;
+   704→  active?: boolean;
+   705→  disabled?: boolean;
+   706→}) {
+   707→  return (
+   708→    <Button
+   709→      type="button"
+   710→      variant={active ? "default" : "outline"}
+   711→      onClick={onClick}
+   712→      disabled={disabled}
+   713→      className="h-auto flex-col gap-1.5 py-3"
+   714→    >
+   715→      {icon}
+   716→      <span className="text-[11px] font-medium">{label}</span>
+   717→    </Button>
+   718→  );
+   719→}
+   720→
+   721→function ThinkingIndicator({ action }: { action: Action }) {
+   722→  const label =
+   723→    action === "daily_plan"
+   724→      ? "Building your daily plan"
+   725→      : action === "risk_check"
+   726→      ? "Scanning for risks"
+   727→      : action === "proposal_draft"
+   728→      ? "Drafting proposal"
+   729→      : "Thinking";
+   730→  return (
+   731→    <div className="rounded-lg border border-primary/20 bg-primary/5 p-5">
+   732→      <div className="flex items-center gap-3">
+   733→        <div className="relative">
+   734→          <Sparkles className="h-5 w-5 text-primary animate-pulse" />
+   735→          <span className="absolute -inset-1.5 animate-ping rounded-full bg-primary/20" />
+   736→        </div>
+   737→        <div className="flex-1">
+   738→          <p className="text-sm font-medium text-primary">{label}…</p>
+   739→          <div className="mt-1.5 flex items-center gap-1">
+   740→            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
+   741→            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
+   742→            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+   743→          </div>
+   744→        </div>
+   745→      </div>
+   746→    </div>
+   747→  );
+   748→}
+   749→
+   750→function ContextRow({
+   751→  label,
+   752→  value,
+   753→  icon,
+   754→  tone = "default",
+   755→}: {
+   756→  label: string;
+   757→  value: string;
+   758→  icon: React.ReactNode;
+   759→  tone?: "default" | "primary" | "warning" | "danger";
+   760→}) {
+   761→  const toneClass = {
+   762→    default: "text-foreground",
+   763→    primary: "text-primary",
+   764→    warning: "text-amber-400",
+   765→    danger: "text-red-400",
+   766→  }[tone];
+   767→  return (
+   768→    <li className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+   769→      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+   770→        <span className="text-muted-foreground/70">{icon}</span>
+   771→        {label}
+   772→      </span>
+   773→      <span className={cn("text-sm font-semibold tabular-nums", toneClass)}>{value}</span>
+   774→    </li>
+   775→  );
+   776→}
+   777→
+   778→// Lightweight markdown renderer (no typography plugin) with manual prose-like styling
+   779→function MarkdownRender({ content, compact = false }: { content: string; compact?: boolean }) {
+   780→  return (
+   781→    <div className={cn("text-sm leading-relaxed text-foreground/90", compact && "text-xs")}>
+   782→      <ReactMarkdown
+   783→        components={{
+   784→          h1: ({ children }) => (
+   785→            <h1 className={cn("font-semibold tracking-tight mt-3 mb-2", compact ? "text-sm" : "text-base")}>
+   786→              {children}
+   787→            </h1>
+   788→          ),
+   789→          h2: ({ children }) => (
+   790→            <h2 className={cn("font-semibold tracking-tight mt-3 mb-2", compact ? "text-sm" : "text-base")}>
+   791→              {children}
+   792→            </h2>
+   793→          ),
+   794→          h3: ({ children }) => (
+   795→            <h3 className={cn("font-semibold mt-2 mb-1.5", compact ? "text-xs" : "text-sm")}>{children}</h3>
+   796→          ),
+   797→          p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+   798→          ul: ({ children }) => <ul className="mb-2 ml-1 space-y-1">{children}</ul>,
+   799→          ol: ({ children }) => <ol className="mb-2 ml-1 space-y-1 list-decimal pl-4">{children}</ol>,
+   800→          li: ({ children }) => (
+   801→            <li className="relative pl-4 before:absolute before:left-0 before:content-['•'] before:text-primary/70">
+   802→              {children}
+   803→            </li>
+   804→          ),
+   805→          strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+   806→          em: ({ children }) => <em className="italic">{children}</em>,
+   807→          code: ({ children }) => (
+   808→            <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono text-foreground">{children}</code>
+   809→          ),
+   810→          pre: ({ children }) => (
+   811→            <pre className="my-2 overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-xs">
+   812→              {children}
+   813→            </pre>
+   814→          ),
+   815→          blockquote: ({ children }) => (
+   816→            <blockquote className="my-2 border-l-2 border-primary/40 pl-3 text-muted-foreground italic">
+   817→              {children}
+   818→            </blockquote>
+   819→          ),
+   820→          hr: () => <hr className="my-3 border-border" />,
+   821→          a: ({ children, href }) => (
+   822→            <a href={href} className="text-primary underline underline-offset-2 hover:opacity-80" target="_blank" rel="noreferrer">
+   823→              {children}
+   824→            </a>
+   825→          ),
+   826→          table: ({ children }) => (
+   827→            <div className="my-3 overflow-x-auto">
+   828→              <table className="w-full border-collapse text-xs">{children}</table>
+   829→            </div>
+   830→          ),
+   831→          th: ({ children }) => <th className="border border-border px-2 py-1 text-left font-semibold bg-muted/40">{children}</th>,
+   832→          td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+   833→        }}
+   834→      >
+   835→        {content}
+   836→      </ReactMarkdown>
+   837→    </div>
+   838→  );
+   839→}
+   840→

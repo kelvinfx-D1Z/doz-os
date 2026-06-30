@@ -1,0 +1,969 @@
+     1→import { NextResponse } from "next/server";
+     2→import { db } from "@/lib/db";
+     3→import { getSessionUser } from "@/lib/auth";
+     4→import ZAI from "z-ai-web-dev-sdk";
+     5→
+     6→// ============================================================
+     7→// AI Chief of Staff — Operations Director for Digit One Zero Ltd
+     8→// GET  : stored AI insights + context summary
+     9→// POST : {action: daily_plan | risk_check | proposal_draft | chat
+    10→//              | plan_tasks | chat_with_actions,
+    11→//         message?, opportunityName?}
+    12→// ============================================================
+    13→
+    14→const SYSTEM_PROMPT =
+    15→  "You are the AI Chief of Staff for Digit One Zero Ltd, a Nigerian event production and media company based in Lagos. " +
+    16→  "You act as an Operations Director. You are direct, actionable, and concise. You think in priorities, risks, and cash flow. " +
+    17→  "You use Nigerian Naira (\u20a6). You help the founder (Kelvin Keshy) reduce distraction, enforce process, and scale the company. " +
+    18→  "Always give specific, prioritized recommendations. Be brief but complete. Use markdown headings (##), bold (**text**), and bullet lists.";
+    19→
+    20→// System prompt for DIDI with action-taking capability.
+    21→const DIDI_ACTIONS_SYSTEM_PROMPT =
+    22→  "You are DIDI, the AI Growth Coach and Chief of Staff for Digit One Zero Ltd. " +
+    23→  "The founder is Kelvin Keshy. You can TAKE ACTIONS to help run the company.\n\n" +
+    24→  "When the user asks you to do something (create a task, follow up, add a contact, etc.), respond with a JSON object containing:\n" +
+    25→  '1. "reply" — your conversational response to the user\n' +
+    26→  '2. "actions" — an array of actions to execute\n\n' +
+    27→  "Supported action types:\n" +
+    28→  '- create_task: { "type": "create_task", "data": { "title": "...", "priority": "HIGH|MEDIUM|LOW|URGENT", "category": "STRATEGIC|OPERATIONAL|ADMIN|DISTRACTION", "dueDate": "YYYY-MM-DD" } }\n' +
+    29→  '- complete_task: { "type": "complete_task", "data": { "taskTitle": "partial title to match" } }\n' +
+    30→  '- create_followup: { "type": "create_followup", "data": { "subject": "...", "type": "CALL|EMAIL|MEETING|WHATSAPP", "dueDate": "YYYY-MM-DD" } }\n' +
+    31→  '- create_account: { "type": "create_account", "data": { "name": "...", "industry": "..." } }\n' +
+    32→  '- create_opportunity: { "type": "create_opportunity", "data": { "name": "...", "value": 1000000, "accountName": "..." } }\n\n' +
+    33→  'If no actions are needed, return { "reply": "...", "actions": [] }.\n\n' +
+    34→  "Always be helpful, direct, and reference real business data. Use Nigerian Naira (\u20a6).\n" +
+    35→  "IMPORTANT: Return ONLY the JSON object — no markdown fences, no prose before or after. " +
+    36→  "The reply field should be plain text (markdown allowed), and actions should be a JSON array.";
+    37→
+    38→// ---------- helpers ----------
+    39→
+    40→async function buildContextSummary() {
+    41→  const now = new Date();
+    42→
+    43→  const [opportunities, invoices, expenses, tasks, projects, paymentRequests] = await Promise.all([
+    44→    db.opportunity.findMany({ include: { account: true } }),
+    45→    db.invoice.findMany(),
+    46→    db.expense.findMany(),
+    47→    db.task.findMany({ orderBy: { dueDate: "asc" } }),
+    48→    db.project.findMany(),
+    49→    db.paymentRequest.findMany(),
+    50→  ]);
+    51→
+    52→  const openOpps = opportunities.filter((o) => !["WON", "LOST"].includes(o.stage));
+    53→  const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
+    54→
+    55→  const outstandingInvoices = invoices.filter(
+    56→    (i) => i.status === "OVERDUE" || i.status === "PARTIAL" || i.status === "SENT"
+    57→  );
+    58→  const outstandingAmount = outstandingInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+    59→  const overdueInvoices = invoices.filter((i) => i.status === "OVERDUE");
+    60→  const overdueAmount = overdueInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+    61→
+    62→  const totalRevenue = invoices.reduce((s, i) => s + i.amountPaid, 0);
+    63→  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+    64→  const cashPosition = totalRevenue - totalExpenses;
+    65→
+    66→  const pendingApprovals = paymentRequests.filter((p) => p.status === "PENDING").length;
+    67→  const openTasks = tasks.filter((t) => t.status !== "DONE").length;
+    68→  const overdueTasks = tasks.filter(
+    69→    (t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) < now
+    70→  ).length;
+    71→  const activeProjects = projects.filter(
+    72→    (p) => p.status === "PLANNING" || p.status === "CONFIRMED" || p.status === "IN_PROGRESS"
+    73→  ).length;
+    74→  const distractions = tasks.filter((t) => t.isDistraction && t.status !== "DONE").length;
+    75→
+    76→  // top priorities — top 5 due soon/overdue by priority
+    77→  const order: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    78→  const topPriorities = tasks
+    79→    .filter((t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) <= new Date(now.getTime() + 86400000))
+    80→    .sort((a, b) => (order[a.priority] ?? 2) - (order[b.priority] ?? 2))
+    81→    .slice(0, 5)
+    82→    .map((t) => t.title);
+    83→
+    84→  // upcoming deadlines within 7 days (tasks + project event dates + unpaid invoice due dates)
+    85→  const upcomingDeadlines = [
+    86→    ...tasks
+    87→      .filter((t) => t.status !== "DONE" && t.dueDate)
+    88→      .map((t) => ({ title: t.title, due: t.dueDate! })),
+    89→    ...projects
+    90→      .filter((p) => p.eventDate)
+    91→      .map((p) => ({ title: p.name, due: p.eventDate! })),
+    92→    ...invoices
+    93→      .filter((i) => i.dueDate && i.status !== "PAID")
+    94→      .map((i) => ({ title: `${i.code ?? "Invoice"}`, due: i.dueDate! })),
+    95→  ]
+    96→    .filter((x) => {
+    97→      const d = new Date(x.due);
+    98→      return d >= new Date(now.getTime() - 86400000) && d <= new Date(now.getTime() + 7 * 86400000);
+    99→    })
+   100→    .sort((a, b) => new Date(a.due).getTime() - new Date(b.due).getTime())
+   101→    .slice(0, 8)
+   102→    .map((x) => x.title);
+   103→
+   104→  return {
+   105→    pipelineValue,
+   106→    outstandingAmount,
+   107→    overdueAmount,
+   108→    pendingApprovals,
+   109→    openTasks,
+   110→    overdueTasks,
+   111→    activeProjects,
+   112→    distractions,
+   113→    cashPosition,
+   114→    topPriorities,
+   115→    upcomingDeadlines,
+   116→  };
+   117→}
+   118→
+   119→// ---------- GET ----------
+   120→
+   121→export async function GET() {
+   122→  try {
+   123→    const [insights, contextSummary] = await Promise.all([
+   124→      db.aIInsight.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+   125→      buildContextSummary(),
+   126→    ]);
+   127→
+   128→    const stats = {
+   129→      critical: insights.filter((i) => i.severity === "CRITICAL").length,
+   130→      warnings: insights.filter((i) => i.severity === "WARNING").length,
+   131→      info: insights.filter((i) => i.severity === "INFO").length,
+   132→      unread: insights.filter((i) => !i.isRead).length,
+   133→    };
+   134→
+   135→    return NextResponse.json({
+   136→      insights: insights.map((i) => ({
+   137→        id: i.id,
+   138→        type: i.type,
+   139→        severity: i.severity,
+   140→        title: i.title,
+   141→        message: i.message,
+   142→        isRead: i.isRead,
+   143→        createdAt: i.createdAt,
+   144→        entityType: i.entityType,
+   145→        entityId: i.entityId,
+   146→      })),
+   147→      stats,
+   148→      contextSummary,
+   149→    });
+   150→  } catch (err) {
+   151→    console.error("[AI GET] error:", err);
+   152→    return NextResponse.json(
+   153→      { error: "Failed to load AI insights", insights: [], stats: { critical: 0, warnings: 0, info: 0, unread: 0 }, contextSummary: null },
+   154→      { status: 200 }
+   155→    );
+   156→  }
+   157→}
+   158→
+   159→// ---------- POST ----------
+   160→
+   161→interface AiPostBody {
+   162→  action: "daily_plan" | "risk_check" | "proposal_draft" | "chat" | "plan_tasks" | "chat_with_actions";
+   163→  message?: string;
+   164→  opportunityName?: string;
+   165→}
+   166→
+   167→function contextSummaryToText(ctx: Awaited<ReturnType<typeof buildContextSummary>>): string {
+   168→  return [
+   169→    `Pipeline value: \u20a6${ctx.pipelineValue.toLocaleString("en-NG")}`,
+   170→    `Outstanding invoices: \u20a6${ctx.outstandingAmount.toLocaleString("en-NG")}`,
+   171→    `Overdue invoices: \u20a6${ctx.overdueAmount.toLocaleString("en-NG")}`,
+   172→    `Cash position: \u20a6${ctx.cashPosition.toLocaleString("en-NG")}`,
+   173→    `Pending approvals: ${ctx.pendingApprovals}`,
+   174→    `Open tasks: ${ctx.openTasks} (overdue: ${ctx.overdueTasks})`,
+   175→    `Active projects: ${ctx.activeProjects}`,
+   176→    `Distractions flagged: ${ctx.distractions}`,
+   177→    `Top priorities: ${ctx.topPriorities.join("; ") || "none"}`,
+   178→    `Upcoming deadlines: ${ctx.upcomingDeadlines.join("; ") || "none"}`,
+   179→  ].join("\n");
+   180→}
+   181→
+   182→function buildUserPrompt(
+   183→  action: AiPostBody["action"],
+   184→  message: string | undefined,
+   185→  opportunityName: string | undefined,
+   186→  ctx: Awaited<ReturnType<typeof buildContextSummary>>,
+   187→  opp: { name: string; value: number; accountName: string | null; serviceType: string | null } | null
+   188→): string {
+   189→  const ctxText = contextSummaryToText(ctx);
+   190→
+   191→  switch (action) {
+   192→    case "daily_plan":
+   193→      return (
+   194→        `Here is the current operating context for Digit One Zero Ltd (today):\n\n${ctxText}\n\n` +
+   195→        `Produce a prioritized daily plan for the founder (Kelvin Keshy). ` +
+   196→        `Use markdown. Include:\n` +
+   197→        `## Top 3 Priorities\n## Delegate (who & what)\n## Defer (what to push)\n## Risk to Watch\n` +
+   198→        `Be specific, action-oriented, and tie each priority to a project or cash-flow item where possible. Use Naira.`
+   199→      );
+   200→    case "risk_check":
+   201→      return (
+   202→        `Here is the current operating context for Digit One Zero Ltd:\n\n${ctxText}\n\n` +
+   203→        `Identify the TOP 5 RISKS across projects, finances, and deadlines. ` +
+   204→        `For each risk, output as a markdown list:\n` +
+   205→        `- **Risk:** short name\n  - **Severity:** CRITICAL | WARNING | INFO\n  - **Why:** one line\n  - **Recommended action:** one specific next step\n` +
+   206→        `Prioritise cash-flow, overdue invoices, budget overruns, and missed deadlines. Be brief.`
+   207→      );
+   208→    case "proposal_draft": {
+   209→      if (opp) {
+   210→        return (
+   211→          `Draft a professional event/video production proposal outline for the following opportunity:\n\n` +
+   212→          `- Opportunity: ${opp.name}\n- Client: ${opp.accountName ?? "Prospect"}\n` +
+   213→          `- Estimated value: \u20a6${opp.value.toLocaleString("en-NG")}\n- Service type: ${opp.serviceType ?? "EVENT_PRODUCTION"}\n\n` +
+   214→          `Output as markdown with these sections:\n` +
+   215→          `## Project Overview\n## Scope of Work\n## Deliverables\n## Timeline (phased)\n## Investment (3 tiers: Standard, Professional, Premium — in Naira)\n## Terms & Conditions (payment, cancellation, IP)\n\n` +
+   216→          `Be specific to the Nigerian event production context (Lagos venues, NAPTIP/permissions where relevant, power/logistics). Keep it brief but client-ready.`
+   217→        );
+   218→      }
+   219→      return (
+   220→        `Draft a generic professional event/video production proposal outline for a new Nigerian corporate client. ` +
+   221→        `Output as markdown with: ## Project Overview, ## Scope of Work, ## Deliverables, ## Timeline, ` +
+   222→        `## Investment (3 tiers in Naira), ## Terms & Conditions. Keep it brief but client-ready.`
+   223→      );
+   224→    }
+   225→    case "chat":
+   226→    default:
+   227→      return (
+   228→        `Operating context:\n${ctxText}\n\n` +
+   229→        `Founder's question: ${message ?? "What should I focus on right now?"}\n\n` +
+   230→        `Answer as the Operations Director. Be direct, specific, and actionable. Reference real numbers from the context above. Use Naira.`
+   231→      );
+   232→  }
+   233→}
+   234→
+   235→export async function POST(req: Request) {
+   236→  let body: AiPostBody;
+   237→  try {
+   238→    body = (await req.json()) as AiPostBody;
+   239→  } catch {
+   240→    return NextResponse.json({ response: "Invalid request body.", error: true }, { status: 200 });
+   241→  }
+   242→
+   243→  const { action, message, opportunityName } = body;
+   244→  const validActions: AiPostBody["action"][] = [
+   245→    "daily_plan", "risk_check", "proposal_draft", "chat", "plan_tasks", "chat_with_actions",
+   246→  ];
+   247→  if (!validActions.includes(action)) {
+   248→    return NextResponse.json(
+   249→      { response: `Unknown action: ${action}. Valid: ${validActions.join(", ")}.`, error: true },
+   250→      { status: 200 }
+   251→    );
+   252→  }
+   253→
+   254→  // ---- plan_tasks — DIDI analyzes goals + tasks and suggests new tasks ----
+   255→  if (action === "plan_tasks") {
+   256→    return handlePlanTasks(message);
+   257→  }
+   258→
+   259→  // ---- chat_with_actions — DIDI replies AND takes actions (create/complete/etc.) ----
+   260→  if (action === "chat_with_actions") {
+   261→    return handleChatWithActions(message);
+   262→  }
+   263→
+   264→  // build context (cheap, in-DB)
+   265→  let ctx: Awaited<ReturnType<typeof buildContextSummary>>;
+   266→  try {
+   267→    ctx = await buildContextSummary();
+   268→  } catch (e) {
+   269→    console.error("[AI POST] context build failed:", e);
+   270→    ctx = {
+   271→      pipelineValue: 0, outstandingAmount: 0, overdueAmount: 0, pendingApprovals: 0,
+   272→      openTasks: 0, overdueTasks: 0, activeProjects: 0, distractions: 0, cashPosition: 0,
+   273→      topPriorities: [], upcomingDeadlines: [],
+   274→    };
+   275→  }
+   276→
+   277→  // fetch opportunity if provided
+   278→  let opp: { name: string; value: number; accountName: string | null; serviceType: string | null } | null = null;
+   279→  if (action === "proposal_draft" && opportunityName) {
+   280→    try {
+   281→      const found = await db.opportunity.findFirst({
+   282→        where: { name: { contains: opportunityName } },
+   283→        include: { account: true },
+   284→      });
+   285→      if (found) {
+   286→        opp = {
+   287→          name: found.name,
+   288→          value: found.value,
+   289→          accountName: found.account?.name ?? null,
+   290→          serviceType: found.serviceType,
+   291→        };
+   292→      }
+   293→    } catch (e) {
+   294→      console.error("[AI POST] opportunity fetch failed:", e);
+   295→    }
+   296→  }
+   297→
+   298→  const userPrompt = buildUserPrompt(action, message, opportunityName, ctx, opp);
+   299→
+   300→  try {
+   301→    const zai = await ZAI.create();
+   302→    const completion = await zai.chat.completions.create({
+   303→      messages: [
+   304→        { role: "assistant", content: SYSTEM_PROMPT },
+   305→        { role: "user", content: userPrompt },
+   306→      ],
+   307→      thinking: { type: "disabled" },
+   308→    });
+   309→    const text: string | undefined = completion?.choices?.[0]?.message?.content;
+   310→    if (!text) {
+   311→      return NextResponse.json(
+   312→        { response: cachedFallback(action), error: true },
+   313→        { status: 200 }
+   314→      );
+   315→    }
+   316→    return NextResponse.json({ response: text, error: false });
+   317→  } catch (err) {
+   318→    console.error("[AI POST] z-ai-web-dev-sdk failed:", err);
+   319→    return NextResponse.json(
+   320→      {
+   321→        response:
+   322→          `AI service temporarily unavailable. Here's a cached recommendation:\n\n` +
+   323→          cachedFallback(action),
+   324→        error: true,
+   325→      },
+   326→      { status: 200 }
+   327→    );
+   328→  }
+   329→}
+   330→
+   331→// ============================================================
+   332→// PLAN TASKS — DIDI analyzes goals + tasks and suggests tasks
+   333→// ============================================================
+   334→async function handlePlanTasks(focusHint: string | undefined) {
+   335→  let goals: any[] = [];
+   336→  let existingTasks: any[] = [];
+   337→  let users: any[] = [];
+   338→  try {
+   339→    [goals, existingTasks, users] = await Promise.all([
+   340→      db.goal.findMany({
+   341→        where: { status: { in: ["ACTIVE", "ON_HOLD"] } },
+   342→        include: { owner: { select: { name: true } } },
+   343→        orderBy: [{ type: "asc" }, { dueDate: "asc" }],
+   344→      }),
+   345→      db.task.findMany({
+   346→        where: { status: { not: "DONE" } },
+   347→        select: { id: true, title: true, priority: true, goalId: true },
+   348→        orderBy: { dueDate: "asc" },
+   349→      }),
+   350→      db.user.findMany({
+   351→        where: { isActive: true },
+   352→        select: { id: true, name: true, role: true, title: true },
+   353→      }),
+   354→    ]);
+   355→  } catch (e) {
+   356→    console.error("[plan_tasks] context fetch failed:", e);
+   357→  }
+   358→
+   359→  if (goals.length === 0) {
+   360→    return NextResponse.json({
+   361→      error: false,
+   362→      empty: true,
+   363→      message: "No active goals found. Define annual or quarterly goals first so DIDI can plan against them.",
+   364→      suggestions: [],
+   365→    });
+   366→  }
+   367→
+   368→  const goalsSummary = goals.map((g) => {
+   369→    const days = Math.round((new Date(g.dueDate).getTime() - Date.now()) / 86400000);
+   370→    return `- [${g.type}${g.quarter ? ` ${g.quarter}` : ""}] ${g.title} — ${g.progress}% done, ${days >= 0 ? `${days}d left` : `${Math.abs(days)}d overdue`} (owner: ${g.owner?.name ?? "—"})`;
+   371→  }).join("\n");
+   372→
+   373→  const existingTasksSummary = existingTasks.length === 0
+   374→    ? "(no open tasks yet)"
+   375→    : existingTasks.slice(0, 30).map((t) => `- ${t.title}`).join("\n");
+   376→
+   377→  const teamSummary = users.length === 0
+   378→    ? "(no team members)"
+   379→    : users.map((u) => `- ${u.name} — ${u.role}${u.title ? ` / ${u.title}` : ""}`).join("\n");
+   380→
+   381→  const userPrompt =
+   382→    `Here are the active goals at Digit One Zero Ltd:\n\n${goalsSummary}\n\n` +
+   383→    `Here are the team members available:\n${teamSummary}\n\n` +
+   384→    `Here are the currently OPEN tasks (already on the list):\n${existingTasksSummary}\n\n` +
+   385→    (focusHint ? `Founder's focus hint: ${focusHint}\n\n` : "") +
+   386→    `SUGGEST 5 to 8 NEW TASKS that would meaningfully move these goals forward. ` +
+   387→    `Do NOT duplicate tasks already on the list. For each task, return a JSON object with these fields:\n` +
+   388→    `- title: short action verb + object (e.g. "Call GTBank treasury team to confirm invoice payment")\n` +
+   389→    `- priority: URGENT | HIGH | MEDIUM | LOW\n` +
+   390→    `- category: STRATEGIC | OPERATIONAL | ADMIN | DISTRACTION\n` +
+   391→    `- assigneeSuggestion: a team member name (or "Founder" if strategic)\n` +
+   392→    `- goalTitle: the EXACT title of the goal this task connects to (must match one of the goals above)\n` +
+   393→    `- rationale: one short sentence on why this task moves the goal\n\n` +
+   394→    `Return STRICT JSON: {"suggestions": [ {title, priority, category, assigneeSuggestion, goalTitle, rationale}, ... ]}. ` +
+   395→    `Do not include any text before or after the JSON. Do not use markdown fences.`;
+   396→
+   397→  try {
+   398→    const zai = await ZAI.create();
+   399→    const completion = await zai.chat.completions.create({
+   400→      messages: [
+   401→        { role: "assistant", content: SYSTEM_PROMPT },
+   402→        { role: "user", content: userPrompt },
+   403→      ],
+   404→      thinking: { type: "disabled" },
+   405→    });
+   406→    const text: string | undefined = completion?.choices?.[0]?.message?.content;
+   407→    if (!text) {
+   408→      return NextResponse.json({
+   409→        error: false,
+   410→        offline: true,
+   411→        message: "AI service offline — could not generate task suggestions.",
+   412→        suggestions: [],
+   413→      });
+   414→    }
+   415→
+   416→    // Parse JSON robustly (LLMs sometimes wrap in ```json fences)
+   417→    const parsed = safeParseSuggestions(text);
+   418→    return NextResponse.json({
+   419→      error: false,
+   420→      suggestions: parsed,
+   421→      raw: parsed.length === 0 ? text : undefined,
+   422→    });
+   423→  } catch (err) {
+   424→    console.error("[plan_tasks] z-ai-web-dev-sdk failed:", err);
+   425→    return NextResponse.json({
+   426→      error: false,
+   427→      offline: true,
+   428→      message: "AI service offline — could not generate task suggestions.",
+   429→      suggestions: [],
+   430→    });
+   431→  }
+   432→}
+   433→
+   434→function safeParseSuggestions(text: string): Array<{
+   435→  title: string;
+   436→  priority?: string;
+   437→  category?: string;
+   438→  assigneeSuggestion?: string;
+   439→  goalTitle?: string;
+   440→  rationale?: string;
+   441→}> {
+   442→  // Strip markdown fences if present
+   443→  let cleaned = text.trim();
+   444→  if (cleaned.startsWith("```")) {
+   445→    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+   446→  }
+   447→  // Find first { ... } block (greedy)
+   448→  const start = cleaned.indexOf("{");
+   449→  const end = cleaned.lastIndexOf("}");
+   450→  if (start === -1 || end === -1 || end < start) return [];
+   451→  const slice = cleaned.slice(start, end + 1);
+   452→  try {
+   453→    const obj = JSON.parse(slice);
+   454→    if (obj && Array.isArray(obj.suggestions)) {
+   455→      return obj.suggestions.filter((s: any) => s && typeof s.title === "string");
+   456→    }
+   457→  } catch {
+   458→    /* fall through */
+   459→  }
+   460→  return [];
+   461→}
+   462→
+   463→// ============================================================
+   464→// CHAT WITH ACTIONS — DIDI takes actions through the chat
+   465→// ============================================================
+   466→async function handleChatWithActions(message: string | undefined) {
+   467→  const user = await getSessionUser();
+   468→  const userMessage = message?.trim() || "What should I focus on right now?";
+   469→
+   470→  // Build a compact live context for DIDI to reason over
+   471→  let contextBlock = "";
+   472→  try {
+   473→    const ctx = await buildContextSummary();
+   474→    contextBlock = contextSummaryToText(ctx);
+   475→  } catch {
+   476→    contextBlock = "(context unavailable)";
+   477→  }
+   478→
+   479→  const userPrompt =
+   480→    `Live operating context for Digit One Zero Ltd:\n${contextBlock}\n\n` +
+   481→    `Founder's message: "${userMessage}"\n\n` +
+   482→    `Respond with the JSON object as instructed. Take action(s) if the founder is asking you to create, schedule, ` +
+   483→    `follow up on, or close out something. If they're just asking a question, return an empty actions array with ` +
+   484→    `your answer in the reply field. Remember: return ONLY the JSON.`;
+   485→
+   486→  let rawText = "";
+   487→  try {
+   488→    const zai = await ZAI.create();
+   489→    const completion = await zai.chat.completions.create({
+   490→      messages: [
+   491→        { role: "assistant", content: DIDI_ACTIONS_SYSTEM_PROMPT },
+   492→        { role: "user", content: userPrompt },
+   493→      ],
+   494→      thinking: { type: "disabled" },
+   495→    });
+   496→    rawText = completion?.choices?.[0]?.message?.content ?? "";
+   497→  } catch (err) {
+   498→    console.error("[chat_with_actions] z-ai-web-dev-sdk failed:", err);
+   499→    return NextResponse.json({
+   500→      reply: "I'm offline right now. Quick guidance: prioritise overdue invoices, clear pending approvals, and protect the founder's calendar today.",
+   501→      actions: [],
+   502→      actionResults: [],
+   503→      offline: true,
+   504→    });
+   505→  }
+   506→
+   507→  if (!rawText) {
+   508→    return NextResponse.json({
+   509→      reply: "I didn't catch a response — please try again.",
+   510→      actions: [],
+   511→      actionResults: [],
+   512→    });
+   513→  }
+   514→
+   515→  const parsed = safeParseDidiResponse(rawText);
+   516→  // If the LLM didn't return valid JSON, fall back to treating the whole text as a reply.
+   517→  if (!parsed) {
+   518→    return NextResponse.json({
+   519→      reply: rawText,
+   520→      actions: [],
+   521→      actionResults: [],
+   522→      rawNotJson: true,
+   523→    });
+   524→  }
+   525→
+   526→  // Execute the actions server-side
+   527→  const actionResults: any[] = [];
+   528→  for (const act of parsed.actions ?? []) {
+   529→    try {
+   530→      const result = await executeDidiAction(act, user?.id);
+   531→      actionResults.push(result);
+   532→    } catch (e) {
+   533→      actionResults.push({
+   534→        type: act?.type,
+   535→        ok: false,
+   536→        error: e instanceof Error ? e.message : String(e),
+   537→      });
+   538→    }
+   539→  }
+   540→
+   541→  return NextResponse.json({
+   542→    reply: parsed.reply ?? "",
+   543→    actions: parsed.actions ?? [],
+   544→    actionResults,
+   545→  });
+   546→}
+   547→
+   548→// Parse the LLM's JSON response for chat_with_actions.
+   549→// Returns { reply, actions } or null if the response isn't valid JSON.
+   550→function safeParseDidiResponse(text: string): { reply: string; actions: any[] } | null {
+   551→  let cleaned = text.trim();
+   552→  if (cleaned.startsWith("```")) {
+   553→    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+   554→  }
+   555→  const start = cleaned.indexOf("{");
+   556→  const end = cleaned.lastIndexOf("}");
+   557→  if (start === -1 || end === -1 || end < start) return null;
+   558→  const slice = cleaned.slice(start, end + 1);
+   559→  try {
+   560→    const obj = JSON.parse(slice);
+   561→    if (obj && typeof obj === "object" && "reply" in obj) {
+   562→      return {
+   563→        reply: typeof obj.reply === "string" ? obj.reply : "",
+   564→        actions: Array.isArray(obj.actions) ? obj.actions : [],
+   565→      };
+   566→    }
+   567→  } catch {
+   568→    /* fall through */
+   569→  }
+   570→  return null;
+   571→}
+   572→
+   573→// Execute a single DIDI action against the DB.
+   574→// Returns { type, ok, ...details } describing the result.
+   575→async function executeDidiAction(
+   576→  act: any,
+   577→  creatorId: string | undefined,
+   578→): Promise<any> {
+   579→  if (!act || typeof act !== "object" || typeof act.type !== "string") {
+   580→    return { ok: false, error: "invalid_action_shape" };
+   581→  }
+   582→  const data = act.data ?? {};
+   583→
+   584→  switch (act.type) {
+   585→    case "create_task": {
+   586→      const title = typeof data.title === "string" ? data.title.trim() : "";
+   587→      if (!title) return { type: "create_task", ok: false, error: "missing_title" };
+   588→
+   589→      const validPriorities = ["URGENT", "HIGH", "MEDIUM", "LOW"];
+   590→      const priority = validPriorities.includes(data.priority) ? data.priority : "MEDIUM";
+   591→      const validCategories = ["STRATEGIC", "OPERATIONAL", "ADMIN", "DISTRACTION"];
+   592→      const category = validCategories.includes(data.category) ? data.category : null;
+   593→
+   594→      // dueDate — accept YYYY-MM-DD, or words like "today"/"tomorrow"/"next week"
+   595→      let dueDate: Date | null = null;
+   596→      if (typeof data.dueDate === "string") {
+   597→        const d = parseFlexibleDate(data.dueDate);
+   598→        if (d) dueDate = d;
+   599→      }
+   600→
+   601→      // Resolve assignee: try assigneeId, else by name match, else fall back to creator
+   602→      let assigneeId: string | undefined = data.assigneeId;
+   603→      if (!assigneeId && typeof data.assignee === "string" && data.assignee.trim()) {
+   604→        // "Founder" / "Kelvin" / "Adaeze" → first FOUNDER role user
+   605→        const lower = data.assignee.toLowerCase();
+   606→        if (lower === "founder" || lower === "kelvin" || lower === "adaeze" || lower === "ceo") {
+   607→          const founder = await db.user.findFirst({
+   608→            where: { role: "FOUNDER", isActive: true },
+   609→            select: { id: true },
+   610→          });
+   611→          if (founder) assigneeId = founder.id;
+   612→        }
+   613→        if (!assigneeId) {
+   614→          const u = await findUserByNameCI(data.assignee);
+   615→          if (u) assigneeId = u.id;
+   616→        }
+   617→      }
+   618→      if (!assigneeId && creatorId) assigneeId = creatorId;
+   619→      if (!assigneeId) {
+   620→        return { type: "create_task", ok: false, error: "no_assignee_available" };
+   621→      }
+   622→
+   623→      // Try to link to a goal by goalTitle (fuzzy)
+   624→      let goalId: string | null = null;
+   625→      if (typeof data.goalTitle === "string" && data.goalTitle.trim()) {
+   626→        const g = await findGoalByTitleCI(data.goalTitle);
+   627→        if (g) goalId = g.id;
+   628→      }
+   629→
+   630→      const created = await db.task.create({
+   631→        data: {
+   632→          title,
+   633→          description: typeof data.description === "string" ? data.description : null,
+   634→          priority,
+   635→          category,
+   636→          assigneeId,
+   637→          creatorId: creatorId ?? assigneeId,
+   638→          goalId,
+   639→          dueDate,
+   640→          status: "TODO",
+   641→          isDistraction: false,
+   642→        },
+   643→        select: { id: true, title: true },
+   644→      });
+   645→
+   646→      try {
+   647→        await db.activityLog.create({
+   648→          data: {
+   649→            userId: creatorId ?? assigneeId,
+   650→            action: "CREATED_TASK",
+   651→            detail: `DIDI created "${created.title}"`,
+   652→          },
+   653→        });
+   654→      } catch { /* non-blocking */ }
+   655→
+   656→      return { type: "create_task", ok: true, id: created.id, title: created.title };
+   657→    }
+   658→
+   659→    case "complete_task": {
+   660→      const partial = typeof data.taskTitle === "string" ? data.taskTitle.trim() : "";
+   661→      if (!partial) return { type: "complete_task", ok: false, error: "missing_taskTitle" };
+   662→
+   663→      const target = await findOpenTaskByTitleCI(partial);
+   664→      if (!target) {
+   665→        return { type: "complete_task", ok: false, error: "task_not_found", taskTitle: partial };
+   666→      }
+   667→      const updated = await db.task.update({
+   668→        where: { id: target.id },
+   669→        data: { status: "DONE", completedAt: new Date() },
+   670→        select: { id: true, title: true },
+   671→      });
+   672→      try {
+   673→        await db.activityLog.create({
+   674→          data: {
+   675→            userId: creatorId ?? updated.id,
+   676→            action: "COMPLETED_TASK",
+   677→            detail: `DIDI marked "${updated.title}" as done`,
+   678→          },
+   679→        });
+   680→      } catch { /* non-blocking */ }
+   681→      return { type: "complete_task", ok: true, id: updated.id, title: updated.title };
+   682→    }
+   683→
+   684→    case "create_followup": {
+   685→      const subject = typeof data.subject === "string" ? data.subject.trim() : "";
+   686→      if (!subject) return { type: "create_followup", ok: false, error: "missing_subject" };
+   687→
+   688→      const validTypes = ["CALL", "EMAIL", "MEETING", "WHATSAPP"];
+   689→      const type = validTypes.includes(data.type) ? data.type : "CALL";
+   690→
+   691→      // dueDate default to +1 day if not provided
+   692→      let dueDate = new Date();
+   693→      dueDate.setDate(dueDate.getDate() + 1);
+   694→      if (typeof data.dueDate === "string") {
+   695→        const d = parseFlexibleDate(data.dueDate);
+   696→        if (d) dueDate = d;
+   697→      }
+   698→
+   699→      // Try to attach to an opportunity by opportunityName
+   700→      let opportunityId: string | null = null;
+   701→      if (typeof data.opportunityName === "string" && data.opportunityName.trim()) {
+   702→        const o = await findOpportunityByNameCI(data.opportunityName);
+   703→        if (o) opportunityId = o.id;
+   704→      }
+   705→
+   706→      const created = await db.followUp.create({
+   707→        data: {
+   708→          subject,
+   709→          type,
+   710→          dueDate,
+   711→          notes: typeof data.notes === "string" ? data.notes : null,
+   712→          opportunityId,
+   713→        },
+   714→        select: { id: true, subject: true, dueDate: true },
+   715→      });
+   716→      try {
+   717→        await db.activityLog.create({
+   718→          data: {
+   719→            userId: creatorId ?? "system",
+   720→            action: "CREATED_FOLLOWUP",
+   721→            detail: `DIDI scheduled "${created.subject}"`,
+   722→          },
+   723→        });
+   724→      } catch { /* non-blocking */ }
+   725→      return {
+   726→        type: "create_followup",
+   727→        ok: true,
+   728→        id: created.id,
+   729→        subject: created.subject,
+   730→        dueDate: created.dueDate?.toISOString(),
+   731→      };
+   732→    }
+   733→
+   734→    case "create_account": {
+   735→      const name = typeof data.name === "string" ? data.name.trim() : "";
+   736→      if (!name) return { type: "create_account", ok: false, error: "missing_name" };
+   737→
+   738→      // De-dupe by name (case-insensitive)
+   739→      const existing = await findAccountByNameCI(name);
+   740→      if (existing) {
+   741→        return {
+   742→          type: "create_account",
+   743→          ok: false,
+   744→          error: "account_exists",
+   745→          id: existing.id,
+   746→          name: existing.name,
+   747→        };
+   748→      }
+   749→
+   750→      const created = await db.account.create({
+   751→        data: {
+   752→          name,
+   753→          industry: typeof data.industry === "string" ? data.industry : null,
+   754→        },
+   755→        select: { id: true, name: true },
+   756→      });
+   757→      try {
+   758→        await db.activityLog.create({
+   759→          data: {
+   760→            userId: creatorId ?? "system",
+   761→            action: "CREATED_ACCOUNT",
+   762→            detail: `DIDI created account "${created.name}"`,
+   763→          },
+   764→        });
+   765→      } catch { /* non-blocking */ }
+   766→      return { type: "create_account", ok: true, id: created.id, name: created.name };
+   767→    }
+   768→
+   769→    case "create_opportunity": {
+   770→      const name = typeof data.name === "string" ? data.name.trim() : "";
+   771→      if (!name) return { type: "create_opportunity", ok: false, error: "missing_name" };
+   772→
+   773→      let accountId: string | null = null;
+   774→      if (typeof data.accountName === "string" && data.accountName.trim()) {
+   775→        const a = await findAccountByNameCI(data.accountName);
+   776→        if (a) accountId = a.id;
+   777→      }
+   778→
+   779→      const value = typeof data.value === "number" && !isNaN(data.value) ? data.value : 0;
+   780→      const validStages = ["DISCOVERY", "QUALIFIED", "PROPOSAL", "NEGOTIATION", "WON", "LOST"];
+   781→      const stage = validStages.includes(data.stage) ? data.stage : "DISCOVERY";
+   782→
+   783→      const created = await db.opportunity.create({
+   784→        data: {
+   785→          name,
+   786→          value,
+   787→          stage,
+   788→          accountId,
+   789→        },
+   790→        select: { id: true, name: true, value: true },
+   791→      });
+   792→      try {
+   793→        await db.activityLog.create({
+   794→          data: {
+   795→            userId: creatorId ?? "system",
+   796→            action: "CREATED_OPPORTUNITY",
+   797→            detail: `DIDI created opportunity "${created.name}" (\u20a6${created.value.toLocaleString("en-NG")})`,
+   798→          },
+   799→        });
+   800→      } catch { /* non-blocking */ }
+   801→      return {
+   802→        type: "create_opportunity",
+   803→        ok: true,
+   804→        id: created.id,
+   805→        name: created.name,
+   806→        value: created.value,
+   807→      };
+   808→    }
+   809→
+   810→    default:
+   811→      return { type: act.type, ok: false, error: "unknown_action_type" };
+   812→  }
+   813→}
+   814→
+   815→// Parse a flexible date input.
+   816→// - "today", "tomorrow", "next week" / "next-week" / "end of week"
+   817→// - YYYY-MM-DD, ISO strings, or any string Date can parse.
+   818→function parseFlexibleDate(input: string): Date | null {
+   819→  const lower = input.trim().toLowerCase();
+   820→  if (lower === "today") {
+   821→    const d = new Date(); d.setHours(17, 0, 0, 0); return d;
+   822→  }
+   823→  if (lower === "tomorrow") {
+   824→    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(17, 0, 0, 0); return d;
+   825→  }
+   826→  if (lower === "next week" || lower === "next-week" || lower === "end of week" || lower === "end-of-week") {
+   827→    const d = new Date(); d.setDate(d.getDate() + 7); d.setHours(17, 0, 0, 0); return d;
+   828→  }
+   829→  const d = new Date(input);
+   830→  if (!isNaN(d.getTime())) return d;
+   831→  return null;
+   832→}
+   833→
+   834→// ============================================================
+   835→// Case-insensitive finders — SQLite Prisma doesn't support
+   836→// `mode: "insensitive"`, so we fetch a small set and filter in JS.
+   837→// ============================================================
+   838→async function findUserByNameCI(name: string): Promise<{ id: string } | null> {
+   839→  if (!name.trim()) return null;
+   840→  const lower = name.toLowerCase();
+   841→  const users = await db.user.findMany({
+   842→    where: { isActive: true },
+   843→    select: { id: true, name: true },
+   844→    take: 200,
+   845→  });
+   846→  // Prefer exact, then contains (case-insensitive).
+   847→  const exact = users.find((u) => u.name.toLowerCase() === lower);
+   848→  if (exact) return { id: exact.id };
+   849→  const contains = users.find((u) => u.name.toLowerCase().includes(lower));
+   850→  if (contains) return { id: contains.id };
+   851→  // Allow matching on first name only
+   852→  const firstName = lower.split(" ")[0];
+   853→  if (firstName.length >= 3) {
+   854→    const byFirst = users.find((u) => u.name.toLowerCase().startsWith(firstName));
+   855→    if (byFirst) return { id: byFirst.id };
+   856→  }
+   857→  return null;
+   858→}
+   859→
+   860→async function findGoalByTitleCI(title: string): Promise<{ id: string } | null> {
+   861→  if (!title.trim()) return null;
+   862→  const lower = title.toLowerCase();
+   863→  const goals = await db.goal.findMany({
+   864→    select: { id: true, title: true },
+   865→    take: 200,
+   866→  });
+   867→  const exact = goals.find((g) => g.title.toLowerCase() === lower);
+   868→  if (exact) return { id: exact.id };
+   869→  const contains = goals.find((g) =>
+   870→    g.title.toLowerCase().includes(lower) || lower.includes(g.title.toLowerCase())
+   871→  );
+   872→  if (contains) return { id: contains.id };
+   873→  return null;
+   874→}
+   875→
+   876→async function findOpenTaskByTitleCI(partial: string): Promise<{ id: string; title: string } | null> {
+   877→  if (!partial.trim()) return null;
+   878→  const lower = partial.toLowerCase();
+   879→  const tasks = await db.task.findMany({
+   880→    where: { status: { not: "DONE" } },
+   881→    select: { id: true, title: true, dueDate: true },
+   882→    orderBy: { dueDate: "asc" },
+   883→    take: 200,
+   884→  });
+   885→  const contains = tasks.find((t) => t.title.toLowerCase().includes(lower));
+   886→  if (contains) return { id: contains.id, title: contains.title };
+   887→  // Try matching by significant keywords
+   888→  const keywords = lower.split(/\s+/).filter((w) => w.length >= 4);
+   889→  if (keywords.length > 0) {
+   890→    const matched = tasks.find((t) => {
+   891→      const tl = t.title.toLowerCase();
+   892→      return keywords.every((k) => tl.includes(k));
+   893→    });
+   894→    if (matched) return { id: matched.id, title: matched.title };
+   895→  }
+   896→  return null;
+   897→}
+   898→
+   899→async function findOpportunityByNameCI(name: string): Promise<{ id: string } | null> {
+   900→  if (!name.trim()) return null;
+   901→  const lower = name.toLowerCase();
+   902→  const opps = await db.opportunity.findMany({
+   903→    select: { id: true, name: true },
+   904→    take: 200,
+   905→  });
+   906→  const exact = opps.find((o) => o.name.toLowerCase() === lower);
+   907→  if (exact) return { id: exact.id };
+   908→  const contains = opps.find((o) => o.name.toLowerCase().includes(lower));
+   909→  if (contains) return { id: contains.id };
+   910→  return null;
+   911→}
+   912→
+   913→async function findAccountByNameCI(name: string): Promise<{ id: string; name: string } | null> {
+   914→  if (!name.trim()) return null;
+   915→  const lower = name.toLowerCase();
+   916→  const accounts = await db.account.findMany({
+   917→    select: { id: true, name: true },
+   918→    take: 200,
+   919→  });
+   920→  const exact = accounts.find((a) => a.name.toLowerCase() === lower);
+   921→  if (exact) return { id: exact.id, name: exact.name };
+   922→  const contains = accounts.find((a) => a.name.toLowerCase().includes(lower));
+   923→  if (contains) return { id: contains.id, name: contains.name };
+   924→  return null;
+   925→}
+   926→
+   927→// ---------- graceful fallback when SDK fails ----------
+   928→
+   929→function cachedFallback(action: AiPostBody["action"]): string {
+   930→  switch (action) {
+   931→    case "daily_plan":
+   932→      return (
+   933→        "## Top 3 Priorities\n" +
+   934→        "- Chase all overdue invoices (call finance office before noon)\n" +
+   935→        "- Confirm crew for the next confirmed event\n" +
+   936→        "- Approve or reject pending payment requests (segregation of duties)\n\n" +
+   937→        "## Delegate\n- Intern reports review — assign to operations lead\n- Vendor quote comparisons — assign to procurement\n\n" +
+   938→        "## Defer\n- Non-strategic meetings without agenda\n- Distraction tasks flagged in the system\n\n" +
+   939→        "## Risk to Watch\n- Cash position vs outstanding invoices — close the gap this week."
+   940→      );
+   941→    case "risk_check":
+   942→      return (
+   943→        "## Top 5 Risks (cached)\n" +
+   944→        "- **Risk:** Overdue invoices unpaid\n  - **Severity:** CRITICAL\n  - **Why:** Cash flow gap\n  - **Action:** Send written demand + call client today\n" +
+   945→        "- **Risk:** Budget overruns on active projects\n  - **Severity:** WARNING\n  - **Why:** Spending exceeds budget lines\n  - **Action:** Review budget utilisation report\n" +
+   946→        "- **Risk:** Pending approvals stuck\n  - **Severity:** WARNING\n  - **Why:** Vendors may halt work\n  - **Action:** Approve/reject within 24h\n" +
+   947→        "- **Risk:** Distraction tasks consuming founder time\n  - **Severity:** INFO\n  - **Why:** Reduces strategic focus\n  - **Action:** Delegate or delete\n" +
+   948→        "- **Risk:** Overdue tasks slipping\n  - **Severity:** WARNING\n  - **Why:** Milestones at risk\n  - **Action:** Reassign or rescope"
+   949→      );
+   950→    case "proposal_draft":
+   951→      return (
+   952→        "## Project Overview\nBrief description of the event/video production engagement.\n\n" +
+   953→        "## Scope of Work\n- Pre-production planning\n- Production day coverage\n- Post-production & delivery\n\n" +
+   954→        "## Deliverables\n- Final edited video / event coverage\n- Raw assets on request\n- Revisions (2 rounds)\n\n" +
+   955→        "## Timeline\n- Pre-prod: 2 weeks\n- Production: 1 day\n- Post-prod: 2 weeks\n\n" +
+   956→        "## Investment (NGN)\n- Standard: \u20a62,500,000\n- Professional: \u20a65,000,000\n- Premium: \u20a610,000,000\n\n" +
+   957→        "## Terms\n- 50% deposit on signing, 50% on delivery\n- Cancellation: 30% retention\n- IP transfers on full payment"
+   958→      );
+   959→    case "chat":
+   960→    case "plan_tasks":
+   961→    case "chat_with_actions":
+   962→    default:
+   963→      return (
+   964→        "I'm offline right now. Quick guidance: prioritise overdue invoices, " +
+   965→        "clear pending approvals, and protect the founder's calendar from distraction tasks today."
+   966→      );
+   967→  }
+   968→}
+   969→

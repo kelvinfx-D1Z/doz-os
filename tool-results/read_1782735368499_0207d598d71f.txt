@@ -1,0 +1,1539 @@
+     1→"use client";
+     2→
+     3→// ============================================================
+     4→// Marketing & Growth Module (DOZ OS — Task G3)
+     5→// Turns lead generation from passive (70% referrals) into an
+     6→// active engine: campaigns, content calendar, referral nurturing,
+     7→// and the growth metrics that make referral dependency visible.
+     8→// ============================================================
+     9→
+    10→import { useEffect, useState, useMemo, useCallback } from "react";
+    11→import { Card } from "@/components/ui/card";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Skeleton } from "@/components/ui/skeleton";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Label } from "@/components/ui/label";
+    17→import { Textarea } from "@/components/ui/textarea";
+    18→import {
+    19→  Select,
+    20→  SelectContent,
+    21→  SelectItem,
+    22→  SelectTrigger,
+    23→  SelectValue,
+    24→} from "@/components/ui/select";
+    25→import {
+    26→  Dialog,
+    27→  DialogContent,
+    28→  DialogHeader,
+    29→  DialogTitle,
+    30→  DialogFooter,
+    31→} from "@/components/ui/dialog";
+    32→import {
+    33→  Tabs,
+    34→  TabsContent,
+    35→  TabsList,
+    36→  TabsTrigger,
+    37→} from "@/components/ui/tabs";
+    38→import {
+    39→  StatCard,
+    40→  StatusBadge,
+    41→  SectionHeader,
+    42→  EmptyState,
+    43→  MiniBar,
+    44→} from "@/components/doz/ui-primitives";
+    45→import {
+    46→  formatNGN,
+    47→  formatDate,
+    48→  relativeTime,
+    49→  avatarColor,
+    50→} from "@/lib/format";
+    51→import { toast } from "sonner";
+    52→import { cn } from "@/lib/utils";
+    53→import {
+    54→  Megaphone,
+    55→  TrendingUp,
+    56→  Calendar,
+    57→  Users,
+    58→  Gift,
+    59→  Mail,
+    60→  Instagram,
+    61→  Linkedin,
+    62→  Youtube,
+    63→  Twitter,
+    64→  FileText,
+    65→  Plus,
+    66→  CheckCircle2,
+    67→  Clock,
+    68→  AlertTriangle,
+    69→  Loader2,
+    70→  Sparkles,
+    71→  Target,
+    72→  ArrowRight,
+    73→  Newspaper,
+    74→  Send,
+    75→} from "lucide-react";
+    76→
+    77→// ============================================================
+    78→// Types
+    79→// ============================================================
+    80→interface Stats {
+    81→  activeCampaigns: number;
+    82→  totalLeadsGenerated: number;
+    83→  totalConversions: number;
+    84→  avgConversionRate: number;
+    85→  totalCampaignRevenue: number;
+    86→  totalCampaignROI: number;
+    87→  contentThisWeek: number;
+    88→  referralSourcesActive: number;
+    89→  overdueNurtures: number;
+    90→}
+    91→
+    92→interface LeadSourceRow {
+    93→  source: string;
+    94→  count: number;
+    95→  value: number;
+    96→  conversionRate: number;
+    97→  won: number;
+    98→}
+    99→
+   100→interface Campaign {
+   101→  id: string;
+   102→  name: string;
+   103→  channel: string;
+   104→  status: string;
+   105→  budget: number;
+   106→  spent: number;
+   107→  leadsGenerated: number;
+   108→  conversions: number;
+   109→  revenue: number;
+   110→  roi: number | null;
+   111→  convRate: number;
+   112→  startDate: string | null;
+   113→  endDate: string | null;
+   114→  notes?: string | null;
+   115→}
+   116→
+   117→interface ContentItem {
+   118→  id: string;
+   119→  title: string;
+   120→  platform: string;
+   121→  type: string;
+   122→  status: string;
+   123→  scheduledDate: string | null;
+   124→  publishedDate: string | null;
+   125→  topic?: string | null;
+   126→  assigneeId?: string | null;
+   127→  assigneeName?: string | null;
+   128→  notes?: string | null;
+   129→}
+   130→
+   131→interface ReferralSource {
+   132→  id: string;
+   133→  name: string;
+   134→  contact?: string | null;
+   135→  relationship?: string | null;
+   136→  totalValue: number;
+   137→  referralCount: number;
+   138→  lastContactAt: string | null;
+   139→  nextNurtureDate: string | null;
+   140→  overdue: boolean;
+   141→  notes?: string | null;
+   142→}
+   143→
+   144→interface GrowthMetrics {
+   145→  pipelineGrowth: string;
+   146→  pipelineGrowthPct: number;
+   147→  currentPipeline: number;
+   148→  leadConversionRate: number;
+   149→  avgDealSize: number;
+   150→  referralDependency: number;
+   151→  topPerformingSource: string;
+   152→}
+   153→
+   154→interface MarketingPayload {
+   155→  stats: Stats;
+   156→  leadSourceBreakdown: LeadSourceRow[];
+   157→  campaigns: Campaign[];
+   158→  contentCalendar: ContentItem[];
+   159→  referralSources: ReferralSource[];
+   160→  growthMetrics: GrowthMetrics;
+   161→}
+   162→
+   163→// ============================================================
+   164→// Constants — channel/platform/status metadata
+   165→// ============================================================
+   166→const CHANNEL_META: Record<string, { label: string; icon: React.ReactNode; tile: string }> = {
+   167→  SOCIAL: { label: "Social", icon: <Instagram className="h-3 w-3" />, tile: "bg-pink-500/15 text-pink-400" },
+   168→  EMAIL: { label: "Email", icon: <Mail className="h-3 w-3" />, tile: "bg-amber-500/15 text-amber-400" },
+   169→  WHATSAPP: { label: "WhatsApp", icon: <Send className="h-3 w-3" />, tile: "bg-emerald-500/15 text-emerald-400" },
+   170→  REFERRAL: { label: "Referral", icon: <Gift className="h-3 w-3" />, tile: "bg-violet-500/15 text-violet-400" },
+   171→  NETWORKING: { label: "Networking", icon: <Users className="h-3 w-3" />, tile: "bg-teal-500/15 text-teal-400" },
+   172→  PAID_ADS: { label: "Paid Ads", icon: <Target className="h-3 w-3" />, tile: "bg-rose-500/15 text-rose-400" },
+   173→};
+   174→
+   175→const PLATFORM_META: Record<string, { label: string; icon: React.ReactNode; tile: string }> = {
+   176→  INSTAGRAM: { label: "Instagram", icon: <Instagram className="h-3 w-3" />, tile: "bg-pink-500/15 text-pink-400" },
+   177→  LINKEDIN: { label: "LinkedIn", icon: <Linkedin className="h-3 w-3" />, tile: "bg-blue-500/15 text-blue-400" },
+   178→  YOUTUBE: { label: "YouTube", icon: <Youtube className="h-3 w-3" />, tile: "bg-red-500/15 text-red-400" },
+   179→  TWITTER: { label: "Twitter", icon: <Twitter className="h-3 w-3" />, tile: "bg-sky-500/15 text-sky-400" },
+   180→  BLOG: { label: "Blog", icon: <FileText className="h-3 w-3" />, tile: "bg-amber-500/15 text-amber-400" },
+   181→  EMAIL_NEWSLETTER: { label: "Newsletter", icon: <Newspaper className="h-3 w-3" />, tile: "bg-emerald-500/15 text-emerald-400" },
+   182→};
+   183→
+   184→const CONTENT_STATUS_FLOW = ["IDEA", "DRAFTING", "SCHEDULED", "PUBLISHED"];
+   185→
+   186→const CAMPAIGN_STATUSES = ["PLANNING", "ACTIVE", "COMPLETED", "PAUSED"];
+   187→
+   188→const RELATIONSHIPS: Record<string, string> = {
+   189→  CLIENT: "bg-emerald-500/15 text-emerald-400",
+   190→  PARTNER: "bg-teal-500/15 text-teal-400",
+   191→  INDUSTRY_CONTACT: "bg-amber-500/15 text-amber-400",
+   192→  FRIEND: "bg-fuchsia-500/15 text-fuchsia-400",
+   193→};
+   194→
+   195→// ============================================================
+   196→// Main Component
+   197→// ============================================================
+   198→export function MarketingGrowth() {
+   199→  const [data, setData] = useState<MarketingPayload | null>(null);
+   200→  const [loading, setLoading] = useState(true);
+   201→  const [cancelled, setCancelled] = useState(false);
+   202→  const [tab, setTab] = useState("overview");
+   203→
+   204→  // Dialog state
+   205→  const [campaignDialog, setCampaignDialog] = useState(false);
+   206→  const [contentDialog, setContentDialog] = useState(false);
+   207→  const [referralDialog, setReferralDialog] = useState(false);
+   208→  const [nurtureDialog, setNurtureDialog] = useState<ReferralSource | null>(null);
+   209→
+   210→  const load = useCallback(async () => {
+   211→    setLoading(true);
+   212→    try {
+   213→      const res = await fetch("/api/doz/marketing", { cache: "no-store" });
+   214→      if (!res.ok) throw new Error(`status_${res.status}`);
+   215→      const json = await res.json();
+   216→      if (!cancelled) setData(json);
+   217→    } catch (e: any) {
+   218→      toast.error("Failed to load marketing data", { description: e?.message });
+   219→    } finally {
+   220→      if (!cancelled) setLoading(false);
+   221→    }
+   222→  }, [cancelled]);
+   223→
+   224→  useEffect(() => {
+   225→    setCancelled(false);
+   226→    load();
+   227→    return () => setCancelled(true);
+   228→  }, [load]);
+   229→
+   230→  async function postAction(body: any, successMsg: string) {
+   231→    try {
+   232→      const res = await fetch("/api/doz/marketing", {
+   233→        method: "POST",
+   234→        headers: { "Content-Type": "application/json" },
+   235→        body: JSON.stringify(body),
+   236→      });
+   237→      if (!res.ok) {
+   238→        const err = await res.json().catch(() => ({}));
+   239→        throw new Error(err?.error ?? `status_${res.status}`);
+   240→      }
+   241→      toast.success(successMsg);
+   242→      await load();
+   243→      return true;
+   244→    } catch (e: any) {
+   245→      toast.error("Action failed", { description: e?.message });
+   246→      return false;
+   247→    }
+   248→  }
+   249→
+   250→  return (
+   251→    <div className="space-y-6">
+   252→      {/* Header */}
+   253→      <div className="flex flex-wrap items-start justify-between gap-3">
+   254→        <div className="flex items-start gap-3">
+   255→          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+   256→            <Megaphone className="h-5 w-5" />
+   257→          </div>
+   258→          <div>
+   259→            <h1 className="text-xl font-semibold tracking-tight">Marketing & Growth</h1>
+   260→            <p className="text-sm text-muted-foreground">
+   261→              Turn referrals into a predictable lead engine
+   262→            </p>
+   263→          </div>
+   264→        </div>
+   265→      </div>
+   266→
+   267→      {/* KPI row */}
+   268→      {loading || !data ? (
+   269→        <KpiSkeleton />
+   270→      ) : (
+   271→        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+   272→          <StatCard
+   273→            label="Active Campaigns"
+   274→            value={data.stats.activeCampaigns}
+   275→            sub={`${data.campaigns.length} total`}
+   276→            icon={<Megaphone className="h-4 w-4" />}
+   277→            accent="primary"
+   278→          />
+   279→          <StatCard
+   280→            label="Leads Generated"
+   281→            value={data.stats.totalLeadsGenerated}
+   282→            sub={`${data.stats.totalConversions} converted`}
+   283→            icon={<TrendingUp className="h-4 w-4" />}
+   284→          />
+   285→          <StatCard
+   286→            label="Conversion Rate"
+   287→            value={`${data.stats.avgConversionRate}%`}
+   288→            sub="across all campaigns"
+   289→            icon={<Target className="h-4 w-4" />}
+   290→          />
+   291→          <StatCard
+   292→            label="Campaign Revenue"
+   293→            value={formatNGN(data.stats.totalCampaignRevenue, true)}
+   294→            sub={`ROI ${data.stats.totalCampaignROI}%`}
+   295→            icon={<TrendingUp className="h-4 w-4" />}
+   296→            accent={data.stats.totalCampaignROI >= 0 ? "primary" : "danger"}
+   297→          />
+   298→          <StatCard
+   299→            label="Content This Week"
+   300→            value={data.stats.contentThisWeek}
+   301→            sub={`${data.contentCalendar.length} scheduled`}
+   302→            icon={<Calendar className="h-4 w-4" />}
+   303→          />
+   304→          <StatCard
+   305→            label="Referral Sources"
+   306→            value={data.stats.referralSourcesActive}
+   307→            sub={
+   308→              data.stats.overdueNurtures > 0
+   309→                ? `${data.stats.overdueNurtures} need nurturing`
+   310→                : "all nurtured"
+   311→            }
+   312→            icon={<Gift className="h-4 w-4" />}
+   313→            accent={data.stats.overdueNurtures > 0 ? "warning" : "primary"}
+   314→            onClick={() => setTab("referrals")}
+   315→          />
+   316→        </div>
+   317→      )}
+   318→
+   319→      {/* Tabs */}
+   320→      <Tabs value={tab} onValueChange={setTab} className="w-full">
+   321→        <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
+   322→          <TabsTrigger value="overview">Overview</TabsTrigger>
+   323→          <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
+   324→          <TabsTrigger value="content">Content Calendar</TabsTrigger>
+   325→          <TabsTrigger value="referrals">Referral Sources</TabsTrigger>
+   326→        </TabsList>
+   327→
+   328→        {/* ============================== Overview ============================== */}
+   329→        <TabsContent value="overview" className="mt-4 space-y-6">
+   330→          {loading || !data ? (
+   331→            <OverviewSkeleton />
+   332→          ) : (
+   333→            <>
+   334→              {/* Lead Source Breakdown */}
+   335→              <Card className="p-5">
+   336→                <SectionHeader
+   337→                  title="Lead Source Breakdown"
+   338→                  description="Where your opportunities come from — and which convert best"
+   339→                  icon={<Users className="h-5 w-5" />}
+   340→                />
+   341→                <div className="mt-4 space-y-3">
+   342→                  <LeadSourceBars rows={data.leadSourceBreakdown} />
+   343→                </div>
+   344→              </Card>
+   345→
+   346→              <div className="grid gap-6 lg:grid-cols-2">
+   347→                {/* Growth Metrics */}
+   348→                <Card className="p-5">
+   349→                  <SectionHeader
+   350→                    title="Growth Metrics"
+   351→                    description="Health of the lead engine"
+   352→                    icon={<TrendingUp className="h-5 w-5" />}
+   353→                  />
+   354→                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+   355→                    <GrowthMetric
+   356→                      label="Pipeline Growth"
+   357→                      value={data.growthMetrics.pipelineGrowth}
+   358→                      hint={`Current pipeline: ${formatNGN(data.growthMetrics.currentPipeline, true)}`}
+   359→                      positive={data.growthMetrics.pipelineGrowthPct >= 0}
+   360→                    />
+   361→                    <GrowthMetric
+   362→                      label="Lead Conversion Rate"
+   363→                      value={`${data.growthMetrics.leadConversionRate}%`}
+   364→                      hint="won / total opportunities"
+   365→                    />
+   366→                    <GrowthMetric
+   367→                      label="Avg Deal Size"
+   368→                      value={formatNGN(data.growthMetrics.avgDealSize, true)}
+   369→                      hint="average won opportunity"
+   370→                    />
+   371→                    <GrowthMetric
+   372→                      label="Referral Dependency"
+   373→                      value={`${data.growthMetrics.referralDependency}%`}
+   374→                      hint={
+   375→                        data.growthMetrics.referralDependency >= 60
+   376→                          ? "High — diversify to reduce risk"
+   377→                          : data.growthMetrics.referralDependency >= 40
+   378→                            ? "Moderate — keep nurturing + diversify"
+   379→                            : "Healthy mix of sources"
+   380→                      }
+   381→                      danger={data.growthMetrics.referralDependency >= 60}
+   382→                    />
+   383→                    <GrowthMetric
+   384→                      label="Top Performing Source"
+   385→                      value={data.growthMetrics.topPerformingSource}
+   386→                      hint="highest conversion rate"
+   387→                    />
+   388→                  </div>
+   389→                </Card>
+   390→
+   391→                {/* Overdue Nurtures */}
+   392→                <Card
+   393→                  className={cn(
+   394→                    "p-5",
+   395→                    data.referralSources.filter((r) => r.overdue).length > 0 &&
+   396→                      "border-amber-500/40 bg-amber-500/[0.03]"
+   397→                  )}
+   398→                >
+   399→                  <SectionHeader
+   400→                    title="Overdue Nurtures"
+   401→                    description="Referrers past their next-contact date"
+   402→                    icon={<AlertTriangle className="h-5 w-5" />}
+   403→                    action={
+   404→                      data.referralSources.filter((r) => r.overdue).length > 0 ? (
+   405→                        <Badge className="bg-amber-500/15 text-amber-400">
+   406→                          {data.referralSources.filter((r) => r.overdue).length} overdue
+   407→                        </Badge>
+   408→                      ) : undefined
+   409→                    }
+   410→                  />
+   411→                  <div className="mt-4">
+   412→                    {data.referralSources.filter((r) => r.overdue).length === 0 ? (
+   413→                      <EmptyState
+   414→                        icon={<CheckCircle2 className="h-6 w-6" />}
+   415→                        title="All referrers nurtured"
+   416→                        hint="No overdue contacts. You're staying top of mind."
+   417→                      />
+   418→                    ) : (
+   419→                      <div className="space-y-3">
+   420→                        <p className="text-xs text-muted-foreground">
+   421→                          These referrers haven't been contacted — nurture them this week.
+   422→                        </p>
+   423→                        {data.referralSources
+   424→                          .filter((r) => r.overdue)
+   425→                          .map((r) => (
+   426→                            <OverdueNurtureCard
+   427→                              key={r.id}
+   428→                              referral={r}
+   429→                              onLogContact={() => setNurtureDialog(r)}
+   430→                            />
+   431→                          ))}
+   432→                      </div>
+   433→                    )}
+   434→                  </div>
+   435→                </Card>
+   436→              </div>
+   437→            </>
+   438→          )}
+   439→        </TabsContent>
+   440→
+   441→        {/* ============================== Campaigns ============================== */}
+   442→        <TabsContent value="campaigns" className="mt-4 space-y-4">
+   443→          <div className="flex justify-end">
+   444→            <Button onClick={() => setCampaignDialog(true)} className="gap-2">
+   445→              <Plus className="h-4 w-4" /> New Campaign
+   446→            </Button>
+   447→          </div>
+   448→          {loading || !data ? (
+   449→            <CardsSkeleton count={3} />
+   450→          ) : data.campaigns.length === 0 ? (
+   451→            <EmptyState
+   452→              icon={<Megaphone className="h-6 w-6" />}
+   453→              title="No campaigns yet"
+   454→              hint="Plan your first campaign — Instagram showcase, LinkedIn thought leadership, or a referral reward program."
+   455→            />
+   456→          ) : (
+   457→            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+   458→              {data.campaigns.map((c) => (
+   459→                <CampaignCard
+   460→                  key={c.id}
+   461→                  campaign={c}
+   462→                  onStatusChange={async (status) => {
+   463→                    // We don't have a direct update_campaign action; reuse create_campaign flow is wrong.
+   464→                    // For now, we only display status changes via a toast (no PATCH yet).
+   465→                    toast.info(`Status update to ${status} — coming next iteration`);
+   466→                  }}
+   467→                />
+   468→              ))}
+   469→            </div>
+   470→          )}
+   471→        </TabsContent>
+   472→
+   473→        {/* ============================== Content Calendar ============================== */}
+   474→        <TabsContent value="content" className="mt-4 space-y-4">
+   475→          <div className="flex justify-end">
+   476→            <Button onClick={() => setContentDialog(true)} className="gap-2">
+   477→              <Plus className="h-4 w-4" /> New Content
+   478→            </Button>
+   479→          </div>
+   480→          {loading || !data ? (
+   481→            <CardsSkeleton count={3} />
+   482→          ) : (
+   483→            <ContentGroups
+   484→              items={data.contentCalendar}
+   485→              onAdvance={async (item) => {
+   486→                const idx = CONTENT_STATUS_FLOW.indexOf(item.status);
+   487→                if (idx < 0 || idx >= CONTENT_STATUS_FLOW.length - 1) return;
+   488→                const next = CONTENT_STATUS_FLOW[idx + 1];
+   489→                await postAction(
+   490→                  { action: "update_content", contentId: item.id, status: next },
+   491→                  `Marked as ${next}`
+   492→                );
+   493→              }}
+   494→            />
+   495→          )}
+   496→        </TabsContent>
+   497→
+   498→        {/* ============================== Referral Sources ============================== */}
+   499→        <TabsContent value="referrals" className="mt-4 space-y-4">
+   500→          <div className="flex justify-end">
+   501→            <Button onClick={() => setReferralDialog(true)} className="gap-2">
+   502→              <Plus className="h-4 w-4" /> Add Referral Source
+   503→            </Button>
+   504→          </div>
+   505→          {loading || !data ? (
+   506→            <CardsSkeleton count={3} />
+   507→          ) : data.referralSources.length === 0 ? (
+   508→            <EmptyState
+   509→              icon={<Gift className="h-6 w-6" />}
+   510→              title="No referral sources yet"
+   511→              hint="Add the people who send you business — clients, partners, industry contacts — and schedule nurture touchpoints."
+   512→            />
+   513→          ) : (
+   514→            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+   515→              {data.referralSources
+   516→                .slice()
+   517→                .sort((a, b) => {
+   518→                  // overdue first, then by nextNurtureDate asc
+   519→                  if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+   520→                  const ad = a.nextNurtureDate ? new Date(a.nextNurtureDate).getTime() : Infinity;
+   521→                  const bd = b.nextNurtureDate ? new Date(b.nextNurtureDate).getTime() : Infinity;
+   522→                  return ad - bd;
+   523→                })
+   524→                .map((r) => (
+   525→                  <ReferralCard
+   526→                    key={r.id}
+   527→                    referral={r}
+   528→                    onLogContact={() => setNurtureDialog(r)}
+   529→                  />
+   530→                ))}
+   531→            </div>
+   532→          )}
+   533→        </TabsContent>
+   534→      </Tabs>
+   535→
+   536→      {/* ============================== Dialogs ============================== */}
+   537→      <NewCampaignDialog
+   538→        open={campaignDialog}
+   539→        onOpenChange={setCampaignDialog}
+   540→        onSubmit={async (payload) => {
+   541→          const ok = await postAction(
+   542→            { action: "create_campaign", ...payload },
+   543→            "Campaign created"
+   544→          );
+   545→          if (ok) setCampaignDialog(false);
+   546→        }}
+   547→      />
+   548→      <NewContentDialog
+   549→        open={contentDialog}
+   550→        onOpenChange={setContentDialog}
+   551→        onSubmit={async (payload) => {
+   552→          const ok = await postAction(
+   553→            { action: "create_content", ...payload },
+   554→            "Content added to calendar"
+   555→          );
+   556→          if (ok) setContentDialog(false);
+   557→        }}
+   558→      />
+   559→      <NewReferralDialog
+   560→        open={referralDialog}
+   561→        onOpenChange={setReferralDialog}
+   562→        onSubmit={async (payload) => {
+   563→          const ok = await postAction(
+   564→            { action: "create_referral", ...payload },
+   565→            "Referral source added"
+   566→          );
+   567→          if (ok) setReferralDialog(false);
+   568→        }}
+   569→      />
+   570→      <LogNurtureDialog
+   571→        referral={nurtureDialog}
+   572→        onOpenChange={(open) => !open && setNurtureDialog(null)}
+   573→        onSubmit={async (nextDate) => {
+   574→          if (!nurtureDialog) return;
+   575→          const ok = await postAction(
+   576→            {
+   577→              action: "log_nurture",
+   578→              referralSourceId: nurtureDialog.id,
+   579→              nextNurtureDate: nextDate,
+   580→            },
+   581→            "Nurture logged"
+   582→          );
+   583→          if (ok) setNurtureDialog(null);
+   584→        }}
+   585→      />
+   586→    </div>
+   587→  );
+   588→}
+   589→
+   590→// ============================================================
+   591→// Sub-components
+   592→// ============================================================
+   593→
+   594→function LeadSourceBars({ rows }: { rows: LeadSourceRow[] }) {
+   595→  const maxValue = Math.max(...rows.map((r) => r.value), 1);
+   596→  const topSource = useMemo(() => {
+   597→    let best: LeadSourceRow | null = null;
+   598→    for (const r of rows) {
+   599→      if (r.count > 0 && (!best || r.conversionRate > best.conversionRate)) best = r;
+   600→    }
+   601→    return best?.source ?? null;
+   602→  }, [rows]);
+   603→
+   604→  return (
+   605→    <div className="space-y-2.5">
+   606→      {rows.map((r) => {
+   607→        const isTop = r.source === topSource;
+   608→        return (
+   609→          <div
+   610→            key={r.source}
+   611→            className={cn(
+   612→              "rounded-lg border p-3 transition-colors",
+   613→              isTop ? "border-primary/40 bg-primary/[0.04]" : "border-border bg-card/50"
+   614→            )}
+   615→          >
+   616→            <div className="flex items-center justify-between gap-3">
+   617→              <div className="flex items-center gap-2">
+   618→                <span className="text-sm font-semibold">{r.source.replace(/_/g, " ")}</span>
+   619→                {isTop && (
+   620→                  <Badge className="bg-primary/15 text-primary">
+   621→                    <Sparkles className="mr-1 h-3 w-3" /> Top
+   622→                  </Badge>
+   623→                )}
+   624→              </div>
+   625→              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+   626→                <span>{r.count} opps</span>
+   627→                <span>{formatNGN(r.value, true)}</span>
+   628→                <span className={cn("font-semibold", r.conversionRate > 0 ? "text-primary" : "")}>
+   629→                  {r.conversionRate}%
+   630→                </span>
+   631→              </div>
+   632→            </div>
+   633→            <div className="mt-2">
+   634→              <MiniBar
+   635→                value={r.value}
+   636→                max={maxValue}
+   637→                color={isTop ? "bg-primary" : "bg-muted-foreground/40"}
+   638→              />
+   639→            </div>
+   640→          </div>
+   641→        );
+   642→      })}
+   643→    </div>
+   644→  );
+   645→}
+   646→
+   647→function GrowthMetric({
+   648→  label,
+   649→  value,
+   650→  hint,
+   651→  positive,
+   652→  danger,
+   653→}: {
+   654→  label: string;
+   655→  value: string;
+   656→  hint?: string;
+   657→  positive?: boolean;
+   658→  danger?: boolean;
+   659→}) {
+   660→  return (
+   661→    <div className="rounded-lg border border-border bg-card/50 p-3">
+   662→      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+   663→        {label}
+   664→      </p>
+   665→      <p
+   666→        className={cn(
+   667→          "mt-1 text-lg font-semibold tracking-tight",
+   668→          danger && "text-amber-400",
+   669→          positive === true && "text-primary",
+   670→          positive === false && "text-destructive"
+   671→        )}
+   672→      >
+   673→        {value}
+   674→      </p>
+   675→      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+   676→    </div>
+   677→  );
+   678→}
+   679→
+   680→function OverdueNurtureCard({
+   681→  referral,
+   682→  onLogContact,
+   683→}: {
+   684→  referral: ReferralSource;
+   685→  onLogContact: () => void;
+   686→}) {
+   687→  return (
+   688→    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-3">
+   689→      <div className="min-w-0 flex-1">
+   690→        <div className="flex items-center gap-2">
+   691→          <span className="text-sm font-semibold">{referral.name}</span>
+   692→          <span className="text-xs text-amber-400">
+   693→            {referral.nextNurtureDate ? relativeTime(referral.nextNurtureDate) : "no schedule"}
+   694→          </span>
+   695→        </div>
+   696→        <p className="truncate text-xs text-muted-foreground">
+   697→          {referral.contact || "No contact info"} · {formatNGN(referral.totalValue, true)} referred
+   698→        </p>
+   699→      </div>
+   700→      <Button size="sm" variant="outline" onClick={onLogContact} className="gap-1.5">
+   701→        <CheckCircle2 className="h-3.5 w-3.5" /> Log Contact
+   702→      </Button>
+   703→    </div>
+   704→  );
+   705→}
+   706→
+   707→function CampaignCard({
+   708→  campaign,
+   709→  onStatusChange,
+   710→}: {
+   711→  campaign: Campaign;
+   712→  onStatusChange: (status: string) => void;
+   713→}) {
+   714→  const ch = CHANNEL_META[campaign.channel] ?? CHANNEL_META.SOCIAL;
+   715→  const roi = campaign.roi;
+   716→  const roiColor = roi === null ? "text-muted-foreground" : roi >= 1 ? "text-emerald-400" : "text-rose-400";
+   717→
+   718→  return (
+   719→    <Card className="flex flex-col p-4">
+   720→      <div className="flex items-start justify-between gap-2">
+   721→        <div className="min-w-0">
+   722→          <p className="truncate text-sm font-semibold">{campaign.name}</p>
+   723→          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+   724→            <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", ch.tile)}>
+   725→              {ch.icon} {ch.label}
+   726→            </span>
+   727→            <StatusBadge status={campaign.status} />
+   728→          </div>
+   729→        </div>
+   730→      </div>
+   731→
+   732→      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+   733→        <div>
+   734→          <p className="text-muted-foreground">Budget / Spent</p>
+   735→          <p className="mt-0.5 font-semibold">
+   736→            {formatNGN(campaign.budget, true)} <span className="text-muted-foreground">/ {formatNGN(campaign.spent, true)}</span>
+   737→          </p>
+   738→          <div className="mt-1.5">
+   739→            <MiniBar value={campaign.spent} max={Math.max(campaign.budget, 1)} color="bg-amber-500" />
+   740→          </div>
+   741→        </div>
+   742→        <div>
+   743→          <p className="text-muted-foreground">Leads / Conversions</p>
+   744→          <p className="mt-0.5 font-semibold">
+   745→            {campaign.leadsGenerated} <span className="text-muted-foreground">/ {campaign.conversions}</span>
+   746→          </p>
+   747→          <p className="mt-1.5 text-[11px] text-muted-foreground">
+   748→            Conv rate: <span className="font-semibold text-foreground">{campaign.convRate}%</span>
+   749→          </p>
+   750→        </div>
+   751→      </div>
+   752→
+   753→      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+   754→        <div>
+   755→          <p className="text-muted-foreground">Revenue</p>
+   756→          <p className="mt-0.5 font-semibold">{formatNGN(campaign.revenue, true)}</p>
+   757→        </div>
+   758→        <div>
+   759→          <p className="text-muted-foreground">ROI</p>
+   760→          <p className={cn("mt-0.5 font-semibold", roiColor)}>
+   761→            {roi === null ? "—" : `${roi}%`}
+   762→          </p>
+   763→        </div>
+   764→      </div>
+   765→
+   766→      {campaign.startDate && (
+   767→        <p className="mt-3 text-[11px] text-muted-foreground">
+   768→          {formatDate(campaign.startDate)}
+   769→          {campaign.endDate ? ` → ${formatDate(campaign.endDate)}` : ""}
+   770→        </p>
+   771→      )}
+   772→
+   773→      <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border pt-3">
+   774→        {CAMPAIGN_STATUSES.filter((s) => s !== campaign.status).map((s) => (
+   775→          <Button
+   776→            key={s}
+   777→            size="sm"
+   778→            variant="outline"
+   779→            className="h-7 px-2 text-[11px]"
+   780→            onClick={() => onStatusChange(s)}
+   781→          >
+   782→            Set {s.toLowerCase()}
+   783→          </Button>
+   784→        ))}
+   785→      </div>
+   786→    </Card>
+   787→  );
+   788→}
+   789→
+   790→function ContentGroups({
+   791→  items,
+   792→  onAdvance,
+   793→}: {
+   794→  items: ContentItem[];
+   795→  onAdvance: (item: ContentItem) => void;
+   796→}) {
+   797→  const now = new Date();
+   798→  const startOfWeek = useMemo(() => {
+   799→    const day = now.getDay();
+   800→    const diff = day === 0 ? -6 : 1 - day;
+   801→    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+   802→  }, []);
+   803→  const endOfNextWeek = new Date(startOfWeek.getTime() + 14 * 86400000);
+   804→
+   805→  const groups = useMemo(() => {
+   806→    const thisWeek: ContentItem[] = [];
+   807→    const nextWeek: ContentItem[] = [];
+   808→    const backlog: ContentItem[] = [];
+   809→    const published: ContentItem[] = [];
+   810→    for (const i of items) {
+   811→      if (i.status === "PUBLISHED") {
+   812→        published.push(i);
+   813→        continue;
+   814→      }
+   815→      if (!i.scheduledDate) {
+   816→        backlog.push(i);
+   817→        continue;
+   818→      }
+   819→      const d = new Date(i.scheduledDate);
+   820→      if (d < startOfWeek) {
+   821→        backlog.push(i);
+   822→      } else if (d < endOfNextWeek) {
+   823→        if (d < new Date(startOfWeek.getTime() + 7 * 86400000)) {
+   824→          thisWeek.push(i);
+   825→        } else {
+   826→          nextWeek.push(i);
+   827→        }
+   828→      } else {
+   829→        backlog.push(i);
+   830→      }
+   831→    }
+   832→    return { thisWeek, nextWeek, backlog, published };
+   833→  }, [items, startOfWeek, endOfNextWeek]);
+   834→
+   835→  if (items.length === 0) {
+   836→    return (
+   837→      <EmptyState
+   838→        icon={<Calendar className="h-6 w-6" />}
+   839→        title="No content yet"
+   840→        hint="Plan your Instagram reels, LinkedIn posts, and email newsletters — keep the engine running."
+   841→      />
+   842→    );
+   843→  }
+   844→
+   845→  return (
+   846→    <div className="space-y-5">
+   847→      {groups.thisWeek.length > 0 && (
+   848→        <ContentGroup
+   849→          title="This Week"
+   850→          icon={<Clock className="h-4 w-4 text-amber-400" />}
+   851→          items={groups.thisWeek}
+   852→          onAdvance={onAdvance}
+   853→        />
+   854→      )}
+   855→      {groups.nextWeek.length > 0 && (
+   856→        <ContentGroup
+   857→          title="Next Week"
+   858→          icon={<Calendar className="h-4 w-4 text-teal-400" />}
+   859→          items={groups.nextWeek}
+   860→          onAdvance={onAdvance}
+   861→        />
+   862→      )}
+   863→      {groups.backlog.length > 0 && (
+   864→        <ContentGroup
+   865→          title="Backlog"
+   866→          icon={<Plus className="h-4 w-4 text-muted-foreground" />}
+   867→          items={groups.backlog}
+   868→          onAdvance={onAdvance}
+   869→        />
+   870→      )}
+   871→      {groups.published.length > 0 && (
+   872→        <ContentGroup
+   873→          title="Recently Published"
+   874→          icon={<CheckCircle2 className="h-4 w-4 text-primary" />}
+   875→          items={groups.published}
+   876→          onAdvance={onAdvance}
+   877→        />
+   878→      )}
+   879→    </div>
+   880→  );
+   881→}
+   882→
+   883→function ContentGroup({
+   884→  title,
+   885→  icon,
+   886→  items,
+   887→  onAdvance,
+   888→}: {
+   889→  title: string;
+   890→  icon: React.ReactNode;
+   891→  items: ContentItem[];
+   892→  onAdvance: (item: ContentItem) => void;
+   893→}) {
+   894→  return (
+   895→    <div>
+   896→      <div className="mb-2 flex items-center gap-2">
+   897→        {icon}
+   898→        <h3 className="text-sm font-semibold">{title}</h3>
+   899→        <Badge variant="outline" className="text-[10px]">{items.length}</Badge>
+   900→      </div>
+   901→      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+   902→        {items.map((item) => (
+   903→          <ContentCard key={item.id} item={item} onAdvance={() => onAdvance(item)} />
+   904→        ))}
+   905→      </div>
+   906→    </div>
+   907→  );
+   908→}
+   909→
+   910→function ContentCard({ item, onAdvance }: { item: ContentItem; onAdvance: () => void }) {
+   911→  const p = PLATFORM_META[item.platform] ?? PLATFORM_META.BLOG;
+   912→  const idx = CONTENT_STATUS_FLOW.indexOf(item.status);
+   913→  const canAdvance = idx >= 0 && idx < CONTENT_STATUS_FLOW.length - 1;
+   914→  const nextStatus = canAdvance ? CONTENT_STATUS_FLOW[idx + 1] : null;
+   915→
+   916→  return (
+   917→    <Card className="flex flex-col p-4">
+   918→      <div className="flex items-start justify-between gap-2">
+   919→        <p className="text-sm font-semibold leading-snug">{item.title}</p>
+   920→        <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", p.tile)}>
+   921→          {p.icon} {p.label}
+   922→        </span>
+   923→      </div>
+   924→
+   925→      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+   926→        <StatusBadge status={item.status} />
+   927→        <Badge variant="outline" className="text-[10px]">{item.type}</Badge>
+   928→        {item.topic && (
+   929→          <span className="text-[11px] text-muted-foreground">{item.topic}</span>
+   930→        )}
+   931→      </div>
+   932→
+   933→      <div className="mt-3 text-[11px] text-muted-foreground">
+   934→        {item.scheduledDate ? (
+   935→          <>
+   936→            <Clock className="mr-1 inline h-3 w-3" />
+   937→            {formatDate(item.scheduledDate)}
+   938→            {item.publishedDate && (
+   939→              <span className="ml-2 text-primary">
+   940→                · published {formatDate(item.publishedDate)}
+   941→              </span>
+   942→            )}
+   943→          </>
+   944→        ) : (
+   945→          <span className="text-muted-foreground/70">No date</span>
+   946→        )}
+   947→      </div>
+   948→
+   949→      {item.assigneeName && (
+   950→        <p className="mt-1 text-[11px] text-muted-foreground">
+   951→          <Users className="mr-1 inline h-3 w-3" />
+   952→          {item.assigneeName}
+   953→        </p>
+   954→      )}
+   955→
+   956→      {canAdvance && (
+   957→        <div className="mt-3 flex justify-end border-t border-border pt-3">
+   958→          <Button size="sm" variant="outline" onClick={onAdvance} className="gap-1.5">
+   959→            <ArrowRight className="h-3.5 w-3.5" /> Mark as {nextStatus?.toLowerCase()}
+   960→          </Button>
+   961→        </div>
+   962→      )}
+   963→      {!canAdvance && item.status === "PUBLISHED" && (
+   964→        <div className="mt-3 flex justify-end border-t border-border pt-3">
+   965→          <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+   966→            <CheckCircle2 className="h-3 w-3" /> Published
+   967→          </span>
+   968→        </div>
+   969→      )}
+   970→    </Card>
+   971→  );
+   972→}
+   973→
+   974→function ReferralCard({
+   975→  referral,
+   976→  onLogContact,
+   977→}: {
+   978→  referral: ReferralSource;
+   979→  onLogContact: () => void;
+   980→}) {
+   981→  const relColor = referral.relationship
+   982→    ? RELATIONSHIPS[referral.relationship] ?? "bg-muted text-muted-foreground"
+   983→    : "bg-muted text-muted-foreground";
+   984→
+   985→  return (
+   986→    <Card
+   987→      className={cn(
+   988→        "flex flex-col p-4",
+   989→        referral.overdue && "border-amber-500/40 bg-amber-500/[0.03]"
+   990→      )}
+   991→    >
+   992→      <div className="flex items-start justify-between gap-2">
+   993→        <div className="flex items-center gap-2">
+   994→          <div
+   995→            className={cn(
+   996→              "flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold",
+   997→              avatarColor(referral.name)
+   998→            )}
+   999→          >
+  1000→            {referral.name
+  1001→              .split(" ")
+  1002→              .map((n) => n[0])
+  1003→              .slice(0, 2)
+  1004→              .join("")
+  1005→              .toUpperCase()}
+  1006→          </div>
+  1007→          <div className="min-w-0">
+  1008→            <p className="truncate text-sm font-semibold">{referral.name}</p>
+  1009→            {referral.relationship && (
+  1010→              <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", relColor)}>
+  1011→                {referral.relationship.replace(/_/g, " ")}
+  1012→              </span>
+  1013→            )}
+  1014→          </div>
+  1015→        </div>
+  1016→        {referral.overdue && (
+  1017→          <Badge className="bg-amber-500/15 text-amber-400">
+  1018→            <AlertTriangle className="mr-1 h-3 w-3" /> Overdue
+  1019→          </Badge>
+  1020→        )}
+  1021→      </div>
+  1022→
+  1023→      {referral.contact && (
+  1024→        <p className="mt-2 truncate text-xs text-muted-foreground">{referral.contact}</p>
+  1025→      )}
+  1026→
+  1027→      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+  1028→        <div>
+  1029→          <p className="text-muted-foreground">Total Referred</p>
+  1030→          <p className="mt-0.5 font-semibold">{formatNGN(referral.totalValue, true)}</p>
+  1031→        </div>
+  1032→        <div>
+  1033→          <p className="text-muted-foreground">Referrals</p>
+  1034→          <p className="mt-0.5 font-semibold">{referral.referralCount}</p>
+  1035→        </div>
+  1036→      </div>
+  1037→
+  1038→      <div className="mt-3 space-y-1 text-[11px] text-muted-foreground">
+  1039→        <p>
+  1040→          Last contact:{" "}
+  1041→          <span className={referral.overdue ? "text-amber-400" : "text-foreground"}>
+  1042→            {referral.lastContactAt ? formatDate(referral.lastContactAt) : "never"}
+  1043→          </span>
+  1044→        </p>
+  1045→        <p>
+  1046→          Next nurture:{" "}
+  1047→          <span className={referral.overdue ? "text-amber-400" : "text-foreground"}>
+  1048→            {referral.nextNurtureDate ? relativeTime(referral.nextNurtureDate) : "unscheduled"}
+  1049→          </span>
+  1050→        </p>
+  1051→      </div>
+  1052→
+  1053→      {referral.notes && (
+  1054→        <p className="mt-2 line-clamp-2 text-[11px] italic text-muted-foreground/80">
+  1055→          “{referral.notes}”
+  1056→        </p>
+  1057→      )}
+  1058→
+  1059→      <div className="mt-3 flex justify-end border-t border-border pt-3">
+  1060→        <Button size="sm" variant="outline" onClick={onLogContact} className="gap-1.5">
+  1061→          <CheckCircle2 className="h-3.5 w-3.5" /> Log Contact
+  1062→        </Button>
+  1063→      </div>
+  1064→    </Card>
+  1065→  );
+  1066→}
+  1067→
+  1068→// ============================================================
+  1069→// Dialogs
+  1070→// ============================================================
+  1071→
+  1072→function NewCampaignDialog({
+  1073→  open,
+  1074→  onOpenChange,
+  1075→  onSubmit,
+  1076→}: {
+  1077→  open: boolean;
+  1078→  onOpenChange: (open: boolean) => void;
+  1079→  onSubmit: (payload: {
+  1080→    name: string;
+  1081→    channel: string;
+  1082→    budget: number;
+  1083→    startDate?: string;
+  1084→    endDate?: string;
+  1085→  }) => Promise<void>;
+  1086→}) {
+  1087→  const [name, setName] = useState("");
+  1088→  const [channel, setChannel] = useState("SOCIAL");
+  1089→  const [budget, setBudget] = useState("");
+  1090→  const [startDate, setStartDate] = useState("");
+  1091→  const [endDate, setEndDate] = useState("");
+  1092→  const [submitting, setSubmitting] = useState(false);
+  1093→
+  1094→  async function handleSubmit() {
+  1095→    if (!name.trim()) {
+  1096→      toast.error("Name is required");
+  1097→      return;
+  1098→    }
+  1099→    setSubmitting(true);
+  1100→    await onSubmit({
+  1101→      name: name.trim(),
+  1102→      channel,
+  1103→      budget: Number(budget) || 0,
+  1104→      startDate: startDate || undefined,
+  1105→      endDate: endDate || undefined,
+  1106→    });
+  1107→    setSubmitting(false);
+  1108→    setName("");
+  1109→    setBudget("");
+  1110→    setStartDate("");
+  1111→    setEndDate("");
+  1112→  }
+  1113→
+  1114→  return (
+  1115→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1116→      <DialogContent className="sm:max-w-md">
+  1117→        <DialogHeader>
+  1118→          <DialogTitle>New Campaign</DialogTitle>
+  1119→        </DialogHeader>
+  1120→        <div className="space-y-3">
+  1121→          <div>
+  1122→            <Label className="text-xs">Campaign name</Label>
+  1123→            <Input
+  1124→              value={name}
+  1125→              onChange={(e) => setName(e.target.value)}
+  1126→              placeholder="e.g. Instagram Showcase Q4"
+  1127→              className="mt-1"
+  1128→            />
+  1129→          </div>
+  1130→          <div>
+  1131→            <Label className="text-xs">Channel</Label>
+  1132→            <Select value={channel} onValueChange={setChannel}>
+  1133→              <SelectTrigger className="mt-1">
+  1134→                <SelectValue />
+  1135→              </SelectTrigger>
+  1136→              <SelectContent>
+  1137→                {Object.entries(CHANNEL_META).map(([k, v]) => (
+  1138→                  <SelectItem key={k} value={k}>
+  1139→                    {v.label}
+  1140→                  </SelectItem>
+  1141→                ))}
+  1142→              </SelectContent>
+  1143→            </Select>
+  1144→          </div>
+  1145→          <div>
+  1146→            <Label className="text-xs">Budget (₦)</Label>
+  1147→            <Input
+  1148→              type="number"
+  1149→              value={budget}
+  1150→              onChange={(e) => setBudget(e.target.value)}
+  1151→              placeholder="0"
+  1152→              className="mt-1"
+  1153→            />
+  1154→          </div>
+  1155→          <div className="grid grid-cols-2 gap-2">
+  1156→            <div>
+  1157→              <Label className="text-xs">Start date</Label>
+  1158→              <Input
+  1159→                type="date"
+  1160→                value={startDate}
+  1161→                onChange={(e) => setStartDate(e.target.value)}
+  1162→                className="mt-1"
+  1163→              />
+  1164→            </div>
+  1165→            <div>
+  1166→              <Label className="text-xs">End date</Label>
+  1167→              <Input
+  1168→                type="date"
+  1169→                value={endDate}
+  1170→                onChange={(e) => setEndDate(e.target.value)}
+  1171→                className="mt-1"
+  1172→              />
+  1173→            </div>
+  1174→          </div>
+  1175→        </div>
+  1176→        <DialogFooter>
+  1177→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1178→          <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
+  1179→            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Create
+  1180→          </Button>
+  1181→        </DialogFooter>
+  1182→      </DialogContent>
+  1183→    </Dialog>
+  1184→  );
+  1185→}
+  1186→
+  1187→function NewContentDialog({
+  1188→  open,
+  1189→  onOpenChange,
+  1190→  onSubmit,
+  1191→}: {
+  1192→  open: boolean;
+  1193→  onOpenChange: (open: boolean) => void;
+  1194→  onSubmit: (payload: {
+  1195→    title: string;
+  1196→    platform: string;
+  1197→    type: string;
+  1198→    scheduledDate?: string;
+  1199→    topic?: string;
+  1200→    assigneeId?: string;
+  1201→  }) => Promise<void>;
+  1202→}) {
+  1203→  const [title, setTitle] = useState("");
+  1204→  const [platform, setPlatform] = useState("INSTAGRAM");
+  1205→  const [type, setType] = useState("REEL");
+  1206→  const [scheduledDate, setScheduledDate] = useState("");
+  1207→  const [topic, setTopic] = useState("");
+  1208→  const [submitting, setSubmitting] = useState(false);
+  1209→
+  1210→  async function handleSubmit() {
+  1211→    if (!title.trim()) {
+  1212→      toast.error("Title is required");
+  1213→      return;
+  1214→    }
+  1215→    setSubmitting(true);
+  1216→    await onSubmit({
+  1217→      title: title.trim(),
+  1218→      platform,
+  1219→      type,
+  1220→      scheduledDate: scheduledDate || undefined,
+  1221→      topic: topic.trim() || undefined,
+  1222→    });
+  1223→    setSubmitting(false);
+  1224→    setTitle("");
+  1225→    setTopic("");
+  1226→    setScheduledDate("");
+  1227→  }
+  1228→
+  1229→  return (
+  1230→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1231→      <DialogContent className="sm:max-w-md">
+  1232→        <DialogHeader>
+  1233→          <DialogTitle>New Content</DialogTitle>
+  1234→        </DialogHeader>
+  1235→        <div className="space-y-3">
+  1236→          <div>
+  1237→            <Label className="text-xs">Title</Label>
+  1238→            <Input
+  1239→              value={title}
+  1240→              onChange={(e) => setTitle(e.target.value)}
+  1241→              placeholder="e.g. Behind the scenes — MTN shoot"
+  1242→              className="mt-1"
+  1243→            />
+  1244→          </div>
+  1245→          <div className="grid grid-cols-2 gap-2">
+  1246→            <div>
+  1247→              <Label className="text-xs">Platform</Label>
+  1248→              <Select value={platform} onValueChange={setPlatform}>
+  1249→                <SelectTrigger className="mt-1">
+  1250→                  <SelectValue />
+  1251→                </SelectTrigger>
+  1252→                <SelectContent>
+  1253→                  {Object.entries(PLATFORM_META).map(([k, v]) => (
+  1254→                    <SelectItem key={k} value={k}>
+  1255→                      {v.label}
+  1256→                    </SelectItem>
+  1257→                  ))}
+  1258→                </SelectContent>
+  1259→              </Select>
+  1260→            </div>
+  1261→            <div>
+  1262→              <Label className="text-xs">Type</Label>
+  1263→              <Select value={type} onValueChange={setType}>
+  1264→                <SelectTrigger className="mt-1">
+  1265→                  <SelectValue />
+  1266→                </SelectTrigger>
+  1267→                <SelectContent>
+  1268→                  {["POST", "REEL", "VIDEO", "ARTICLE", "STORY", "NEWSLETTER"].map((t) => (
+  1269→                    <SelectItem key={t} value={t}>
+  1270→                      {t.charAt(0) + t.slice(1).toLowerCase()}
+  1271→                    </SelectItem>
+  1272→                  ))}
+  1273→                </SelectContent>
+  1274→              </Select>
+  1275→            </div>
+  1276→          </div>
+  1277→          <div>
+  1278→            <Label className="text-xs">Scheduled date</Label>
+  1279→            <Input
+  1280→              type="date"
+  1281→              value={scheduledDate}
+  1282→              onChange={(e) => setScheduledDate(e.target.value)}
+  1283→              className="mt-1"
+  1284→            />
+  1285→          </div>
+  1286→          <div>
+  1287→            <Label className="text-xs">Topic (optional)</Label>
+  1288→            <Input
+  1289→              value={topic}
+  1290→              onChange={(e) => setTopic(e.target.value)}
+  1291→              placeholder="e.g. Behind the scenes"
+  1292→              className="mt-1"
+  1293→            />
+  1294→          </div>
+  1295→        </div>
+  1296→        <DialogFooter>
+  1297→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1298→          <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
+  1299→            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Add to Calendar
+  1300→          </Button>
+  1301→        </DialogFooter>
+  1302→      </DialogContent>
+  1303→    </Dialog>
+  1304→  );
+  1305→}
+  1306→
+  1307→function NewReferralDialog({
+  1308→  open,
+  1309→  onOpenChange,
+  1310→  onSubmit,
+  1311→}: {
+  1312→  open: boolean;
+  1313→  onOpenChange: (open: boolean) => void;
+  1314→  onSubmit: (payload: {
+  1315→    name: string;
+  1316→    contact?: string;
+  1317→    relationship?: string;
+  1318→    notes?: string;
+  1319→  }) => Promise<void>;
+  1320→}) {
+  1321→  const [name, setName] = useState("");
+  1322→  const [contact, setContact] = useState("");
+  1323→  const [relationship, setRelationship] = useState("CLIENT");
+  1324→  const [notes, setNotes] = useState("");
+  1325→  const [submitting, setSubmitting] = useState(false);
+  1326→
+  1327→  async function handleSubmit() {
+  1328→    if (!name.trim()) {
+  1329→      toast.error("Name is required");
+  1330→      return;
+  1331→    }
+  1332→    setSubmitting(true);
+  1333→    await onSubmit({
+  1334→      name: name.trim(),
+  1335→      contact: contact.trim() || undefined,
+  1336→      relationship,
+  1337→      notes: notes.trim() || undefined,
+  1338→    });
+  1339→    setSubmitting(false);
+  1340→    setName("");
+  1341→    setContact("");
+  1342→    setNotes("");
+  1343→  }
+  1344→
+  1345→  return (
+  1346→    <Dialog open={open} onOpenChange={onOpenChange}>
+  1347→      <DialogContent className="sm:max-w-md">
+  1348→        <DialogHeader>
+  1349→          <DialogTitle>Add Referral Source</DialogTitle>
+  1350→        </DialogHeader>
+  1351→        <div className="space-y-3">
+  1352→          <div>
+  1353→            <Label className="text-xs">Name</Label>
+  1354→            <Input
+  1355→              value={name}
+  1356→              onChange={(e) => setName(e.target.value)}
+  1357→              placeholder="e.g. Lai Mohammed"
+  1358→              className="mt-1"
+  1359→            />
+  1360→          </div>
+  1361→          <div>
+  1362→            <Label className="text-xs">Contact (phone / email)</Label>
+  1363→            <Input
+  1364→              value={contact}
+  1365→              onChange={(e) => setContact(e.target.value)}
+  1366→              placeholder="+234 ... · name@email.com"
+  1367→              className="mt-1"
+  1368→            />
+  1369→          </div>
+  1370→          <div>
+  1371→            <Label className="text-xs">Relationship</Label>
+  1372→            <Select value={relationship} onValueChange={setRelationship}>
+  1373→              <SelectTrigger className="mt-1">
+  1374→                <SelectValue />
+  1375→              </SelectTrigger>
+  1376→              <SelectContent>
+  1377→                {Object.entries(RELATIONSHIPS).map(([k]) => (
+  1378→                  <SelectItem key={k} value={k}>
+  1379→                    {k.replace(/_/g, " ")}
+  1380→                  </SelectItem>
+  1381→                ))}
+  1382→              </SelectContent>
+  1383→            </Select>
+  1384→          </div>
+  1385→          <div>
+  1386→            <Label className="text-xs">Notes (optional)</Label>
+  1387→            <Textarea
+  1388→              value={notes}
+  1389→              onChange={(e) => setNotes(e.target.value)}
+  1390→              placeholder="What kind of referrals? Best way to stay in touch?"
+  1391→              className="mt-1"
+  1392→              rows={3}
+  1393→            />
+  1394→          </div>
+  1395→        </div>
+  1396→        <DialogFooter>
+  1397→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1398→          <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
+  1399→            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Add Source
+  1400→          </Button>
+  1401→        </DialogFooter>
+  1402→      </DialogContent>
+  1403→    </Dialog>
+  1404→  );
+  1405→}
+  1406→
+  1407→function LogNurtureDialog({
+  1408→  referral,
+  1409→  onOpenChange,
+  1410→  onSubmit,
+  1411→}: {
+  1412→  referral: ReferralSource | null;
+  1413→  onOpenChange: (open: boolean) => void;
+  1414→  onSubmit: (nextDate: string) => Promise<void>;
+  1415→}) {
+  1416→  const defaultDate = useMemo(() => {
+  1417→    // default to 14 days from now
+  1418→    const d = new Date(Date.now() + 14 * 86400000);
+  1419→    return d.toISOString().split("T")[0];
+  1420→  }, []);
+  1421→  const [nextDate, setNextDate] = useState(defaultDate);
+  1422→  const [submitting, setSubmitting] = useState(false);
+  1423→
+  1424→  useEffect(() => {
+  1425→    setNextDate(defaultDate);
+  1426→  }, [referral?.id, defaultDate]);
+  1427→
+  1428→  async function handleSubmit() {
+  1429→    if (!nextDate) {
+  1430→      toast.error("Pick a next nurture date");
+  1431→      return;
+  1432→    }
+  1433→    setSubmitting(true);
+  1434→    await onSubmit(nextDate);
+  1435→    setSubmitting(false);
+  1436→  }
+  1437→
+  1438→  return (
+  1439→    <Dialog open={!!referral} onOpenChange={onOpenChange}>
+  1440→      <DialogContent className="sm:max-w-md">
+  1441→        <DialogHeader>
+  1442→          <DialogTitle>Log Contact — {referral?.name}</DialogTitle>
+  1443→        </DialogHeader>
+  1444→        <div className="space-y-3">
+  1445→          <p className="text-sm text-muted-foreground">
+  1446→            Marking this as contacted today ({formatDate(new Date())}). When should you reach out
+  1447→            again?
+  1448→          </p>
+  1449→          <div>
+  1450→            <Label className="text-xs">Next nurture date</Label>
+  1451→            <Input
+  1452→              type="date"
+  1453→              value={nextDate}
+  1454→              onChange={(e) => setNextDate(e.target.value)}
+  1455→              className="mt-1"
+  1456→            />
+  1457→          </div>
+  1458→          {referral?.notes && (
+  1459→            <div className="rounded-md border border-border bg-card/50 p-2 text-[11px] italic text-muted-foreground">
+  1460→              “{referral.notes}”
+  1461→            </div>
+  1462→          )}
+  1463→        </div>
+  1464→        <DialogFooter>
+  1465→          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+  1466→          <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
+  1467→            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Log Contact
+  1468→          </Button>
+  1469→        </DialogFooter>
+  1470→      </DialogContent>
+  1471→    </Dialog>
+  1472→  );
+  1473→}
+  1474→
+  1475→// ============================================================
+  1476→// Skeletons
+  1477→// ============================================================
+  1478→function KpiSkeleton() {
+  1479→  return (
+  1480→    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+  1481→      {Array.from({ length: 6 }).map((_, i) => (
+  1482→        <Card key={i} className="p-4">
+  1483→          <Skeleton className="h-3 w-20" />
+  1484→          <Skeleton className="mt-2 h-7 w-16" />
+  1485→          <Skeleton className="mt-2 h-3 w-24" />
+  1486→        </Card>
+  1487→      ))}
+  1488→    </div>
+  1489→  );
+  1490→}
+  1491→
+  1492→function OverviewSkeleton() {
+  1493→  return (
+  1494→    <div className="space-y-6">
+  1495→      <Card className="p-5">
+  1496→        <Skeleton className="h-5 w-48" />
+  1497→        <div className="mt-4 space-y-2.5">
+  1498→          {Array.from({ length: 5 }).map((_, i) => (
+  1499→            <Skeleton key={i} className="h-14 w-full" />
+  1500→          ))}
+  1501→        </div>
+  1502→      </Card>
+  1503→      <div className="grid gap-6 lg:grid-cols-2">
+  1504→        <Card className="p-5">
+  1505→          <Skeleton className="h-5 w-40" />
+  1506→          <div className="mt-4 grid grid-cols-2 gap-3">
+  1507→            {Array.from({ length: 4 }).map((_, i) => (
+  1508→              <Skeleton key={i} className="h-20 w-full" />
+  1509→            ))}
+  1510→          </div>
+  1511→        </Card>
+  1512→        <Card className="p-5">
+  1513→          <Skeleton className="h-5 w-40" />
+  1514→          <div className="mt-4 space-y-3">
+  1515→            {Array.from({ length: 3 }).map((_, i) => (
+  1516→              <Skeleton key={i} className="h-16 w-full" />
+  1517→            ))}
+  1518→          </div>
+  1519→        </Card>
+  1520→      </div>
+  1521→    </div>
+  1522→  );
+  1523→}
+  1524→
+  1525→function CardsSkeleton({ count = 3 }: { count?: number }) {
+  1526→  return (
+  1527→    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+  1528→      {Array.from({ length: count }).map((_, i) => (
+  1529→        <Card key={i} className="p-4">
+  1530→          <Skeleton className="h-4 w-32" />
+  1531→          <Skeleton className="mt-2 h-3 w-20" />
+  1532→          <Skeleton className="mt-4 h-12 w-full" />
+  1533→          <Skeleton className="mt-3 h-12 w-full" />
+  1534→        </Card>
+  1535→      ))}
+  1536→    </div>
+  1537→  );
+  1538→}
+  1539→

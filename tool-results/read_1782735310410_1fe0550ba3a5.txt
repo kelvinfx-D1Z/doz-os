@@ -1,0 +1,810 @@
+     1→"use client";
+     2→
+     3→// ============================================================
+     4→// Routines Module (DOZ OS — Task C5)
+     5→// Business rhythm: daily / weekly / event-day / monthly
+     6→// routine templates that the founder can run through as
+     7→// interactive checklists.
+     8→// ============================================================
+     9→
+    10→import { useEffect, useState, useMemo, useCallback } from "react";
+    11→import { Card } from "@/components/ui/card";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Badge } from "@/components/ui/badge";
+    14→import { Skeleton } from "@/components/ui/skeleton";
+    15→import {
+    16→  Dialog,
+    17→  DialogContent,
+    18→  DialogHeader,
+    19→  DialogTitle,
+    20→} from "@/components/ui/dialog";
+    21→import {
+    22→  StatCard,
+    23→  SectionHeader,
+    24→  EmptyState,
+    25→  MiniBar,
+    26→} from "@/components/doz/ui-primitives";
+    27→import { formatDate } from "@/lib/format";
+    28→import { toast } from "sonner";
+    29→import { cn } from "@/lib/utils";
+    30→import {
+    31→  Repeat,
+    32→  Sunrise,
+    33→  Moon,
+    34→  CalendarDays,
+    35→  Clapperboard,
+    36→  Wallet,
+    37→  TrendingUp,
+    38→  Check,
+    39→  Circle,
+    40→  CheckCircle2,
+    41→  Play,
+    42→  X,
+    43→  Clock,
+    44→  Flame,
+    45→  Loader2,
+    46→  CalendarClock,
+    47→  type LucideIcon,
+    48→} from "lucide-react";
+    49→
+    50→/* ------------------------------------------------------------------ */
+    51→/* Icon mapping                                                        */
+    52→/* ------------------------------------------------------------------ */
+    53→const ICON_MAP: Record<string, LucideIcon> = {
+    54→  Sunrise,
+    55→  Moon,
+    56→  CalendarDays,
+    57→  Clapperboard,
+    58→  Wallet,
+    59→  TrendingUp,
+    60→};
+    61→
+    62→function RoutineIcon({ name, className }: { name?: string | null; className?: string }) {
+    63→  const Cmp = (name && ICON_MAP[name]) || Repeat;
+    64→  return <Cmp className={className} />;
+    65→}
+    66→
+    67→/* ------------------------------------------------------------------ */
+    68→/* Color mapping                                                       */
+    69→/* ------------------------------------------------------------------ */
+    70→const COLOR_MAP: Record<string, string> = {
+    71→  amber: "border-amber-500/30 bg-amber-500/5 text-amber-400",
+    72→  violet: "border-violet-500/30 bg-violet-500/5 text-violet-400",
+    73→  emerald: "border-emerald-500/30 bg-emerald-500/5 text-emerald-400",
+    74→  teal: "border-teal-500/30 bg-teal-500/5 text-teal-400",
+    75→  rose: "border-rose-500/30 bg-rose-500/5 text-rose-400",
+    76→};
+    77→
+    78→const COLOR_BAR: Record<string, string> = {
+    79→  amber: "bg-amber-500",
+    80→  violet: "bg-violet-500",
+    81→  emerald: "bg-emerald-500",
+    82→  teal: "bg-teal-500",
+    83→  rose: "bg-rose-500",
+    84→};
+    85→
+    86→const COLOR_TILE: Record<string, string> = {
+    87→  amber: "bg-amber-500/15 text-amber-400",
+    88→  violet: "bg-violet-500/15 text-violet-400",
+    89→  emerald: "bg-emerald-500/15 text-emerald-400",
+    90→  teal: "bg-teal-500/15 text-teal-400",
+    91→  rose: "bg-rose-500/15 text-rose-400",
+    92→};
+    93→
+    94→function colorTokens(color?: string | null) {
+    95→  const c = color ?? "emerald";
+    96→  return {
+    97→    card: COLOR_MAP[c] ?? COLOR_MAP.emerald,
+    98→    bar: COLOR_BAR[c] ?? COLOR_BAR.emerald,
+    99→    tile: COLOR_TILE[c] ?? COLOR_TILE.emerald,
+   100→  };
+   101→}
+   102→
+   103→/* ------------------------------------------------------------------ */
+   104→/* Frequency badge                                                     */
+   105→/* ------------------------------------------------------------------ */
+   106→const FREQUENCY_LABEL: Record<string, string> = {
+   107→  DAILY: "Daily",
+   108→  WEEKLY: "Weekly",
+   109→  EVENT_DAY: "Event Day",
+   110→  MONTHLY: "Monthly",
+   111→};
+   112→
+   113→const FREQUENCY_STYLE: Record<string, string> = {
+   114→  DAILY: "bg-amber-500/15 text-amber-300",
+   115→  WEEKLY: "bg-emerald-500/15 text-emerald-300",
+   116→  EVENT_DAY: "bg-teal-500/15 text-teal-300",
+   117→  MONTHLY: "bg-rose-500/15 text-rose-300",
+   118→};
+   119→
+   120→function FrequencyBadge({ frequency }: { frequency: string }) {
+   121→  return (
+   122→    <span
+   123→      className={cn(
+   124→        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+   125→        FREQUENCY_STYLE[frequency] ?? "bg-muted text-muted-foreground"
+   126→      )}
+   127→    >
+   128→      <CalendarClock className="h-3 w-3" />
+   129→      {FREQUENCY_LABEL[frequency] ?? frequency}
+   130→    </span>
+   131→  );
+   132→}
+   133→
+   134→/* ------------------------------------------------------------------ */
+   135→/* Local time-ago helper (past tense)                                  */
+   136→/* ------------------------------------------------------------------ */
+   137→function timeAgo(d: string | Date | null | undefined): string {
+   138→  if (!d) return "—";
+   139→  const date = typeof d === "string" ? new Date(d) : d;
+   140→  const diff = Date.now() - date.getTime();
+   141→  if (diff < 0) return "just now";
+   142→  const sec = Math.floor(diff / 1000);
+   143→  if (sec < 60) return "just now";
+   144→  const min = Math.floor(sec / 60);
+   145→  if (min < 60) return `${min}m ago`;
+   146→  const hr = Math.floor(min / 60);
+   147→  if (hr < 24) return `${hr}h ago`;
+   148→  const day = Math.floor(hr / 24);
+   149→  if (day === 1) return "1d ago";
+   150→  if (day < 7) return `${day}d ago`;
+   151→  const wk = Math.floor(day / 7);
+   152→  if (wk < 5) return `${wk}w ago`;
+   153→  return formatDate(date);
+   154→}
+   155→
+   156→function minutesSince(d: string | Date | null | undefined): number {
+   157→  if (!d) return 0;
+   158→  const date = typeof d === "string" ? new Date(d) : d;
+   159→  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+   160→}
+   161→
+   162→/* ------------------------------------------------------------------ */
+   163→/* Types — mirror API                                                  */
+   164→/* ------------------------------------------------------------------ */
+   165→interface Routine {
+   166→  id: string;
+   167→  name: string;
+   168→  description: string | null;
+   169→  frequency: string;
+   170→  steps: string[];
+   171→  icon: string | null;
+   172→  color: string | null;
+   173→  isActive: boolean;
+   174→}
+   175→
+   176→interface RecentLog {
+   177→  id: string;
+   178→  routineId: string;
+   179→  routineName: string;
+   180→  routineIcon: string | null;
+   181→  routineColor: string | null;
+   182→  status: string;
+   183→  stepsDoneCount: number;
+   184→  totalSteps: number;
+   185→  startedAt: string;
+   186→  completedAt: string | null;
+   187→  userId: string | null;
+   188→  userName: string | null;
+   189→}
+   190→
+   191→interface RoutineLog {
+   192→  id: string;
+   193→  routineId: string;
+   194→  status: string;
+   195→  stepsDone: number[];
+   196→  stepsDoneCount: number;
+   197→  totalSteps: number;
+   198→  startedAt: string;
+   199→  completedAt: string | null;
+   200→  userId: string | null;
+   201→  routine: {
+   202→    id: string;
+   203→    name: string;
+   204→    description: string | null;
+   205→    frequency: string;
+   206→    steps: string[];
+   207→    icon: string | null;
+   208→    color: string | null;
+   209→  } | null;
+   210→}
+   211→
+   212→interface RoutinesData {
+   213→  routines: Routine[];
+   214→  recentLogs: RecentLog[];
+   215→  stats: {
+   216→    totalRoutines: number;
+   217→    completedToday: number;
+   218→    completedThisWeek: number;
+   219→    streakDays: number;
+   220→  };
+   221→}
+   222→
+   223→type FrequencyFilter = "ALL" | "DAILY" | "WEEKLY" | "EVENT_DAY" | "MONTHLY";
+   224→
+   225→/* ------------------------------------------------------------------ */
+   226→/* Main component                                                      */
+   227→/* ------------------------------------------------------------------ */
+   228→export function Routines() {
+   229→  const [data, setData] = useState<RoutinesData | null>(null);
+   230→  const [error, setError] = useState<string | null>(null);
+   231→  const [filter, setFilter] = useState<FrequencyFilter>("ALL");
+   232→
+   233→  // Runner state
+   234→  const [activeLog, setActiveLog] = useState<RoutineLog | null>(null);
+   235→  const [runnerOpen, setRunnerOpen] = useState(false);
+   236→  const [toggling, setToggling] = useState<number | null>(null);
+   237→  const [completing, setCompleting] = useState(false);
+   238→
+   239→  const load = useCallback(async () => {
+   240→    let cancelled = false;
+   241→    setError(null);
+   242→    try {
+   243→      const res = await fetch("/api/doz/routines");
+   244→      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+   245→      const json = (await res.json()) as RoutinesData;
+   246→      if (!cancelled) setData(json);
+   247→    } catch (e) {
+   248→      if (!cancelled)
+   249→        setError(e instanceof Error ? e.message : "Failed to load routines");
+   250→    }
+   251→    return () => {
+   252→      cancelled = true;
+   253→    };
+   254→  }, []);
+   255→
+   256→  useEffect(() => {
+   257→    const cleanup = load();
+   258→    return () => {
+   259→      cleanup.then((fn) => fn?.());
+   260→    };
+   261→  }, [load]);
+   262→
+   263→  // ----- derived: last run per routine (most recent log for that routine)
+   264→  const lastRunByRoutine = useMemo(() => {
+   265→    const map = new Map<string, RecentLog>();
+   266→    if (!data) return map;
+   267→    for (const l of data.recentLogs) {
+   268→      // recentLogs is sorted desc by startedAt — first occurrence is most recent
+   269→      if (!map.has(l.routineId)) map.set(l.routineId, l);
+   270→    }
+   271→    return map;
+   272→  }, [data]);
+   273→
+   274→  // ----- filtered routines
+   275→  const filteredRoutines = useMemo(() => {
+   276→    if (!data) return [];
+   277→    if (filter === "ALL") return data.routines;
+   278→    return data.routines.filter((r) => r.frequency === filter);
+   279→  }, [data, filter]);
+   280→
+   281→  const filterCounts = useMemo(() => {
+   282→    if (!data) return { ALL: 0, DAILY: 0, WEEKLY: 0, EVENT_DAY: 0, MONTHLY: 0 };
+   283→    const c = { ALL: data.routines.length, DAILY: 0, WEEKLY: 0, EVENT_DAY: 0, MONTHLY: 0 };
+   284→    for (const r of data.routines) {
+   285→      if (r.frequency in c) (c as any)[r.frequency]++;
+   286→    }
+   287→    return c;
+   288→  }, [data]);
+   289→
+   290→  // ----- actions
+   291→  async function handleStart(routine: Routine) {
+   292→    try {
+   293→      const res = await fetch("/api/doz/routines", {
+   294→        method: "POST",
+   295→        headers: { "Content-Type": "application/json" },
+   296→        body: JSON.stringify({ action: "start", routineId: routine.id }),
+   297→      });
+   298→      if (!res.ok) {
+   299→        const j = await res.json().catch(() => ({}));
+   300→        throw new Error(j?.error ?? `HTTP ${res.status}`);
+   301→      }
+   302→      const json = (await res.json()) as { log: RoutineLog };
+   303→      setActiveLog(json.log);
+   304→      setRunnerOpen(true);
+   305→      toast.success(`${routine.name} started`, {
+   306→        description: "Work the steps in order. Stay focused.",
+   307→      });
+   308→    } catch (e: any) {
+   309→      toast.error("Couldn't start routine", { description: e?.message ?? "" });
+   310→    }
+   311→  }
+   312→
+   313→  async function handleToggleStep(stepIndex: number) {
+   314→    if (!activeLog) return;
+   315→    setToggling(stepIndex);
+   316→    try {
+   317→      const res = await fetch("/api/doz/routines", {
+   318→        method: "POST",
+   319→        headers: { "Content-Type": "application/json" },
+   320→        body: JSON.stringify({
+   321→          action: "toggle_step",
+   322→          logId: activeLog.id,
+   323→          stepIndex,
+   324→        }),
+   325→      });
+   326→      if (!res.ok) {
+   327→        const j = await res.json().catch(() => ({}));
+   328→        throw new Error(j?.error ?? `HTTP ${res.status}`);
+   329→      }
+   330→      const json = (await res.json()) as { log: RoutineLog };
+   331→      setActiveLog(json.log);
+   332→      // If the toggle auto-completed the routine, surface that subtly
+   333→      if (json.log.status === "COMPLETED" && activeLog.status !== "COMPLETED") {
+   334→        toast.success("All steps complete 🎯", {
+   335→          description: "Hit “Complete” to log this run.",
+   336→        });
+   337→      }
+   338→    } catch (e: any) {
+   339→      toast.error("Couldn't update step", { description: e?.message ?? "" });
+   340→    } finally {
+   341→      setToggling(null);
+   342→    }
+   343→  }
+   344→
+   345→  async function handleComplete() {
+   346→    if (!activeLog) return;
+   347→    setCompleting(true);
+   348→    try {
+   349→      const res = await fetch("/api/doz/routines", {
+   350→        method: "POST",
+   351→        headers: { "Content-Type": "application/json" },
+   352→        body: JSON.stringify({ action: "complete", logId: activeLog.id }),
+   353→      });
+   354→      if (!res.ok) {
+   355→        const j = await res.json().catch(() => ({}));
+   356→        throw new Error(j?.error ?? `HTTP ${res.status}`);
+   357→      }
+   358→      toast.success("Routine completed ✓", {
+   359→        description: activeLog.routine?.name,
+   360→      });
+   361→      setRunnerOpen(false);
+   362→      setActiveLog(null);
+   363→      await load();
+   364→    } catch (e: any) {
+   365→      toast.error("Couldn't complete routine", { description: e?.message ?? "" });
+   366→    } finally {
+   367→      setCompleting(false);
+   368→    }
+   369→  }
+   370→
+   371→  function handleCancel() {
+   372→    setRunnerOpen(false);
+   373→    setActiveLog(null);
+   374→  }
+   375→
+   376→  /* ----- Loading state ----- */
+   377→  if (!data && !error) {
+   378→    return (
+   379→      <div className="space-y-5">
+   380→        <RoutinesHeaderSkeleton />
+   381→        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+   382→          {Array.from({ length: 6 }).map((_, i) => (
+   383→            <Skeleton key={i} className="h-44 w-full rounded-xl" />
+   384→          ))}
+   385→        </div>
+   386→      </div>
+   387→    );
+   388→  }
+   389→
+   390→  /* ----- Error state ----- */
+   391→  if (error && !data) {
+   392→    return (
+   393→      <div className="space-y-5">
+   394→        <SectionHeader
+   395→          title="Routines"
+   396→          description="Your business rhythm — run the same playbook every time"
+   397→          icon={<Repeat className="h-5 w-5" />}
+   398→        />
+   399→        <EmptyState
+   400→          icon={<Repeat className="h-8 w-8" />}
+   401→          title="Couldn't load routines"
+   402→          hint={error}
+   403→        />
+   404→        <div className="flex justify-center">
+   405→          <Button variant="outline" onClick={() => load()}>
+   406→            <Repeat className="mr-2 h-4 w-4" /> Try again
+   407→          </Button>
+   408→        </div>
+   409→      </div>
+   410→    );
+   411→  }
+   412→
+   413→  const stats = data!.stats;
+   414→
+   415→  return (
+   416→    <div className="space-y-5">
+   417→      {/* Header */}
+   418→      <SectionHeader
+   419→        title="Routines"
+   420→        description="Your business rhythm — run the same playbook every time"
+   421→        icon={<Repeat className="h-5 w-5" />}
+   422→      />
+   423→
+   424→      {/* Stat row */}
+   425→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   426→        <StatCard
+   427→          label="Completed Today"
+   428→          value={stats.completedToday}
+   429→          sub={`${stats.totalRoutines} routines available`}
+   430→          icon={<CheckCircle2 className="h-4 w-4" />}
+   431→          accent="primary"
+   432→        />
+   433→        <StatCard
+   434→          label="This Week"
+   435→          value={stats.completedThisWeek}
+   436→          sub="routines completed"
+   437→          icon={<CalendarDays className="h-4 w-4" />}
+   438→        />
+   439→        <StatCard
+   440→          label="Streak"
+   441→          value={`${stats.streakDays}d`}
+   442→          sub={stats.streakDays > 0 ? "keep it alive 🔥" : "no streak yet"}
+   443→          icon={<Flame className="h-4 w-4" />}
+   444→          accent={stats.streakDays > 0 ? "warning" : "default"}
+   445→        />
+   446→        <StatCard
+   447→          label="Templates"
+   448→          value={stats.totalRoutines}
+   449→          sub="active playbooks"
+   450→          icon={<Repeat className="h-4 w-4" />}
+   451→        />
+   452→      </div>
+   453→
+   454→      {/* Frequency filter */}
+   455→      <div className="scroll-thin flex gap-1.5 overflow-x-auto pb-1">
+   456→        {(
+   457→          [
+   458→            "ALL",
+   459→            "DAILY",
+   460→            "WEEKLY",
+   461→            "EVENT_DAY",
+   462→            "MONTHLY",
+   463→          ] as FrequencyFilter[]
+   464→        ).map((f) => (
+   465→          <button
+   466→            key={f}
+   467→            onClick={() => setFilter(f)}
+   468→            className={cn(
+   469→              "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+   470→              filter === f
+   471→                ? "border-primary/40 bg-primary/10 text-primary"
+   472→                : "border-border bg-card text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+   473→            )}
+   474→          >
+   475→            {FREQUENCY_LABEL[f] ?? "All"}
+   476→            <span
+   477→              className={cn(
+   478→                "rounded-full px-1.5 text-[10px] font-semibold",
+   479→                filter === f
+   480→                  ? "bg-primary/20 text-primary"
+   481→                  : "bg-muted text-muted-foreground"
+   482→              )}
+   483→            >
+   484→              {filterCounts[f]}
+   485→            </span>
+   486→          </button>
+   487→        ))}
+   488→      </div>
+   489→
+   490→      {/* Routine grid */}
+   491→      {filteredRoutines.length === 0 ? (
+   492→        <EmptyState
+   493→          icon={<Repeat className="h-8 w-8" />}
+   494→          title="No routines in this category"
+   495→          hint="Try another frequency filter."
+   496→        />
+   497→      ) : (
+   498→        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   499→          {filteredRoutines.map((r) => {
+   500→            const colors = colorTokens(r.color);
+   501→            const lastRun = lastRunByRoutine.get(r.id);
+   502→            return (
+   503→              <Card
+   504→                key={r.id}
+   505→                className={cn(
+   506→                  "relative flex flex-col gap-3 overflow-hidden border-l-4 p-5 transition-all",
+   507→                  colors.card
+   508→                )}
+   509→              >
+   510→                {/* Top row: icon tile + frequency */}
+   511→                <div className="flex items-start justify-between gap-2">
+   512→                  <div
+   513→                    className={cn(
+   514→                      "flex h-10 w-10 items-center justify-center rounded-lg",
+   515→                      colors.tile
+   516→                    )}
+   517→                  >
+   518→                    <RoutineIcon name={r.icon} className="h-5 w-5" />
+   519→                  </div>
+   520→                  <FrequencyBadge frequency={r.frequency} />
+   521→                </div>
+   522→
+   523→                {/* Title + description */}
+   524→                <div className="space-y-1">
+   525→                  <h3 className="text-base font-semibold leading-tight">
+   526→                    {r.name}
+   527→                  </h3>
+   528→                  {r.description && (
+   529→                    <p className="line-clamp-2 text-xs text-muted-foreground">
+   530→                      {r.description}
+   531→                    </p>
+   532→                  )}
+   533→                </div>
+   534→
+   535→                {/* Step count + last run */}
+   536→                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+   537→                  <span className="inline-flex items-center gap-1">
+   538→                    <Check className="h-3 w-3" />
+   539→                    {r.steps.length} step{r.steps.length === 1 ? "" : "s"}
+   540→                  </span>
+   541→                  {lastRun && (
+   542→                    <span className="inline-flex items-center gap-1">
+   543→                      <Clock className="h-3 w-3" />
+   544→                      last run {timeAgo(lastRun.completedAt ?? lastRun.startedAt)}
+   545→                    </span>
+   546→                  )}
+   547→                </div>
+   548→
+   549→                {/* Start button */}
+   550→                <div className="mt-auto pt-1">
+   551→                  <Button
+   552→                    onClick={() => handleStart(r)}
+   553→                    size="sm"
+   554→                    className="w-full gap-1.5"
+   555→                  >
+   556→                    <Play className="h-3.5 w-3.5" />
+   557→                    Start routine
+   558→                  </Button>
+   559→                </div>
+   560→              </Card>
+   561→            );
+   562→          })}
+   563→        </div>
+   564→      )}
+   565→
+   566→      {/* Recent activity */}
+   567→      <div className="pt-2">
+   568→        <SectionHeader
+   569→          title="Recent Activity"
+   570→          description="The team's rhythm at a glance"
+   571→          icon={<Clock className="h-5 w-5" />}
+   572→        />
+   573→        {data!.recentLogs.length === 0 ? (
+   574→          <EmptyState
+   575→            icon={<Clock className="h-8 w-8" />}
+   576→            title="No routines run yet"
+   577→            hint="Start your first routine above — Morning Briefing is a great way to begin."
+   578→          />
+   579→        ) : (
+   580→          <Card className="scroll-thin max-h-96 divide-y divide-border overflow-y-auto p-0">
+   581→            {data!.recentLogs.map((log) => {
+   582→              const colors = colorTokens(log.routineColor);
+   583→              const isCompleted = log.status === "COMPLETED";
+   584→              return (
+   585→                <div
+   586→                  key={log.id}
+   587→                  className="flex items-center gap-3 p-4 transition-colors hover:bg-accent/30"
+   588→                >
+   589→                  <div
+   590→                    className={cn(
+   591→                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+   592→                      colors.tile
+   593→                    )}
+   594→                  >
+   595→                    <RoutineIcon
+   596→                      name={log.routineIcon}
+   597→                      className="h-4 w-4"
+   598→                    />
+   599→                  </div>
+   600→                  <div className="min-w-0 flex-1">
+   601→                    <p className="truncate text-sm font-medium">
+   602→                      {log.routineName}
+   603→                    </p>
+   604→                    <p className="truncate text-xs text-muted-foreground">
+   605→                      {isCompleted ? "completed" : "in progress"}{" "}
+   606→                      {timeAgo(log.completedAt ?? log.startedAt)}
+   607→                      {log.userName ? ` by ${log.userName}` : ""}
+   608→                    </p>
+   609→                  </div>
+   610→                  <div className="flex shrink-0 items-center gap-2">
+   611→                    <span className="text-[11px] tabular-nums text-muted-foreground">
+   612→                      {log.stepsDoneCount}/{log.totalSteps}
+   613→                    </span>
+   614→                    {isCompleted ? (
+   615→                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+   616→                    ) : (
+   617→                      <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+   618→                    )}
+   619→                  </div>
+   620→                </div>
+   621→              );
+   622→            })}
+   623→          </Card>
+   624→        )}
+   625→      </div>
+   626→
+   627→      {/* Routine Runner Dialog */}
+   628→      <Dialog open={runnerOpen} onOpenChange={(o) => !o && handleCancel()}>
+   629→        <DialogContent className="max-w-2xl gap-0 p-0">
+   630→          {activeLog && activeLog.routine && (
+   631→            <RoutineRunner
+   632→              log={activeLog}
+   633→              onToggle={handleToggleStep}
+   634→              onComplete={handleComplete}
+   635→              onCancel={handleCancel}
+   636→              toggling={toggling}
+   637→              completing={completing}
+   638→            />
+   639→          )}
+   640→        </DialogContent>
+   641→      </Dialog>
+   642→    </div>
+   643→  );
+   644→}
+   645→
+   646→/* ------------------------------------------------------------------ */
+   647→/* Routine Runner (inside Dialog)                                      */
+   648→/* ------------------------------------------------------------------ */
+   649→function RoutineRunner({
+   650→  log,
+   651→  onToggle,
+   652→  onComplete,
+   653→  onCancel,
+   654→  toggling,
+   655→  completing,
+   656→}: {
+   657→  log: RoutineLog;
+   658→  onToggle: (stepIndex: number) => void;
+   659→  onComplete: () => void;
+   660→  onCancel: () => void;
+   661→  toggling: number | null;
+   662→  completing: boolean;
+   663→}) {
+   664→  const routine = log.routine!;
+   665→  const colors = colorTokens(routine.color);
+   666→  const steps = routine.steps;
+   667→  const doneSet = useMemo(() => new Set(log.stepsDone), [log.stepsDone]);
+   668→  const doneCount = log.stepsDone.length;
+   669→  const total = log.totalSteps || steps.length;
+   670→  const allDone = total > 0 && doneCount === total;
+   671→  const isCompleted = log.status === "COMPLETED";
+   672→  const elapsedMin = minutesSince(log.startedAt);
+   673→
+   674→  return (
+   675→    <div className="flex flex-col">
+   676→      {/* Header */}
+   677→      <DialogHeader className="border-b border-border p-5 pb-4">
+   678→        <div className="flex items-start gap-3">
+   679→          <div
+   680→            className={cn(
+   681→              "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+   682→              colors.tile
+   683→            )}
+   684→          >
+   685→            <RoutineIcon name={routine.icon} className="h-5 w-5" />
+   686→          </div>
+   687→          <div className="min-w-0 flex-1">
+   688→            <DialogTitle className="text-base leading-tight">
+   689→              {routine.name}
+   690→            </DialogTitle>
+   691→            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+   692→              <Clock className="h-3 w-3" />
+   693→              Started {elapsedMin}m ago ·{" "}
+   694→              <FrequencyBadge frequency={routine.frequency} />
+   695→            </p>
+   696→          </div>
+   697→        </div>
+   698→        {routine.description && (
+   699→          <p className="mt-3 text-xs text-muted-foreground">
+   700→            {routine.description}
+   701→          </p>
+   702→        )}
+   703→      </DialogHeader>
+   704→
+   705→      {/* Progress bar */}
+   706→      <div className="space-y-2 border-b border-border p-5">
+   707→        <div className="flex items-center justify-between text-xs">
+   708→          <span className="font-medium">
+   709→            {doneCount} of {total} steps complete
+   710→          </span>
+   711→          <span className="tabular-nums text-muted-foreground">
+   712→            {total > 0 ? Math.round((doneCount / total) * 100) : 0}%
+   713→          </span>
+   714→        </div>
+   715→        <MiniBar value={doneCount} max={total} color={colors.bar} />
+   716→      </div>
+   717→
+   718→      {/* Steps */}
+   719→      <div className="scroll-thin max-h-[55vh] divide-y divide-border overflow-y-auto">
+   720→        {steps.map((step, idx) => {
+   721→          const isDone = doneSet.has(idx);
+   722→          const isToggling = toggling === idx;
+   723→          return (
+   724→            <button
+   725→              key={idx}
+   726→              onClick={() => onToggle(idx)}
+   727→              disabled={isToggling}
+   728→              className={cn(
+   729→                "flex min-h-12 w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent/30 disabled:opacity-60"
+   730→              )}
+   731→            >
+   732→              <span className="shrink-0">
+   733→                {isToggling ? (
+   734→                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+   735→                ) : isDone ? (
+   736→                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+   737→                ) : (
+   738→                  <Circle className="h-5 w-5 text-muted-foreground/60" />
+   739→                )}
+   740→              </span>
+   741→              <span
+   742→                className={cn(
+   743→                  "flex-1 text-sm",
+   744→                  isDone
+   745→                    ? "text-emerald-300 line-through"
+   746→                    : "text-foreground"
+   747→                )}
+   748→              >
+   749→                {step}
+   750→              </span>
+   751→              <span className="shrink-0 text-[10px] font-mono text-muted-foreground/60">
+   752→                {String(idx + 1).padStart(2, "0")}
+   753→              </span>
+   754→            </button>
+   755→          );
+   756→        })}
+   757→      </div>
+   758→
+   759→      {/* Footer actions */}
+   760→      <div className="flex items-center justify-between gap-2 border-t border-border bg-card/50 p-4">
+   761→        <Button variant="ghost" size="sm" onClick={onCancel} className="gap-1.5">
+   762→          <X className="h-4 w-4" />
+   763→          Cancel
+   764→        </Button>
+   765→        <div className="flex items-center gap-2">
+   766→          {isCompleted && (
+   767→            <Badge className="bg-emerald-500/15 text-emerald-300">
+   768→              <CheckCircle2 className="mr-1 h-3 w-3" /> Completed
+   769→            </Badge>
+   770→          )}
+   771→          <Button
+   772→            onClick={onComplete}
+   773→            disabled={completing || isCompleted}
+   774→            className={cn(
+   775→              "gap-1.5",
+   776→              allDone &&
+   777→                !isCompleted &&
+   778→                "animate-pulse bg-emerald-500 text-emerald-950 hover:bg-emerald-400"
+   779→            )}
+   780→          >
+   781→            {completing ? (
+   782→              <Loader2 className="h-4 w-4 animate-spin" />
+   783→            ) : (
+   784→              <Check className="h-4 w-4" />
+   785→            )}
+   786→            Complete routine
+   787→          </Button>
+   788→        </div>
+   789→      </div>
+   790→    </div>
+   791→  );
+   792→}
+   793→
+   794→/* ------------------------------------------------------------------ */
+   795→/* Skeleton                                                            */
+   796→/* ------------------------------------------------------------------ */
+   797→function RoutinesHeaderSkeleton() {
+   798→  return (
+   799→    <div className="space-y-4">
+   800→      <Skeleton className="h-7 w-40" />
+   801→      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+   802→        {Array.from({ length: 4 }).map((_, i) => (
+   803→          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+   804→        ))}
+   805→      </div>
+   806→      <Skeleton className="h-8 w-full max-w-md" />
+   807→    </div>
+   808→  );
+   809→}
+   810→

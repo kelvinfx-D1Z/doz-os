@@ -1,0 +1,859 @@
+     1→// DOZ OS — Digit One Zero Operating System
+     2→// Prisma schema (SQLite)
+     3→
+     4→generator client {
+     5→  provider = "prisma-client-js"
+     6→}
+     7→
+     8→datasource db {
+     9→  provider = "sqlite"
+    10→  url      = env("DATABASE_URL")
+    11→}
+    12→
+    13→// ============================================================
+    14→// USERS & TEAM
+    15→// ============================================================
+    16→
+    17→model User {
+    18→  id        String   @id @default(cuid())
+    19→  email     String   @unique
+    20→  name      String
+    21→  role      String   @default("FOUNDER") // FOUNDER, STAFF, INTERN, FREELANCER
+    22→  title     String?
+    23→  phone     String?
+    24→  avatar    String?
+    25→  capacity  Int      @default(40) // available hours/week
+    26→  isActive  Boolean  @default(true)
+    27→  password  String?  // hashed (sha256) — demo password: doz2025
+    28→  createdAt DateTime @default(now())
+    29→  updatedAt DateTime @updatedAt
+    30→
+    31→  // relations
+    32→  tasksAssigned    Task[]      @relation("TaskAssignee")
+    33→  tasksCreated     Task[]      @relation("TaskCreator")
+    34→  goalsOwner       Goal[]      @relation("GoalOwner")
+    35→  projectsManaged  Project[]   @relation("ProjectManager")
+    36→  crewAssignments  CrewAssignment[]
+    37→  dailyReports     DailyReport[]
+    38→  weeklyReports    WeeklyReport[]
+    39→  approvalsGiven   Approval[]  @relation("ApprovalApprover")
+    40→  paymentsRequested PaymentRequest[] @relation("PaymentRequester")
+    41→  paymentsApproved PaymentRequest[] @relation("PaymentApprover")
+    42→  paymentsPaid     PaymentRequest[] @relation("PaymentPayer")
+    43→  activityLogs     ActivityLog[]
+    44→  sopAuthors       Sop[]
+    45→  routineLogs      RoutineLog[]
+    46→}
+    47→
+    48→// ============================================================
+    49→// STRATEGIC PLANNING
+    50→// ============================================================
+    51→
+    52→model Goal {
+    53→  id          String   @id @default(cuid())
+    54→  title       String
+    55→  description String?
+    56→  type        String   // ANNUAL, QUARTERLY, MONTHLY, WEEKLY
+    57→  status      String   @default("ACTIVE") // ACTIVE, ACHIEVED, MISSED, ON_HOLD
+    58→  progress    Int      @default(0) // 0-100
+    59→  ownerId     String
+    60→  owner       User     @relation("GoalOwner", fields: [ownerId], references: [id])
+    61→  parentId    String?  // cascade link
+    62→  parent      Goal?    @relation("GoalChildren", fields: [parentId], references: [id])
+    63→  children    Goal[]   @relation("GoalChildren")
+    64→  quarter     String?  // e.g. "Q1-2025"
+    65→  startDate   DateTime
+    66→  dueDate     DateTime
+    67→  createdAt   DateTime @default(now())
+    68→  updatedAt   DateTime @updatedAt
+    69→
+    70→  tasks Task[] @relation("TaskGoal")
+    71→}
+    72→
+    73→model Task {
+    74→  id          String   @id @default(cuid())
+    75→  title       String
+    76→  description String?
+    77→  status      String   @default("TODO") // TODO, IN_PROGRESS, DONE, BLOCKED
+    78→  priority    String   @default("MEDIUM") // URGENT, HIGH, MEDIUM, LOW
+    79→  category    String?  // STRATEGIC, OPERATIONAL, ADMIN, DISTRACTION
+    80→  assigneeId  String?
+    81→  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+    82→  creatorId   String
+    83→  creator     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+    84→  goalId      String?
+    85→  goal        Goal?    @relation("TaskGoal", fields: [goalId], references: [id])
+    86→  projectId   String?
+    87→  project     Project? @relation("ProjectTasks", fields: [projectId], references: [id])
+    88→  dueDate     DateTime?
+    89→  estimatedHrs Int?
+    90→  actualHrs   Int?
+    91→  isDistraction Boolean @default(false)
+    92→  completedAt DateTime?
+    93→  createdAt   DateTime @default(now())
+    94→  updatedAt   DateTime @updatedAt
+    95→}
+    96→
+    97→// ============================================================
+    98→// CRM & SALES
+    99→// ============================================================
+   100→
+   101→model Account {
+   102→  id          String   @id @default(cuid())
+   103→  name        String
+   104→  industry    String?
+   105→  website     String?
+   106→  isStrategic Boolean  @default(false)
+   107→  lifetimeValue Float @default(0)
+   108→  portalToken String?  @unique // for client portal access (?portal=TOKEN)
+   109→  portalActive Boolean @default(false)
+   110→  createdAt   DateTime @default(now())
+   111→  updatedAt   DateTime @updatedAt
+   112→
+   113→  contacts      Contact[]
+   114→  opportunities Opportunity[]
+   115→  projects      Project[]
+   116→  invoices      Invoice[]
+   117→  referralsFrom Referral[] @relation("ReferralFromAccount")
+   118→  referralsTo   Referral[] @relation("ReferralToAccount")
+   119→  paymentConfirmations PaymentConfirmation[]
+   120→}
+   121→
+   122→model Contact {
+   123→  id        String   @id @default(cuid())
+   124→  accountId String?
+   125→  account   Account? @relation(fields: [accountId], references: [id])
+   126→  name      String
+   127→  title     String?
+   128→  email     String?
+   129→  phone     String?
+   130→  isDecisionMaker Boolean @default(false)
+   131→  createdAt DateTime @default(now())
+   132→  updatedAt DateTime @updatedAt
+   133→
+   134→  opportunities Opportunity[]
+   135→  followUps     FollowUp[]
+   136→  referrals     Referral[]
+   137→  leads         Lead[]
+   138→}
+   139→
+   140→model Lead {
+   141→  id          String   @id @default(cuid())
+   142→  contactName String
+   143→  company     String?
+   144→  source      String   @default("REFERRAL") // REFERRAL, EXISTING_CLIENT, NETWORKING, COLD, SOCIAL
+   145→  sourceDetail String? // who referred
+   146→  serviceInterest String?
+   147→  status      String   @default("NEW") // NEW, QUALIFIED, CONVERTED, LOST
+   148→  value       Float    @default(0)
+   149→  contactId   String?
+   150→  contact     Contact? @relation(fields: [contactId], references: [id])
+   151→  opportunityId String?
+   152→  createdAt   DateTime @default(now())
+   153→  updatedAt   DateTime @updatedAt
+   154→}
+   155→
+   156→model Opportunity {
+   157→  id          String   @id @default(cuid())
+   158→  name        String
+   159→  accountId   String?
+   160→  account     Account? @relation(fields: [accountId], references: [id])
+   161→  contactId   String?
+   162→  contact     Contact? @relation(fields: [contactId], references: [id])
+   163→  stage       String   @default("DISCOVERY") // DISCOVERY, QUALIFIED, PROPOSAL, NEGOTIATION, WON, LOST
+   164→  value       Float    @default(0)
+   165→  probability Int      @default(20) // 0-100
+   166→  serviceType String?
+   167→  expectedClose DateTime?
+   168→  source      String   @default("REFERRAL")
+   169→  lostReason  String?
+   170→  convertedToProjectId String?
+   171→  createdAt   DateTime @default(now())
+   172→  updatedAt   DateTime @updatedAt
+   173→
+   174→  proposals  Proposal[]
+   175→  followUps  FollowUp[]
+   176→  activities ActivityLog[]
+   177→}
+   178→
+   179→model Proposal {
+   180→  id          String   @id @default(cuid())
+   181→  opportunityId String?
+   182→  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+   183→  title       String
+   184→  amount      Float
+   185→  status      String   @default("DRAFT") // DRAFT, SENT, ACCEPTED, REJECTED, EXPIRED
+   186→  sentDate    DateTime?
+   187→  responseDate DateTime?
+   188→  validUntil  DateTime?
+   189→  createdAt   DateTime @default(now())
+   190→  updatedAt   DateTime @updatedAt
+   191→}
+   192→
+   193→model FollowUp {
+   194→  id            String   @id @default(cuid())
+   195→  opportunityId String?
+   196→  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+   197→  contactId     String?
+   198→  contact       Contact? @relation(fields: [contactId], references: [id])
+   199→  type          String   @default("CALL") // CALL, EMAIL, MEETING, WHATSAPP
+   200→  subject       String
+   201→  notes         String?
+   202→  dueDate       DateTime
+   203→  completed     Boolean  @default(false)
+   204→  completedAt   DateTime?
+   205→  createdAt     DateTime @default(now())
+   206→  updatedAt     DateTime @updatedAt
+   207→}
+   208→
+   209→model Referral {
+   210→  id          String   @id @default(cuid())
+   211→  referrerContactId String?
+   212→  referrer    Contact? @relation(fields: [referrerContactId], references: [id])
+   213→  fromAccountId String?
+   214→  fromAccount Account? @relation("ReferralFromAccount", fields: [fromAccountId], references: [id])
+   215→  toAccountId   String?
+   216→  toAccount   Account? @relation("ReferralToAccount", fields: [toAccountId], references: [id])
+   217→  referrerName String? // free text if no contact
+   218→  value       Float    @default(0) // value of business generated
+   219→  note        String?
+   220→  createdAt   DateTime @default(now())
+   221→}
+   222→
+   223→// ============================================================
+   224→// PROJECT & EVENT OPERATIONS
+   225→// ============================================================
+   226→
+   227→model Project {
+   228→  id          String   @id @default(cuid())
+   229→  name        String
+   230→  code        String?  // e.g. EVT-2025-001
+   231→  serviceType String   // EVENT_PRODUCTION, VIDEO_PRODUCTION, TITLE_SEQUENCE, COLOR_GRADING, etc.
+   232→  status      String   @default("PLANNING") // PLANNING, CONFIRMED, IN_PROGRESS, COMPLETED, ON_HOLD, CANCELLED
+   233→  accountId   String?
+   234→  account     Account? @relation(fields: [accountId], references: [id])
+   235→  managerId   String?
+   236→  manager     User?    @relation("ProjectManager", fields: [managerId], references: [id])
+   237→  eventDate   DateTime?
+   238→  venue       String?
+   239→  budget      Float    @default(0)
+   240→  revenue     Float    @default(0)
+   241→  progress    Int      @default(0)
+   242→  startDate   DateTime?
+   243→  endDate     DateTime?
+   244→  createdAt   DateTime @default(now())
+   245→  updatedAt   DateTime @updatedAt
+   246→
+   247→  milestones   Milestone[]
+   248→  deliverables Deliverable[]
+   249→  crew         CrewAssignment[]
+   250→  tasks        Task[]      @relation("ProjectTasks")
+   251→  invoices     Invoice[]
+   252→  expenses     Expense[]
+   253→  budgets      Budget[]
+   254→  rfqs         Rfq[]
+   255→  pos          PurchaseOrder[]
+   256→  resources    ResourceBooking[]
+   257→  paymentRequests PaymentRequest[]
+   258→  vendorCosts    ProjectVendorCost[]
+   259→}
+   260→
+   261→model Milestone {
+   262→  id          String   @id @default(cuid())
+   263→  projectId   String
+   264→  project     Project  @relation(fields: [projectId], references: [id])
+   265→  title       String
+   266→  dueDate     DateTime
+   267→  status      String   @default("PENDING") // PENDING, IN_PROGRESS, DONE, OVERDUE
+   268→  completedAt DateTime?
+   269→  createdAt   DateTime @default(now())
+   270→  updatedAt   DateTime @updatedAt
+   271→}
+   272→
+   273→model Deliverable {
+   274→  id          String   @id @default(cuid())
+   275→  projectId   String
+   276→  project     Project  @relation(fields: [projectId], references: [id])
+   277→  title       String
+   278→  type        String?  // VIDEO, PHOTO, LIVESTREAM, DOCUMENT
+   279→  status      String   @default("PENDING") // PENDING, IN_PROGRESS, REVIEW, DELIVERED
+   280→  dueDate     DateTime?
+   281→  clientApproved   Boolean  @default(false)
+   282→  clientApprovedAt DateTime?
+   283→  clientApprovalNote String?
+   284→  clientRejectedAt  DateTime?
+   285→  deliveredAt DateTime?
+   286→  createdAt   DateTime @default(now())
+   287→  updatedAt   DateTime @updatedAt
+   288→}
+   289→
+   290→model CrewAssignment {
+   291→  id          String   @id @default(cuid())
+   292→  projectId   String
+   293→  project     Project  @relation(fields: [projectId], references: [id])
+   294→  userId      String
+   295→  user        User     @relation(fields: [userId], references: [id])
+   296→  role        String   // PRODUCTION_MANAGER, TECHNICAL_DIRECTOR, CAMERA_OP, SOUND_ENG, LIGHTING, SET_DESIGN, STAGE_MGR, EDITOR, VENDOR
+   297→  dayRate     Float    @default(0)
+   298→  status      String   @default("ASSIGNED") // ASSIGNED, CONFIRMED, DECLINED
+   299→  createdAt   DateTime @default(now())
+   300→  updatedAt   DateTime @updatedAt
+   301→}
+   302→
+   303→model ResourceBooking {
+   304→  id          String   @id @default(cuid())
+   305→  projectId   String
+   306→  project     Project  @relation(fields: [projectId], references: [id])
+   307→  name        String
+   308→  type        String   // CAMERA, LIGHTING, SOUND, LED_SCREEN, STAGE, GENERATOR
+   309→  quantity    Int      @default(1)
+   310→  cost        Float    @default(0)
+   311→  bookedFrom  DateTime?
+   312→  bookedTo    DateTime?
+   313→  createdAt   DateTime @default(now())
+   314→  updatedAt   DateTime @updatedAt
+   315→}
+   316→
+   317→// ============================================================
+   318→// PROCUREMENT & VENDOR MANAGEMENT
+   319→// ============================================================
+   320→
+   321→model Vendor {
+   322→  id          String   @id @default(cuid())
+   323→  name        String
+   324→  category    String   // EQUIPMENT, CATERING, DECOR, PRINTING, TRANSPORT, SOUND, LIGHTING, LED, STAGE, OTHER
+   325→  contactName String?
+   326→  phone       String?
+   327→  email       String?
+   328→  bankAccount String?
+   329→  rating      Int      @default(0) // 0-5
+   330→  totalSpent  Float    @default(0)
+   331→  isActive    Boolean  @default(true)
+   332→  notes       String?
+   333→  createdAt   DateTime @default(now())
+   334→  updatedAt   DateTime @updatedAt
+   335→
+   336→  quotes Quote[]
+   337→  pos    PurchaseOrder[]
+   338→  expenses Expense[]
+   339→  projectCosts ProjectVendorCost[]
+   340→}
+   341→
+   342→model Rfq {
+   343→  id          String   @id @default(cuid())
+   344→  code        String?  // Rfq-2025-001
+   345→  projectId   String?
+   346→  project     Project? @relation(fields: [projectId], references: [id])
+   347→  title       String
+   348→  description String?
+   349→  category    String?
+   350→  budget      Float?
+   351→  status      String   @default("OPEN") // OPEN, QUOTES_RECEIVED, PO_CREATED, CLOSED
+   352→  neededBy    DateTime?
+   353→  createdAt   DateTime @default(now())
+   354→  updatedAt   DateTime @updatedAt
+   355→
+   356→  quotes Quote[]
+   357→}
+   358→
+   359→model Quote {
+   360→  id          String   @id @default(cuid())
+   361→  rfqId       String
+   362→  rfq         Rfq      @relation(fields: [rfqId], references: [id])
+   363→  vendorId    String
+   364→  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+   365→  amount      Float
+   366→  deliveryDays Int?
+   367→  notes       String?
+   368→  isRecommended Boolean @default(false)
+   369→  isApproved   Boolean @default(false)
+   370→  receivedAt  DateTime @default(now())
+   371→  createdAt   DateTime @default(now())
+   372→  updatedAt   DateTime @updatedAt
+   373→}
+   374→
+   375→model PurchaseOrder {
+   376→  id          String   @id @default(cuid())
+   377→  code        String?  // PO-2025-001
+   378→  projectId   String?
+   379→  project     Project? @relation(fields: [projectId], references: [id])
+   380→  vendorId    String
+   381→  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+   382→  quoteId     String?
+   383→  amount      Float
+   384→  description String?
+   385→  status      String   @default("DRAFT") // DRAFT, ISSUED, DELIVERED, CLOSED
+   386→  issuedAt    DateTime?
+   387→  createdAt   DateTime @default(now())
+   388→  updatedAt   DateTime @updatedAt
+   389→
+   390→  paymentRequests PaymentRequest[]
+   391→}
+   392→
+   393→model PaymentRequest {
+   394→  id           String   @id @default(cuid())
+   395→  code         String?  // PR-2025-001
+   396→  purchaseOrderId String?
+   397→  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+   398→  projectId    String?
+   399→  project      Project?  @relation(fields: [projectId], references: [id])
+   400→  amount       Float
+   401→  description  String?
+   402→  status       String   @default("PENDING") // PENDING, APPROVED, REJECTED, PAID
+   403→  // 3-way segregation of duties
+   404→  requesterId  String
+   405→  requester    User     @relation("PaymentRequester", fields: [requesterId], references: [id])
+   406→  approverId   String?
+   407→  approver     User?    @relation("PaymentApprover", fields: [approverId], references: [id])
+   408→  payerId      String?
+   409→  payer        User?    @relation("PaymentPayer", fields: [payerId], references: [id])
+   410→  requestedAt  DateTime @default(now())
+   411→  approvedAt   DateTime?
+   412→  paidAt       DateTime?
+   413→  createdAt    DateTime @default(now())
+   414→  updatedAt    DateTime @updatedAt
+   415→
+   416→  approvals Approval[]
+   417→}
+   418→
+   419→model Approval {
+   420→  id          String   @id @default(cuid())
+   421→  entityType  String   // PAYMENT_REQUEST, PURCHASE_ORDER, PROPOSAL, EXPENSE
+   422→  entityId    String
+   423→  approverId  String
+   424→  approver    User     @relation("ApprovalApprover", fields: [approverId], references: [id])
+   425→  decision    String   @default("PENDING") // PENDING, APPROVED, REJECTED
+   426→  comment     String?
+   427→  createdAt   DateTime @default(now())
+   428→  updatedAt   DateTime @updatedAt
+   429→
+   430→  paymentRequest PaymentRequest? @relation(fields: [paymentRequestId], references: [id])
+   431→  paymentRequestId String?
+   432→}
+   433→
+   434→// ============================================================
+   435→// FINANCIAL INTELLIGENCE
+   436→// ============================================================
+   437→
+   438→model Invoice {
+   439→  id          String   @id @default(cuid())
+   440→  code        String?  // INV-2025-001
+   441→  projectId   String?
+   442→  project     Project? @relation(fields: [projectId], references: [id])
+   443→  accountId   String?
+   444→  account     Account? @relation(fields: [accountId], references: [id])
+   445→  amount      Float
+   446→  tax         Float    @default(0)
+   447→  status      String   @default("DRAFT") // DRAFT, SENT, PARTIAL, PAID, OVERDUE
+   448→  amountPaid  Float    @default(0)
+   449→  issuedDate  DateTime @default(now())
+   450→  dueDate     DateTime?
+   451→  paidDate    DateTime?
+   452→  reminderCount Int    @default(0)
+   453→  lastReminderAt DateTime?
+   454→  createdAt   DateTime @default(now())
+   455→  updatedAt   DateTime @updatedAt
+   456→
+   457→  paymentConfirmations PaymentConfirmation[]
+   458→}
+   459→
+   460→model Expense {
+   461→  id          String   @id @default(cuid())
+   462→  projectId   String?
+   463→  project     Project? @relation(fields: [projectId], references: [id])
+   464→  category    String   // EQUIPMENT, CREW, VENDOR, LOGISTICS, MARKETING, ADMIN, OTHER
+   465→  description String
+   466→  amount      Float
+   467→  vendorId    String?
+   468→  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+   469→  expenseDate DateTime @default(now())
+   470→  isVerified  Boolean  @default(false)
+   471→  receiptUrl  String?  // path to uploaded receipt file
+   472→  createdAt   DateTime @default(now())
+   473→  updatedAt   DateTime @updatedAt
+   474→}
+   475→
+   476→model Budget {
+   477→  id          String   @id @default(cuid())
+   478→  projectId   String
+   479→  project     Project  @relation(fields: [projectId], references: [id])
+   480→  category    String
+   481→  amount      Float
+   482→  spent       Float    @default(0)
+   483→  createdAt   DateTime @default(now())
+   484→  updatedAt   DateTime @updatedAt
+   485→}
+   486→
+   487→// ============================================================
+   488→// TEAM MANAGEMENT (REPORTS)
+   489→// ============================================================
+   490→
+   491→model DailyReport {
+   492→  id          String   @id @default(cuid())
+   493→  userId      String
+   494→  user        User     @relation(fields: [userId], references: [id])
+   495→  reportDate  DateTime
+   496→  tasksDone   String   // newline separated
+   497→  tasksPlanned String?
+   498→  blockers    String?
+   499→  hoursWorked Float    @default(0)
+   500→  mood        String?  // GREAT, OK, STRESSED
+   501→  createdAt   DateTime @default(now())
+   502→  updatedAt   DateTime @updatedAt
+   503→}
+   504→
+   505→model WeeklyReport {
+   506→  id          String   @id @default(cuid())
+   507→  userId      String
+   508→  user        User     @relation(fields: [userId], references: [id])
+   509→  weekStart   DateTime
+   510→  weekEnd     DateTime
+   511→  achievements String?
+   512→  challenges  String?
+   513→  learnings   String?
+   514→  nextWeekPlan String?
+   515→  createdAt   DateTime @default(now())
+   516→  updatedAt   DateTime @updatedAt
+   517→}
+   518→
+   519→// ============================================================
+   520→// Sop & KNOWLEDGE BASE
+   521→// ============================================================
+   522→
+   523→model Sop {
+   524→  id          String   @id @default(cuid())
+   525→  title       String
+   526→  category    String   // PROPOSAL_TEMPLATE, EVENT_CHECKLIST, PROCUREMENT_POLICY, VENDOR_SOP, TRAINING, PROCESS
+   527→  content     String
+   528→  tags        String?
+   529→  authorId    String?
+   530→  author      User?    @relation(fields: [authorId], references: [id])
+   531→  version     Int      @default(1)
+   532→  createdAt   DateTime @default(now())
+   533→  updatedAt   DateTime @updatedAt
+   534→}
+   535→
+   536→// ============================================================
+   537→// AI & ACTIVITY
+   538→// ============================================================
+   539→
+   540→model AIInsight {
+   541→  id          String   @id @default(cuid())
+   542→  type        String   // DAILY_PLAN, RISK, OVERDUE, BUDGET_OVERRUN, OPPORTUNITY, DISTRACTION
+   543→  severity    String   @default("INFO") // INFO, WARNING, CRITICAL
+   544→  title       String
+   545→  message     String
+   546→  entityType  String?
+   547→  entityId    String?
+   548→  isRead      Boolean  @default(false)
+   549→  actionTaken String?
+   550→  createdAt   DateTime @default(now())
+   551→}
+   552→
+   553→model ActivityLog {
+   554→  id          String   @id @default(cuid())
+   555→  userId      String?
+   556→  user        User?    @relation(fields: [userId], references: [id])
+   557→  action      String
+   558→  entityType  String?
+   559→  entityId    String?
+   560→  opportunityId String?
+   561→  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+   562→  detail      String?
+   563→  createdAt   DateTime @default(now())
+   564→}
+   565→
+   566→// ============================================================
+   567→// VENDOR ONBOARDING (Phase 2)
+   568→// ============================================================
+   569→
+   570→model VendorApplication {
+   571→  id            String   @id @default(cuid())
+   572→  companyName   String
+   573→  category      String   // EQUIPMENT, CATERING, DECOR, PRINTING, TRANSPORT, SOUND, LIGHTING, LED, STAGE, OTHER
+   574→  contactName   String
+   575→  phone         String?
+   576→  email         String?
+   577→  cacNumber     String?  // Corporate Affairs Commission registration
+   578→  bankName      String?
+   579→  bankAccount   String?
+   580→  references    String?  // past clients / past work, newline separated
+   581→  notes         String?
+   582→  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED
+   583→  vendorId      String?  // created Vendor id on approval
+   584→  createdAt     DateTime @default(now())
+   585→  updatedAt     DateTime @updatedAt
+   586→}
+   587→
+   588→// ============================================================
+   589→// ROUTINES (business rhythm templates)
+   590→// ============================================================
+   591→
+   592→model Routine {
+   593→  id          String   @id @default(cuid())
+   594→  name        String
+   595→  description String?
+   596→  frequency   String   // DAILY, WEEKLY, EVENT_DAY, MONTHLY
+   597→  steps       String   // JSON array of step strings
+   598→  icon        String?  // lucide icon name
+   599→  color       String?  // tailwind color token
+   600→  isActive    Boolean  @default(true)
+   601→  createdAt   DateTime @default(now())
+   602→  updatedAt   DateTime @updatedAt
+   603→
+   604→  logs RoutineLog[]
+   605→}
+   606→
+   607→model RoutineLog {
+   608→  id          String   @id @default(cuid())
+   609→  routineId   String
+   610→  routine     Routine  @relation(fields: [routineId], references: [id])
+   611→  userId      String?
+   612→  user        User?    @relation(fields: [userId], references: [id])
+   613→  status      String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, ABANDONED
+   614→  stepsDone   String   @default("[]") // JSON array of completed step indices
+   615→  startedAt   DateTime @default(now())
+   616→  completedAt DateTime?
+   617→  createdAt   DateTime @default(now())
+   618→}
+   619→
+   620→// ============================================================
+   621→// CLIENT PORTAL — Payment Confirmations (Phase 3)
+   622→// ============================================================
+   623→
+   624→model PaymentConfirmation {
+   625→  id          String   @id @default(cuid())
+   626→  invoiceId   String
+   627→  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+   628→  accountId   String?
+   629→  account     Account? @relation(fields: [accountId], references: [id])
+   630→  amount      Float    // amount the client says they paid
+   631→  method      String?  // BANK_TRANSFER, CHEQUE, CASH, CARD
+   632→  reference   String?  // payment reference / transaction ID
+   633→  note        String?
+   634→  evidenceUrl String?  // uploaded screenshot/file
+   635→  status      String   @default("PENDING") // PENDING (founder verifies), VERIFIED, REJECTED
+   636→  createdAt   DateTime @default(now())
+   637→  updatedAt   DateTime @updatedAt
+   638→}
+   639→
+   640→// ============================================================
+   641→// MARKETING & GROWTH (Task G3)
+   642→// ============================================================
+   643→
+   644→model MarketingCampaign {
+   645→  id          String   @id @default(cuid())
+   646→  name        String
+   647→  channel     String   // SOCIAL, EMAIL, WHATSAPP, REFERRAL, NETWORKING, PAID_ADS
+   648→  status      String   @default("PLANNING") // PLANNING, ACTIVE, COMPLETED, PAUSED
+   649→  budget      Float    @default(0)
+   650→  spent       Float    @default(0)
+   651→  leadsGenerated Int   @default(0)
+   652→  conversions Int      @default(0)
+   653→  revenue     Float    @default(0)  // revenue attributed to this campaign
+   654→  startDate   DateTime?
+   655→  endDate     DateTime?
+   656→  notes       String?
+   657→  createdAt   DateTime @default(now())
+   658→  updatedAt   DateTime @updatedAt
+   659→}
+   660→
+   661→model ContentCalendarItem {
+   662→  id          String   @id @default(cuid())
+   663→  title       String
+   664→  platform    String   // INSTAGRAM, LINKEDIN, TWITTER, YOUTUBE, BLOG, EMAIL_NEWSLETTER
+   665→  type        String   // POST, REEL, VIDEO, ARTICLE, STORY, NEWSLETTER
+   666→  status      String   @default("IDEA") // IDEA, DRAFTING, SCHEDULED, PUBLISHED
+   667→  scheduledDate DateTime?
+   668→  publishedDate DateTime?
+   669→  topic       String?  // content topic/theme
+   670→  assigneeId  String?  // who's creating it
+   671→  notes       String?
+   672→  createdAt   DateTime @default(now())
+   673→  updatedAt   DateTime @updatedAt
+   674→}
+   675→
+   676→model ReferralSource {
+   677→  id          String   @id @default(cuid())
+   678→  name        String   // person/entity who refers business
+   679→  contact     String?  // phone/email
+   680→  relationship String?  // CLIENT, PARTNER, INDUSTRY_CONTACT, FRIEND
+   681→  totalValue  Float    @default(0)  // total business value referred
+   682→  referralCount Int    @default(0)
+   683→  lastContactAt DateTime?
+   684→  nextNurtureDate DateTime?  // when to reach out next
+   685→  notes       String?
+   686→  createdAt   DateTime @default(now())
+   687→  updatedAt   DateTime @updatedAt
+   688→}
+   689→
+   690→// ============================================================
+   691→// PROJECT VENDOR COSTS — project-level vendor management
+   692→// ============================================================
+   693→
+   694→model ProjectVendorCost {
+   695→  id          String   @id @default(cuid())
+   696→  projectId   String
+   697→  project     Project  @relation(fields: [projectId], references: [id])
+   698→  vendorId    String?
+   699→  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+   700→  vendorName  String   // free text if no vendor record
+   701→  item        String   // what they're providing (LED screen, audio, lights, etc.)
+   702→  fee         Float    // total fee the vendor is charging
+   703→  amountPaid  Float    @default(0) // advance + payments made so far
+   704→  balance     Float    @default(0) // fee - amountPaid (computed)
+   705→  status      String   @default("UNPAID") // UNPAID, PARTIAL, PAID
+   706→  notes       String?
+   707→  createdAt   DateTime @default(now())
+   708→  updatedAt   DateTime @updatedAt
+   709→}
+   710→
+   711→// ============================================================
+   712→// GROWTH OPERATING FRAMEWORK + CONTENT LOG
+   713→// ============================================================
+   714→
+   715→model GrowthKPI {
+   716→  id          String   @id @default(cuid())
+   717→  name        String
+   718→  category    String
+   719→  current     Float    @default(0)
+   720→  target      Float    @default(0)
+   721→  yearOneTarget Float  @default(0)
+   722→  yearThreeTarget Float @default(0)
+   723→  unit        String   @default("COUNT")
+   724→  weeklyPace  Float    @default(0)
+   725→  forecast    String   @default("ON_TRACK")
+   726→  confidence  Int      @default(50)
+   727→  isKeyMetric Boolean  @default(false)
+   728→  updatedAt   DateTime @updatedAt
+   729→  createdAt   DateTime @default(now())
+   730→}
+   731→
+   732→model HiringStage {
+   733→  id            String   @id @default(cuid())
+   734→  stage         Int
+   735→  role          String
+   736→  reason        String
+   737→  successMetric String
+   738→  status        String   @default("FORECASTED")
+   739→  salaryBudget  Float?
+   740→  targetDate    DateTime?
+   741→  hiredName     String?
+   742→  hiredAt       DateTime?
+   743→  notes         String?
+   744→  createdAt     DateTime @default(now())
+   745→  updatedAt     DateTime @updatedAt
+   746→}
+   747→
+   748→model FounderTimeLog {
+   749→  id          String   @id @default(cuid())
+   750→  userId      String
+   751→  date        DateTime
+   752→  category    String
+   753→  hours       Float
+   754→  notes       String?
+   755→  createdAt   DateTime @default(now())
+   756→}
+   757→
+   758→model WeeklyReview {
+   759→  id            String   @id @default(cuid())
+   760→  weekStart     DateTime
+   761→  content       String
+   762→  topPriorities String
+   763→  generatedAt   DateTime @default(now())
+   764→  createdAt     DateTime @default(now())
+   765→}
+   766→
+   767→model MonthlyReport {
+   768→  id          String   @id @default(cuid())
+   769→  month       String
+   770→  content     String
+   771→  generatedAt DateTime @default(now())
+   772→  createdAt   DateTime @default(now())
+   773→}
+   774→
+   775→model AICoachingNudge {
+   776→  id          String   @id @default(cuid())
+   777→  category    String
+   778→  message     String
+   779→  severity    String   @default("INFO")
+   780→  isRead      Boolean  @default(false)
+   781→  createdAt   DateTime @default(now())
+   782→}
+   783→
+   784→model ContentLog {
+   785→  id          String   @id @default(cuid())
+   786→  date        DateTime @default(now())
+   787→  platform    String
+   788→  postUrl     String?
+   789→  title       String
+   790→  internId    String?
+   791→  campaignId  String?
+   792→  createdAt   DateTime @default(now())
+   793→}
+   794→
+   795→// ============================================================
+   796→// INTERNSHIP PROGRAMME — 12-month structured intern development
+   797→// ============================================================
+   798→
+   799→model InternshipMilestone {
+   800→  id          String   @id @default(cuid())
+   801→  track       String   // OPERATIONS_GROWTH, CONTENT_BRAND
+   802→  monthStart  Int      // 1-12 (which month this milestone belongs to)
+   803→  monthEnd    Int      // 1-12 (for multi-month milestones)
+   804→  phase       String   // e.g., "Learn the Business", "Build Client Database"
+   805→  title       String   // e.g., "Company Master Folder"
+   806→  description String
+   807→  deliverable String?  // what they produce
+   808→  kpi         String?  // measurable target
+   809→  status      String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, OVERDUE
+   810→  assigneeId  String?  // which intern
+   811→  completedAt DateTime?
+   812→  createdAt   DateTime @default(now())
+   813→  updatedAt   DateTime @updatedAt
+   814→}
+   815→
+   816→model DailyStandup {
+   817→  id          String   @id @default(cuid())
+   818→  userId      String
+   819→  date        DateTime
+   820→  yesterday   String
+   821→  today       String
+   822→  blockers    String?
+   823→  createdAt   DateTime @default(now())
+   824→}
+   825→
+   826→// ============================================================
+   827→// FOUNDER ROADMAP — 12-month CEO development plan
+   828→// ============================================================
+   829→
+   830→model FounderMilestone {
+   831→  id          String   @id @default(cuid())
+   832→  quarter     Int      // 1-4
+   833→  phase       String   // e.g., "Build the Foundation", "Build the Growth Engine"
+   834→  title       String
+   835→  description String
+   836→  deliverable String?
+   837→  category    String   // SYSTEMS, REVENUE, BRAND, ASSETS, PRODUCTS, PEOPLE
+   838→  status      String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED
+   839→  dueMonth    Int?     // 1-12
+   840→  completedAt DateTime?
+   841→  createdAt   DateTime @default(now())
+   842→  updatedAt   DateTime @updatedAt
+   843→}
+   844→
+   845→// ============================================================
+   846→// INDUSTRY NEWS — curated links for business development
+   847→// ============================================================
+   848→
+   849→model IndustryNews {
+   850→  id          String   @id @default(cuid())
+   851→  title       String
+   852→  url         String
+   853→  source      String   // e.g., "Energy Voice", "Nairametrics", "TechCabal"
+   854→  category    String   // ENERGY, TECH, EVENTS, GOVERNMENT, GENERAL
+   855→  summary     String?
+   856→  publishedAt DateTime?
+   857→  createdAt   DateTime @default(now())
+   858→}
+   859→
