@@ -1761,3 +1761,43 @@ Work Log:
 
 - All 7 Tier 1 + Tier 2 APIs verified: ALL 200
 - Lint clean
+
+---
+Task ID: T3 (TIER 3 FEATURES)
+Agent: Main (orchestrator)
+Task: Vendor Performance Scoring, Post-Event Reviews, Tax Tracker, Notifications, Competitor Intelligence
+
+Work Log:
+- Added 5 new models: VendorReview, PostEventReview, TaxRecord, NotificationLog, Competitor
+- Vendor Performance Scoring API (/api/doz/vendor-reviews):
+  - GET: vendor scorecards with avg scores across 4 dimensions (quality, timeliness, professionalism, value)
+  - Auto-flags vendors below 3 stars, marks 4+ as preferred
+  - Updates vendor.rating automatically after each review
+  - POST: submit review with 4 scores + comments
+  - Stats: 8 vendors tracked, 0 reviewed, auto-flag system ready
+- Post-Event Review API (/api/doz/post-event-reviews):
+  - GET: reviews with pattern detection (avg timeline, client satisfaction, crew performance, budget variance)
+  - Common issues aggregation, lessons learned compilation
+  - POST: create/update standardized review (timeline, budget, satisfaction, crew, what went well/wrong/to change)
+- Tax & Compliance API (/api/doz/tax):
+  - GET: tax records with overdue/upcoming detection
+  - Auto-computes VAT due from invoices (₦442,500 currently)
+  - Tracks: VAT (7.5%), Withholding, PAYE, Company Income Tax
+  - Statuses: PENDING → FILED → PAID → OVERDUE
+  - POST: create/update/delete records
+- Notification System API (/api/doz/notifications):
+  - GET: combines stored notifications + DIDI live insights (CRITICAL + ACTION)
+  - Currently shows 3 unread: overdue invoice ₦4.5M, 2 pending approvals, content goal behind
+  - POST: mark_read, mark_all_read
+  - DIDI live notifications are generated on-the-fly from the proactive engine
+- Competitor Intelligence API (/api/doz/competitors):
+  - GET: competitor list with services, pricing range, key clients, strengths/weaknesses
+  - POST: create/update/delete (FOUNDER/STAFF only)
+  - Tracks: website, LinkedIn, Instagram, last updated
+
+FINAL VERIFICATION:
+- 30 key APIs tested: ALL 30 PASS (200)
+- 47 total API routes in the system
+- Lint: clean (0 errors)
+- Session: Kelvin Keshy (FOUNDER)
+- All 3 tiers complete

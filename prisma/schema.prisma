@@ -267,6 +267,8 @@ model Project {
   eventDayStatus EventDayStatus?
   clientFeedback  ClientFeedback[]
   timeEntries     TimeEntry[]
+  postEventReviews PostEventReview[]
+  vendorReviewsFrom  VendorReview[]
 }
 
 model Milestone {
@@ -349,6 +351,7 @@ model Vendor {
   expenses Expense[]
   projectCosts ProjectVendorCost[]
   equipment    ProjectEquipment[]
+  vendorReviews  VendorReview[]
 }
 
 model Rfq {
@@ -1087,4 +1090,86 @@ model TimeEntry {
   description String?
   billable    Boolean  @default(true)
   createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// TIER 3: VENDOR SCORING, POST-EVENT REVIEW, TAX, NOTIFICATIONS, COMPETITORS
+// ============================================================
+
+model VendorReview {
+  id            String   @id @default(cuid())
+  vendorId      String
+  vendor        Vendor   @relation(fields: [vendorId], references: [id])
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id])
+  qualityScore  Int      // 1-5
+  timelinessScore Int    // 1-5
+  professionalismScore Int // 1-5
+  valueScore    Int      // 1-5
+  overallScore  Float    @default(0) // computed average
+  comments      String?
+  reviewedBy    String?
+  createdAt     DateTime @default(now())
+}
+
+model PostEventReview {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id])
+  timelineAdherence Int    @default(0) // 1-5
+  budgetVariance   Float   @default(0) // % over/under budget
+  clientSatisfaction Int   @default(0) // 1-5
+  crewPerformance  Int     @default(0) // 1-5
+  equipmentIssues  String?
+  lessonsLearned   String?
+  whatWentWell     String?
+  whatWentWrong    String?
+  whatToChange     String?
+  completedBy      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model TaxRecord {
+  id          String   @id @default(cuid())
+  taxType     String   // VAT, WITHHOLDING, PAYE, COMPANY_INCOME, OTHER
+  period      String   // "2025-07"
+  amount      Float
+  status      String   @default("PENDING") // PENDING, FILED, PAID, OVERDUE
+  dueDate     DateTime?
+  filedDate   DateTime?
+  paidDate    DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model NotificationLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  type        String   // OVERDUE_INVOICE, PENDING_APPROVAL, TASK_ASSIGNED, EVENT_REMINDER, DIDI_CRITICAL, TAX_DUE
+  title       String
+  message     String
+  severity    String   @default("INFO") // INFO, WARNING, CRITICAL
+  isRead      Boolean  @default(false)
+  entityType  String?
+  entityId    String?
+  sentVia     String   @default("IN_APP") // IN_APP, EMAIL
+  createdAt   DateTime @default(now())
+}
+
+model Competitor {
+  id            String   @id @default(cuid())
+  name          String
+  services      String?  // comma separated
+  pricingRange  String?  // e.g., "₦2M-₦10M"
+  keyClients    String?
+  strengths     String?
+  weaknesses    String?
+  website       String?
+  linkedin      String?
+  instagram     String?
+  lastUpdated   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
