@@ -1076,6 +1076,9 @@ function ProjectDialog({ project: p }: { project: Project }) {
         {/* Vendor Costs & Financials — project-level vendor tracking */}
         <VendorCostsSection projectId={p.id} revenue={p.revenue} />
 
+        {/* Equipment List — production equipment with vendor attachment */}
+        <EquipmentSection projectId={p.id} />
+
         {/* Event + dates */}
         <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
           {p.eventDate && (
@@ -1980,5 +1983,372 @@ function ProjectsSkeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// Equipment Section — production equipment list with vendor attachment
+// ============================================================
+interface EquipmentItem { id: string; name: string; isCustom: boolean; }
+interface EquipmentCategory { id: string; name: string; icon: string | null; items: EquipmentItem[]; }
+interface ProjectEquip {
+  id: string; projectId: string; itemName: string; category: string;
+  quantity: number; unitPrice: number; totalPrice: number;
+  vendorId: string | null; vendorName: string | null; vendorContact: string | null;
+  vendorPhone: string | null; vendorEmail: string | null; vendorBankDetails: string | null;
+  status: string; notes: string | null; createdBy: string; createdAt: string;
+}
+interface EquipmentPayload {
+  categories: EquipmentCategory[];
+  projectEquipment: ProjectEquip[];
+  totals: { items: number; totalValue: number; priced: number; approved: number; paid: number; };
+  canManage: boolean;
+}
+
+function EquipmentSection({ projectId }: { projectId: string }) {
+  const [data, setData] = useState<EquipmentPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState<ProjectEquip | null>(null);
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/doz/equipment?projectId=${projectId}`);
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setData(json);
+    } catch { toast.error("Couldn't load equipment"); }
+    finally { setLoading(false); }
+  }, [projectId]);
+
+  useEffect(() => {
+    load();
+    fetch("/api/doz/vendors").then(r => r.json()).then(d => {
+      setVendors((d.vendors || []).map((v: any) => ({ id: v.id, name: v.name })));
+    }).catch(() => {});
+  }, [load]);
+
+  if (loading) return <Skeleton className="h-32 w-full" />;
+  if (!data) return null;
+
+  const { projectEquipment: items, totals, categories, canManage } = data;
+
+  return (
+    <div className="mt-4 rounded-lg border border-border p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Clapperboard className="h-4 w-4 text-primary" />
+          <h4 className="text-sm font-semibold">Equipment List</h4>
+        </div>
+        {canManage && (
+          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setEditingItem(null); setShowAdd(true); }}>
+            <Plus className="h-3 w-3" /> Add Equipment
+          </Button>
+        )}
+      </div>
+
+      {/* Summary */}
+      <div className="mb-3 grid grid-cols-4 gap-2 text-center">
+        <div className="rounded-lg bg-muted/30 p-2">
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Items</p>
+          <p className="text-sm font-bold">{totals.items}</p>
+        </div>
+        <div className="rounded-lg bg-muted/30 p-2">
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Total Value</p>
+          <p className="text-sm font-bold text-primary">₦{(totals.totalValue / 1000000).toFixed(1)}M</p>
+        </div>
+        <div className="rounded-lg bg-muted/30 p-2">
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Priced</p>
+          <p className="text-sm font-bold text-amber-400">{totals.priced}</p>
+        </div>
+        <div className="rounded-lg bg-muted/30 p-2">
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Approved</p>
+          <p className="text-sm font-bold text-emerald-400">{totals.approved}</p>
+        </div>
+      </div>
+
+      {/* Equipment List */}
+      {items.length === 0 ? (
+        <p className="text-center text-xs text-muted-foreground py-4">No equipment added yet. Click "Add Equipment" to build the production list.</p>
+      ) : (
+        <div className="scroll-thin max-h-64 space-y-2 overflow-y-auto">
+          {items.map((item) => (
+            <div key={item.id} className="rounded-lg border border-border p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium truncate">{item.itemName}</p>
+                    <Badge variant="outline" className="text-[9px] shrink-0">{item.category}</Badge>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span>Qty: {item.quantity}</span>
+                    {item.unitPrice > 0 && <span>₦{item.unitPrice.toLocaleString()}/unit</span>}
+                    {item.totalPrice > 0 && <span className="font-semibold text-foreground">Total: ₦{item.totalPrice.toLocaleString()}</span>}
+                  </div>
+                  {item.vendorName && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      📦 {item.vendorName}
+                      {item.vendorPhone && ` · 📞 ${item.vendorPhone}`}
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Badge className={`text-[9px] ${
+                    item.status === "PAID" ? "bg-emerald-500/15 text-emerald-400" :
+                    item.status === "APPROVED" ? "bg-teal-500/15 text-teal-400" :
+                    item.status === "PRICED" ? "bg-amber-500/15 text-amber-400" :
+                    "bg-muted text-muted-foreground"
+                  }`}>{item.status}</Badge>
+                  {canManage && (
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditingItem(item); setShowAdd(true); }}>
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Edit Equipment Dialog */}
+      {showAdd && (
+        <EquipmentFormDialog
+          projectId={projectId}
+          categories={categories}
+          vendors={vendors}
+          editing={editingItem}
+          onClose={() => { setShowAdd(false); setEditingItem(null); }}
+          onSaved={load}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Equipment Form Dialog — add or edit equipment with vendor
+// ============================================================
+function EquipmentFormDialog({ projectId, categories, vendors, editing, onClose, onSaved }: {
+  projectId: string;
+  categories: EquipmentCategory[];
+  vendors: { id: string; name: string }[];
+  editing: ProjectEquip | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selectedCat, setSelectedCat] = useState(editing?.category || "");
+  const [itemName, setItemName] = useState(editing?.itemName || "");
+  const [quantity, setQuantity] = useState(String(editing?.quantity || 1));
+  const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice || ""));
+  const [vendorId, setVendorId] = useState(editing?.vendorId || "");
+  const [vendorName, setVendorName] = useState(editing?.vendorName || "");
+  const [vendorContact, setVendorContact] = useState(editing?.vendorContact || "");
+  const [vendorPhone, setVendorPhone] = useState(editing?.vendorPhone || "");
+  const [vendorEmail, setVendorEmail] = useState(editing?.vendorEmail || "");
+  const [vendorBank, setVendorBank] = useState(editing?.vendorBankDetails || "");
+  const [notes, setNotes] = useState(editing?.notes || "");
+  const [status, setStatus] = useState(editing?.status || "LISTED");
+  const [customItem, setCustomItem] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!itemName) { toast.error("Item name is required"); return; }
+    setSubmitting(true);
+    try {
+      const body: any = {
+        action: editing ? "update_equipment" : "add_equipment",
+        projectId,
+        itemName,
+        category: selectedCat || "Other",
+        quantity: Number(quantity) || 1,
+        unitPrice: Number(unitPrice) || 0,
+        vendorId: vendorId || null,
+        vendorName: vendorId ? undefined : (vendorName || undefined),
+        vendorContact: vendorContact || undefined,
+        vendorPhone: vendorPhone || undefined,
+        vendorEmail: vendorEmail || undefined,
+        vendorBankDetails: vendorBank || undefined,
+        status,
+        notes: notes || undefined,
+      };
+      if (editing) body.equipmentId = editing.id;
+
+      const res = await fetch("/api/doz/equipment", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(editing ? "Equipment updated" : "Equipment added");
+      onSaved(); onClose();
+    } catch { toast.error("Failed to save equipment"); }
+    finally { setSubmitting(false); }
+  }
+
+  async function handleDelete() {
+    if (!editing) return;
+    if (!confirm("Delete this equipment item?")) return;
+    try {
+      await fetch("/api/doz/equipment", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_equipment", equipmentId: editing.id }),
+      });
+      toast.success("Equipment deleted");
+      onSaved(); onClose();
+    } catch { toast.error("Failed to delete"); }
+  }
+
+  // When vendor is selected, auto-fill vendor name
+  function onVendorChange(id: string) {
+    setVendorId(id);
+    if (id) {
+      const v = vendors.find(v => v.id === id);
+      if (v) setVendorName(v.name);
+    } else {
+      setVendorName("");
+    }
+  }
+
+  // When category changes, reset item
+  function onCategoryChange(catName: string) {
+    setSelectedCat(catName);
+    setItemName("");
+    setShowCustom(false);
+  }
+
+  // When item selected from library
+  function onItemSelect(name: string) {
+    if (name === "__custom__") {
+      setShowCustom(true);
+      setItemName("");
+    } else {
+      setShowCustom(false);
+      setItemName(name);
+    }
+  }
+
+  const currentCat = categories.find(c => c.name === selectedCat);
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto scroll-thin">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Equipment" : "Add Equipment"}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Category */}
+          <div>
+            <Label className="text-xs">Category</Label>
+            <Select value={selectedCat} onValueChange={onCategoryChange}>
+              <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+              <SelectContent className="max-h-60">
+                {categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Item selection */}
+          {selectedCat && (
+            <div>
+              <Label className="text-xs">Item</Label>
+              {!showCustom ? (
+                <Select value={itemName} onValueChange={onItemSelect}>
+                  <SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {currentCat?.items.map(i => <SelectItem key={i.id} value={i.name}>{i.name}</SelectItem>)}
+                    <SelectItem value="__custom__">+ Add custom item...</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex gap-2">
+                  <Input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Enter custom item name" />
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setShowCustom(false); setItemName(""); }}>Cancel</Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quantity + Price */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Quantity</Label>
+              <Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} min="1" />
+            </div>
+            <div>
+              <Label className="text-xs">Unit Price (₦)</Label>
+              <Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0" />
+            </div>
+          </div>
+
+          {/* Vendor */}
+          <div className="rounded-lg border border-border p-3 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">Vendor Details</p>
+            <div>
+              <Label className="text-xs">Select Vendor (from database)</Label>
+              <Select value={vendorId} onValueChange={onVendorChange}>
+                <SelectTrigger><SelectValue placeholder="Pick existing vendor or enter manually" /></SelectTrigger>
+                <SelectContent>
+                  {vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {!vendorId && (
+              <div>
+                <Label className="text-xs">Or enter vendor name manually</Label>
+                <Input value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="Vendor name" />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs">Contact Person</Label><Input value={vendorContact} onChange={e => setVendorContact(e.target.value)} placeholder="Name" /></div>
+              <div><Label className="text-xs">Phone</Label><Input value={vendorPhone} onChange={e => setVendorPhone(e.target.value)} placeholder="+234..." /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs">Email</Label><Input value={vendorEmail} onChange={e => setVendorEmail(e.target.value)} placeholder="email@vendor.com" /></div>
+              <div><Label className="text-xs">Bank Details</Label><Input value={vendorBank} onChange={e => setVendorBank(e.target.value)} placeholder="Bank — Account" /></div>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div>
+            <Label className="text-xs">Status</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="LISTED">Listed</SelectItem>
+                <SelectItem value="PRICED">Priced</SelectItem>
+                <SelectItem value="APPROVED">Approved</SelectItem>
+                <SelectItem value="ORDERED">Ordered</SelectItem>
+                <SelectItem value="DELIVERED">Delivered</SelectItem>
+                <SelectItem value="PAID">Paid</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <Label className="text-xs">Notes</Label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional notes" />
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-between gap-2 pt-2">
+            {editing ? (
+              <Button type="button" variant="destructive" size="sm" onClick={handleDelete}>
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </Button>
+            ) : <div />}
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+              <Button type="submit" disabled={submitting || !itemName}>
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? "Update" : "Add Equipment"}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1609,3 +1609,39 @@ Stage Summary:
 - Founder can approve/release vendor payments
 - Help page personalized per role
 - DIDI floating bubble available on every page
+
+---
+Task ID: D5-D6 (EQUIPMENT UI)
+Agent: Main (orchestrator)
+Task: Build Equipment UI in Projects module
+
+Work Log:
+- Created EquipmentSection component inside projects-events.tsx
+- Renders inside the ProjectDialog (project detail view) below Vendor Costs
+- Shows summary stats: total items, total value (₦), priced count, approved count
+- Equipment list with: item name, category badge, quantity, unit price, total price, vendor name + phone, status badge
+- Status badges color-coded: LISTED=muted, PRICED=amber, APPROVED=teal, PAID=emerald
+- "Add Equipment" button opens EquipmentFormDialog:
+  - Category dropdown (28 categories from library)
+  - Item dropdown (items from selected category) with "+ Add custom item" option
+  - Quantity + Unit Price inputs
+  - Vendor section: pick from existing vendors (database) OR enter manually
+  - Vendor fields: name, contact person, phone, email, bank details
+  - Status dropdown (LISTED/PRICED/APPROVED/ORDERED/DELIVERED/PAID)
+  - Notes textarea
+  - Edit mode: pre-fills all fields, includes Delete button
+- When vendor selected from database, auto-fills vendor name
+- Custom items can be added (not in library)
+- All mutations call /api/doz/equipment with appropriate actions
+- Toast feedback for all actions
+- Scrollable list (max-h-64 overflow-y-auto scroll-thin)
+- Lint clean, all APIs verified (28 categories, 304 items, equipment API 200)
+
+Stage Summary:
+- Equipment UI is live inside project detail dialogs
+- Project managers can browse 28 categories with 304 items
+- Can add custom items not in the library
+- Can attach vendors with full contact + bank details
+- Can set quantities, prices, and track status (LISTED → PRICED → APPROVED → DELIVERED → PAID)
+- Founder can edit any equipment item and change status (including releasing payment)
+- Equipment list shows alongside vendor costs in the project dialog
