@@ -1,12 +1,16 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Sparkles, Send, X, Loader2, ChevronUp } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Sparkles, Send, X, Loader2, ChevronUp, AlertTriangle,
+  CheckCircle2, TrendingUp, Lightbulb, Bell, Zap,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
-import { useAppStore, type ModuleId } from "@/lib/store";
+import { useAppStore } from "@/lib/store";
 
 const PAGE_PREMISES: Record<string, string> = {
   command: "Your daily command center — priorities, approvals, cash position, and team activity at a glance.",
@@ -25,6 +29,8 @@ const PAGE_PREMISES: Record<string, string> = {
   founder: "Founder's Roadmap — your 12-month journey from Operator to CEO. Systems, revenue, brand, assets, products.",
   calendar: "Calendar — all projects, tasks, and deadlines at a glance.",
   growth: "Growth Dashboard — progress toward the ₦500M vision. Live KPIs, health score, 9 sections.",
+  "staff-hub": "Staff Hub — manage your team, assign tasks, and track responsibilities across all pillars.",
+  help: "Help & Guide — personalized guidance for your role and each module.",
 };
 
 interface Message {
@@ -33,30 +39,104 @@ interface Message {
   actionResults?: any[];
 }
 
+interface ProactiveInsight {
+  type: string;
+  severity: string;
+  title: string;
+  message: string;
+  recommendedAction?: string;
+}
+
+const SEVERITY_ICONS: Record<string, React.ReactNode> = {
+  CRITICAL: <AlertTriangle className="h-3 w-3 text-rose-400" />,
+  WARNING: <AlertTriangle className="h-3 w-3 text-amber-400" />,
+  ACTION: <Zap className="h-3 w-3 text-primary" />,
+  OPPORTUNITY: <TrendingUp className="h-3 w-3 text-teal-400" />,
+  POSITIVE: <CheckCircle2 className="h-3 w-3 text-emerald-400" />,
+};
+
+const SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: "border-l-rose-500/50 bg-rose-500/5",
+  WARNING: "border-l-amber-500/50 bg-amber-500/5",
+  ACTION: "border-l-primary/50 bg-primary/5",
+  OPPORTUNITY: "border-l-teal-500/50 bg-teal-500/5",
+  POSITIVE: "border-l-emerald-500/50 bg-emerald-500/5",
+};
+
+const QUICK_PROMPTS = [
+  "What should I focus on today?",
+  "Any risks I should know about?",
+  "What's our cash position?",
+  "Which proposals need follow-up?",
+  "How are the interns doing?",
+  "What can I delegate?",
+];
+
 export function DidiBubble() {
   const { activeModule } = useAppStore();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [insights, setInsights] = useState<ProactiveInsight[]>([]);
+  const [recommendations, setRecommendations] = useState<string[]>([]);
+  const [insightCount, setInsightCount] = useState(0);
+  const [showInsights, setShowInsights] = useState(false);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const premise = PAGE_PREMISES[activeModule] || "This page helps you manage your business operations.";
+
+  // Fetch proactive insights when DIDI opens
+  useEffect(() => {
+    if (open && insights.length === 0) {
+      fetchInsights();
+    }
+  }, [open]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  async function fetchInsights() {
+    setLoadingInsights(true);
+    try {
+      const res = await fetch("/api/doz/didi/proactive");
+      if (!res.ok) return;
+      const data = await res.json();
+      setInsights(data.insights || []);
+      setRecommendations(data.recommendations || []);
+      setInsightCount(data.summary?.critical + data.summary?.warnings + data.summary?.actions || 0);
+
+      if (data.autoTasksCreated > 0) {
+        toast.success(`DIDI created ${data.autoTasksCreated} task(s) for you`);
+      }
+    } catch {
+      // Silent fail — insights are optional
+    } finally {
+      setLoadingInsights(false);
+    }
+  }
 
   // Show premise as first message when opening on a new page
   useEffect(() => {
     if (open && messages.length === 0) {
-      setMessages([{ role: "didi", content: `Hi Kelvin! I'm DIDI, your AI Growth Coach. \n\n**This page:** ${premise}\n\nAsk me anything about this page or your business.` }]);
+      const insightNote = insightCount > 0
+        ? `\n\n⚠ I've detected **${insightCount} issue${insightCount > 1 ? "s" : ""}** that need your attention. Click "Insights" above to see them.`
+        : "\n\n✓ Everything looks good right now. No critical issues detected.";
+      setMessages([{ role: "didi", content: `Hi Kelvin! I'm DIDI, your AI Growth Coach.\n\n**This page:** ${premise}${insightNote}` }]);
     }
-  }, [open, activeModule]);
+  }, [open, activeModule, insightCount]);
 
   // Reset messages when switching pages
   useEffect(() => {
     setMessages([]);
   }, [activeModule]);
 
-  async function ask() {
-    if (!input.trim() || loading) return;
-    const userMsg = input.trim();
+  async function ask(prompt?: string) {
+    const userMsg = (prompt || input).trim();
+    if (!userMsg || loading) return;
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
@@ -82,7 +162,7 @@ export function DidiBubble() {
 
   return (
     <>
-      {/* Floating bubble button */}
+      {/* Floating bubble button with insight badge */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -90,6 +170,11 @@ export function DidiBubble() {
           title="Ask DIDI"
         >
           <Sparkles className="h-6 w-6" />
+          {insightCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
+              {insightCount}
+            </span>
+          )}
           <span className="absolute -top-1 -right-1 flex h-3 w-3">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75"></span>
             <span className="relative inline-flex h-3 w-3 rounded-full bg-primary"></span>
@@ -99,27 +184,75 @@ export function DidiBubble() {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[500px] max-h-[80vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="fixed bottom-6 right-6 z-50 flex h-[560px] max-h-[85vh] w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border bg-primary/10 p-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary">
                 <Sparkles className="h-4 w-4" />
+                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-card" />
               </div>
               <div>
                 <p className="text-sm font-semibold">DIDI</p>
                 <p className="text-[10px] text-muted-foreground">AI Growth Coach · Online</p>
               </div>
             </div>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)}>
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setOpen(false)}>
+            <div className="flex items-center gap-1">
+              {insightCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-rose-400"
+                  onClick={() => setShowInsights(!showInsights)}
+                >
+                  <Bell className="h-3 w-3" />
+                  {insightCount}
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setOpen(false); setShowInsights(false); }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
+
+          {/* Proactive Insights Panel */}
+          {showInsights && (
+            <div className="scroll-thin max-h-48 overflow-y-auto border-b border-border p-2 space-y-1.5">
+              {loadingInsights ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="ml-2 text-xs text-muted-foreground">DIDI is scanning your business...</span>
+                </div>
+              ) : (
+                <>
+                  {insights.map((insight, i) => (
+                    <div key={i} className={`rounded-lg border-l-2 p-2 ${SEVERITY_COLORS[insight.severity] || ""}`}>
+                      <div className="flex items-start gap-1.5">
+                        <span className="mt-0.5 shrink-0">{SEVERITY_ICONS[insight.severity]}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-semibold text-foreground">{insight.title}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{insight.message}</p>
+                          {insight.recommendedAction && (
+                            <p className="text-[10px] text-primary mt-1">→ {insight.recommendedAction}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {recommendations.length > 0 && (
+                    <div className="rounded-lg bg-primary/5 border border-primary/20 p-2 mt-2">
+                      <p className="text-[10px] font-semibold text-primary mb-1 flex items-center gap-1">
+                        <Lightbulb className="h-3 w-3" /> DIDI's Recommendations
+                      </p>
+                      {recommendations.map((r, i) => (
+                        <p key={i} className="text-[10px] text-muted-foreground">• {r}</p>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {/* Messages */}
           <div className="scroll-thin flex-1 space-y-3 overflow-y-auto p-3">
@@ -160,16 +293,17 @@ export function DidiBubble() {
                 </div>
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Quick prompts */}
           {messages.length <= 1 && (
             <div className="border-t border-border p-2">
               <div className="flex flex-wrap gap-1">
-                {["What should I do here?", "Any risks?", "What's our cash position?"].map(p => (
+                {QUICK_PROMPTS.map(p => (
                   <button
                     key={p}
-                    onClick={() => { setInput(p); }}
+                    onClick={() => ask(p)}
                     className="rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                   >
                     {p}
@@ -195,7 +329,7 @@ export function DidiBubble() {
                   }
                 }}
               />
-              <Button size="sm" onClick={ask} disabled={loading || !input.trim()} className="h-9 shrink-0">
+              <Button size="sm" onClick={() => ask()} disabled={loading || !input.trim()} className="h-9 shrink-0">
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               </Button>
             </div>

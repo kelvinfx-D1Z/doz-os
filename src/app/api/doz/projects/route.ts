@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -53,7 +54,9 @@ const VALID_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "ON
 // ------------------------------------------------------------
 // GET — aggregate all projects (P&L + received/balance computed)
 // ------------------------------------------------------------
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   // Single efficient query: one trip to the DB for everything we need.
   const [projects, expenses, invoices] = await Promise.all([
     db.project.findMany({

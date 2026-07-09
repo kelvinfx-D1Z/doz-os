@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // ============================================================
 // Procurement & Vendor Management API
 // Enforces 3-way segregation: Requester ≠ Approver ≠ Payer
 // ============================================================
 
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
 
   const [vendors, rfqs, purchaseOrders, paymentRequests, approvals] = await Promise.all([

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // ============================================================
 // Team Management API (DOZ OS — Module 7)
@@ -7,7 +8,9 @@ import { db } from "@/lib/db";
 // plus per-member open-task counts and last-report metadata.
 // ============================================================
 
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
   // Today's date boundaries (UTC) for "reporting today" math
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());

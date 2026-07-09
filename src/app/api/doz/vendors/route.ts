@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // ============================================================
 // VENDOR ONBOARDING API (Phase 2)
@@ -30,7 +31,9 @@ function isValidCategory(c: string): c is Category {
 // ------------------------------------------------------------
 // GET — list applications, existing vendors, and stats
 // ------------------------------------------------------------
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const [applications, vendors] = await Promise.all([
       db.vendorApplication.findMany({

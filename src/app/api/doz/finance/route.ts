@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // Financial Intelligence — profit visibility by project, client & service.
 // All aggregations computed in JS from fetched invoices + expenses + projects + budgets + accounts.
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 

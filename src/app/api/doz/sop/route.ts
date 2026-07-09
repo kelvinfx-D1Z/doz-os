@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // Categories with metadata for the UI sidebar
 const CATEGORY_META: { name: string; icon: string; display: string }[] = [
@@ -11,7 +12,9 @@ const CATEGORY_META: { name: string; icon: string; display: string }[] = [
   { name: "PROCESS", icon: "Settings", display: "Company Processes" },
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const sops = await db.sop.findMany({
       include: {

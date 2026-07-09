@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 
 // CRM & Sales Engine — pipeline, accounts, contacts, leads, proposals, follow-ups, referrals
-export async function GET() {
+export async function GET(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const now = new Date();
 
   const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals] =

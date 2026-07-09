@@ -1645,3 +1645,58 @@ Stage Summary:
 - Can set quantities, prices, and track status (LISTED → PRICED → APPROVED → DELIVERED → PAID)
 - Founder can edit any equipment item and change status (including releasing payment)
 - Equipment list shows alongside vendor costs in the project dialog
+
+---
+Task ID: AUDIT (SECURITY + DIDI SUPER POWERS)
+Agent: Main (orchestrator)
+Task: Comprehensive security audit, fix vulnerabilities, enhance DIDI
+
+SECURITY AUDIT FINDINGS & FIXES:
+- CRITICAL: 10 API routes had ZERO authentication — anyone could access CRM, financials, projects, procurement, team, vendors, SOPs, expenses, and planning data without logging in
+  - Fixed: Added getSessionUser() auth check to all 10 routes (crm, finance, planning, procurement, projects, sop, team, vendors, expenses, portal)
+  - Verified: All 8 previously-unprotected routes now return 401 without auth, 200 with auth
+- NEXTAUTH_SECRET was missing from .env again — restored to both .env and .env.local
+- No raw SQL injection risk (Prisma handles parameterization)
+- .env files are in .gitignore (verified)
+- Auth fallback in auth.ts ensures NEXTAUTH_SECRET is never undefined
+
+DIDI SUPER POWERS — PROACTIVE ENGINE:
+- Created didi-engine.ts with two engines:
+  1. generateProactiveInsights() — scans 13 data sources and generates insights across 7 categories:
+     - CASH FLOW: overdue invoices, low cash position
+     - PIPELINE: stalled proposals, negotiation opportunities, thin pipeline coverage
+     - TASKS: overdue tasks by person
+     - APPROVALS: pending payment requests
+     - FOLLOWUPS: overdue follow-ups
+     - PROFITABILITY: projects at risk of losing money (>90% expense ratio)
+     - MARKETING: behind on 12 posts/month goal
+     - GROWTH: referral dependency too high
+     - FOUNDER_TIME: too much admin time
+     - TEAM: interns with too many overdue tasks
+     - POSITIVE: everything on track
+  2. generateSmartRecommendations() — generates contextual recommendations based on funnel, projects, cash, tasks, follow-ups
+
+- Created /api/doz/didi/proactive API:
+  - Runs both engines
+  - AUTO-CREATES tasks for CRITICAL and ACTION insights (avoids duplicates within 24h)
+  - Saves insights as AICoachingNudge records
+  - Returns insights, recommendations, auto-tasks created, and summary
+
+- Upgraded DIDI bubble:
+  - Shows insight count badge on the floating button (red number)
+  - "Insights" panel toggle shows all proactive insights with severity colors
+  - Insights include recommended actions
+  - Recommendations section with DIDI's smart suggestions
+  - Greeting message includes insight count summary
+  - Quick prompts: "What should I focus on today?", "Any risks?", "Cash position?", "Which proposals need follow-up?", "How are the interns doing?", "What can I delegate?"
+  - Auto-scroll to latest message
+  - Online status indicator (green dot)
+  - 6 proactive insights generated: 1 CRITICAL (overdue invoice ₦4.5M), 2 WARNING (overdue tasks, overdue follow-ups), 2 ACTION (pending approvals, content goal behind), 1 OPPORTUNITY (₦24M deal in negotiation)
+  - 3 smart recommendations generated
+
+VERIFICATION:
+- Lint: clean (0 errors)
+- Page: 200
+- All 8 previously-unprotected APIs: 401 without auth ✓, 200 with auth ✓
+- DIDI proactive API: 200, generates 6 insights + 3 recommendations
+- All other APIs: working
