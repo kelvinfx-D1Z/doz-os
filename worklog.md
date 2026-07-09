@@ -1480,3 +1480,29 @@ Work Log:
   - Project edit
   - Vendor edit
   - Company vision banner on command center
+
+---
+Task ID: S1 (STAFF HUB)
+Agent: Main (orchestrator)
+Task: Build Staff Hub — the most critical missing module
+
+Work Log:
+- Added StaffRole model (userId, pillar DOZ_STUDIOS/FIESTIVO/FOUNDEROS, percentage, responsibilities)
+- Updated intern names: Chioma → Akpala Arome (Operations & Growth Intern), Emeka → Esther Joseph (Brand & Content Intern), Fatima deactivated
+- Created /api/doz/staff-hub with: GET (staff profiles + roles + tasks), POST (add_staff, assign_task, set_roles, toggle_task, didi_create_activities), DELETE (deactivate staff)
+- Created StaffHub module with:
+  - Staff cards showing: name, avatar, role, title, email, pillar allocations (DOZ Studios/Fiestivo/FounderOS with percentages), responsibilities, task summary (today/week/overdue), task list with toggle completion
+  - "Add Staff" button: creates new staff member (name, email, role, title, phone, capacity, password)
+  - "Assign Task" button: assign task to any staff member (title, description, priority, category, due date)
+  - "DIDI Assign" button: describe work in natural language, DIDI breaks it into individual tasks and assigns them to a staff member
+  - Deactivate staff button (FOUNDER only, prevents self-deactivation)
+- Added to app shell nav (Control group), available to FOUNDER, STAFF, and INTERN
+- Lint clean, API verified: 5 active staff (Kelvin, Akpala, Esther, Ngozi, Tunde), 15 tasks tracked
+
+Stage Summary:
+- Staff Hub is the central place for managing the team
+- Kelvin can see all staff, their roles, responsibilities, and tasks at a glance
+- Can add new staff with passwords
+- Can assign tasks to anyone
+- DIDI can create tasks from a natural language description
+- Tasks are trackable (toggle complete, see overdue)

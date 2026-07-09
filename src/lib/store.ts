@@ -13,7 +13,8 @@ export type ModuleId =
   | "ai"
   | "field"
   | "routines"
-  | "marketing";
+  | "marketing"
+  | "staff-hub";
 
 interface AppState {
   activeModule: ModuleId;

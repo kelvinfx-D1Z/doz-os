@@ -791,3 +791,17 @@ model ContentLog {
   campaignId  String?
   createdAt   DateTime @default(now())
 }
+
+// ============================================================
+// STAFF ROLES & RESPONSIBILITIES
+// ============================================================
+
+model StaffRole {
+  id          String   @id @default(cuid())
+  userId      String
+  pillar      String   // DOZ_STUDIOS, FIESTIVO, FOUNDEROS
+  percentage  Int      // 50, 30, 20
+  responsibilities String // newline separated list
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

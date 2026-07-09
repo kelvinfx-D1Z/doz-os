@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Repeat,
   Megaphone,
+  Users,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -35,6 +36,8 @@ import { AiChiefOfStaff } from "@/components/modules/ai-chief-of-staff";
 import { FieldMode } from "@/components/modules/field-mode";
 import { Routines } from "@/components/modules/routines";
 import { MarketingGrowth } from "@/components/modules/marketing-growth";
+import { StaffHub } from "@/components/modules/staff-hub";
+import { DidiBubble } from "@/components/doz/didi-bubble";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,14 +84,15 @@ const NAV: NavItem[] = [
   { id: "procurement", label: "Procurement", icon: <Truck className="h-4 w-4" />, group: "Deliver" },
   { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, group: "Control" },
   { id: "team", label: "Team Management", icon: <UserCog className="h-4 w-4" />, group: "Control" },
+  { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-4 w-4" />, group: "Control" },
   { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, group: "Scale" },
 ];
 
 // Role-based module access (Phase 2)
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "sop"],
-  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "sop"],
-  INTERN: ["command", "field", "team", "sop"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop"],
+  INTERN: ["command", "field", "team", "staff-hub", "sop"],
   FREELANCER: ["command", "field", "projects", "team"],
 };
 
@@ -100,6 +104,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   procurement: <Procurement />,
   finance: <Financial />,
   team: <Team />,
+  "staff-hub": <StaffHub />,
   sop: <SopKnowledge />,
   ai: <AiChiefOfStaff />,
   field: <FieldMode />,
@@ -115,6 +120,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   procurement: { title: "Procurement & Vendor Management", subtitle: "Requester ≠ Approver ≠ Payer" },
   finance: { title: "Financial Intelligence", subtitle: "Profit by project, client & service" },
   team: { title: "Team Management", subtitle: "Interns, freelancers, accountability" },
+  "staff-hub": { title: "Staff Hub", subtitle: "Roles, responsibilities, and task tracking" },
   sop: { title: "SOP & Knowledge Base", subtitle: "Process is the product" },
   ai: { title: "AI Chief of Staff", subtitle: "Your digital Operations Director" },
   field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
