@@ -257,6 +257,7 @@ model Project {
   resources    ResourceBooking[]
   paymentRequests PaymentRequest[]
   vendorCosts    ProjectVendorCost[]
+  equipment      ProjectEquipment[]
 }
 
 model Milestone {
@@ -338,6 +339,7 @@ model Vendor {
   pos    PurchaseOrder[]
   expenses Expense[]
   projectCosts ProjectVendorCost[]
+  equipment    ProjectEquipment[]
 }
 
 model Rfq {
@@ -900,6 +902,50 @@ model Partnership {
   status      String   @default("IDENTIFIED") // IDENTIFIED, CONTACTED, MEETING_SCHEDULED, ACTIVE, DECLINED
   mutualBenefit String?
   notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// EQUIPMENT LIBRARY + PROJECT EQUIPMENT LISTS
+// ============================================================
+
+model EquipmentCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  icon        String?
+  sortOrder   Int      @default(0)
+  items       EquipmentItem[]
+}
+
+model EquipmentItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  category    EquipmentCategory @relation(fields: [categoryId], references: [id])
+  name        String
+  isCustom    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model ProjectEquipment {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  itemName    String
+  category    String
+  quantity    Int      @default(1)
+  unitPrice   Float    @default(0)
+  totalPrice  Float    @default(0)
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  vendorName  String?
+  vendorContact String?
+  vendorPhone String?
+  vendorEmail String?
+  vendorBankDetails String?
+  status      String   @default("LISTED") // LISTED, PRICED, APPROVED, ORDERED, DELIVERED, PAID
+  notes       String?
+  createdBy   String   // who added this (PM or founder)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

@@ -1586,3 +1586,26 @@ Stage Summary:
 - Marketing: 12 posts/month tracking, SEO content gaps, email list building, strategic partnerships — API ready
 - Calendar: fixed, returns all events (projects, tasks, invoices, follow-ups)
 - All systems operational
+
+---
+Task ID: D1-D5 (DIDI + HELP + EQUIPMENT)
+Agent: Main (orchestrator)
+Task: DIDI improvements, Help page, Equipment library, Project Manager system
+
+Work Log:
+- DIDI Assign upgraded: now uses z-ai-web-dev-sdk to intelligently parse natural language descriptions into structured tasks (title, priority, description). Falls back to simple split if AI fails. Example: "Research 20 potential clients. Add to CRM. Follow up with 5." → 3 separate tasks with appropriate priorities.
+- Added EquipmentCategory (28 categories) + EquipmentItem (304 items) + ProjectEquipment models to schema
+- Seeded complete equipment library: Stage & Rigging, Audio Production, Video Production, Live Video Switching, Video Conversion, Video Recording, LED Screen System, Projection, Display Systems, Lighting, Lighting Control, Special Effects, Power Distribution, Networking, Streaming, Graphics, Communication, Event Control, Computers, Furniture, Cable Management, Backstage, Branding, Event Technology, Safety, Tools, Consumables, Production Documents — 304 total items
+- Created Equipment API (/api/doz/equipment): GET (library + project equipment), POST (add_equipment, update_equipment, delete_equipment, add_custom_item)
+- ProjectEquipment model: itemName, category, quantity, unitPrice, totalPrice, vendorId, vendorName, vendorContact, vendorPhone, vendorEmail, vendorBankDetails, status (LISTED/PRICED/APPROVED/ORDERED/DELIVERED/PAID), createdBy
+- Created Help page (role-sensitive): different guides for FOUNDER, STAFF, INTERN, FREELANCER. Shows daily/weekly flows, module guides, DIDI tips, quick tips.
+- Added Help page to app shell nav (Scale group), available to ALL roles
+- All 10 key APIs return 200, lint clean
+
+Stage Summary:
+- DIDI Assign now uses AI to create structured tasks from descriptions
+- Equipment library with 28 categories and 304 items ready for project equipment lists
+- Project managers can add items from library or custom, set prices, attach vendors
+- Founder can approve/release vendor payments
+- Help page personalized per role
+- DIDI floating bubble available on every page

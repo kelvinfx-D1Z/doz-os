@@ -158,22 +158,74 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, status: newStatus });
   }
 
-  // DIDI creates activities for staff
+  // DIDI creates activities for staff — uses AI to parse description into structured tasks
   if (body.action === "didi_create_activities") {
     if (!body.description || !body.assigneeId) {
       return NextResponse.json({ error: "description and assigneeId required" }, { status: 400 });
     }
-    // Parse the description into tasks (split by newlines or sentences)
-    const lines = body.description.split(/\n|\. (?=[A-Z])/).map((s: string) => s.trim()).filter(Boolean);
+
+    const assignee = await db.user.findUnique({ where: { id: body.assigneeId } });
+    const assigneeName = assignee?.name || "the staff member";
+
+    // Use AI to parse the description into structured tasks
+    let parsedTasks: { title: string; priority: string; description: string }[] = [];
+    try {
+      const ZAI = (await import("z-ai-web-dev-sdk")).default;
+      const zai = await ZAI.create();
+      const completion = await zai.chat.completions.create({
+        messages: [
+          {
+            role: "assistant",
+            content: `You are DIDI, an AI operations assistant for Digit One Zero Ltd. The user has described work that needs to be done by ${assigneeName}. Break this description into clear, actionable individual tasks. Each task should be specific, measurable, and have a clear deliverable.
+
+Return ONLY a JSON array of task objects. Each object must have:
+- "title": a clear, concise task title (max 100 chars)
+- "priority": "URGENT", "HIGH", "MEDIUM", or "LOW"
+- "description": a one-sentence description of what to do
+
+Example: If the description is "Research 20 potential clients in the energy sector. Add them to the CRM with contact info. Follow up with 5 by email."
+Return: [{"title":"Research 20 energy sector companies","priority":"HIGH","description":"Identify 20 potential clients in oil & gas, power, and renewable energy sectors."},{"title":"Add contacts to CRM","priority":"HIGH","description":"Add all 20 companies to the CRM with company name, contact person, email, and phone."},{"title":"Send follow-up emails to 5 prospects","priority":"MEDIUM","description":"Draft and send personalized follow-up emails to the 5 most promising leads."}]
+
+Return ONLY the JSON array. No explanation, no markdown.`,
+          },
+          {
+            role: "user",
+            content: body.description,
+          },
+        ],
+        thinking: { type: "disabled" },
+      });
+
+      const responseText = completion?.choices?.[0]?.message?.content ?? "";
+      // Parse the JSON array from the response
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        parsedTasks = JSON.parse(jsonMatch[0]);
+      }
+    } catch (err) {
+      console.error("[DIDI assign] AI parsing failed, falling back to simple split:", err);
+    }
+
+    // Fallback: if AI didn't return valid tasks, split by sentences
+    if (!parsedTasks || parsedTasks.length === 0) {
+      const lines = body.description.split(/\n|\. (?=[A-Z])/).map((s: string) => s.trim()).filter(Boolean);
+      parsedTasks = lines.slice(0, 10).map((line: string) => ({
+        title: line.substring(0, 200),
+        priority: body.priority || "MEDIUM",
+        description: `Created by DIDI from: ${body.description}`,
+      }));
+    }
+
+    // Create the tasks
     const created = [];
-    for (const line of lines.slice(0, 10)) {
+    for (const t of parsedTasks.slice(0, 15)) {
       const task = await db.task.create({
         data: {
-          title: line.substring(0, 200),
-          description: `Created by DIDI: ${body.description}`,
+          title: t.title.substring(0, 200),
+          description: t.description || `Created by DIDI: ${body.description}`,
           assigneeId: body.assigneeId,
           creatorId: user.id,
-          priority: body.priority || "MEDIUM",
+          priority: ["URGENT", "HIGH", "MEDIUM", "LOW"].includes(t.priority) ? t.priority : (body.priority || "MEDIUM"),
           category: body.category || "OPERATIONAL",
           dueDate: body.dueDate ? new Date(body.dueDate) : new Date(Date.now() + 7 * 86400000),
           status: "TODO",
