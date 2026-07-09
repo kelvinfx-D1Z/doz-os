@@ -1700,3 +1700,36 @@ VERIFICATION:
 - All 8 previously-unprotected APIs: 401 without auth ✓, 200 with auth ✓
 - DIDI proactive API: 200, generates 6 insights + 3 recommendations
 - All other APIs: working
+
+---
+Task ID: T1 (TIER 1 FEATURES)
+Agent: Main (orchestrator)
+Task: Contract Management, Cash Flow Forecasting, Event Day Dashboard, Pricing Calculator
+
+Work Log:
+- Added 5 new models: Contract, CashFlowForecast, EventDayLog, EventDayStatus, PricingTemplate
+- Contract Management API (/api/doz/contracts):
+  - GET: list contracts with project + account info, stats (total/active/draft/pending/expired)
+  - POST: create, update, delete contracts
+  - Tracks: title, contract number, status (DRAFT→SENT→SIGNED→ACTIVE→EXPIRED), value, dates, signed by, terms, file URL
+- Cash Flow Forecasting API (/api/doz/cashflow):
+  - 90-day forecast based on: outstanding invoices (with probability by age), unpaid vendor costs, pending payment requests, recurring expenses
+  - Running balance calculation with weighted amounts
+  - Shortfall detection (when balance goes negative)
+  - DIDI warning generation: "Cash shortfall in X days" or "Below safety threshold"
+  - Verified: current cash ₦31.5M, projected 90-day ₦35.37M, no warnings
+- Event Day API (/api/doz/eventday):
+  - GET: project event day status (crew check-in, equipment loaded, tech check, doors, live, wrap) + 50 recent logs + crew list
+  - POST: init (create status for project), update_status (toggle steps, update crew count), add_log (issues, info, warnings), resolve_log
+  - Steps: PRE_EVENT → LOAD_IN → TECH_CHECK → DOORS → LIVE → WRAP → POST
+  - Log categories: CREW, EQUIPMENT, TECH, SCHEDULE, ISSUE, GENERAL
+  - Severity: INFO, WARNING, CRITICAL, RESOLVED
+- Pricing Calculator API (/api/doz/pricing) with COST/PRICE SEPARATION:
+  - GET: returns templates — PM/STAFF/INTERN see baseCost + margin only, FOUNDER sees baseCost + basePrice + margin
+  - canSeePricing flag tells the UI whether to show selling price
+  - POST create/update/delete (FOUNDER only)
+  - POST calculate_cost: PM submits line items, gets total cost ONLY (no selling price revealed)
+  - PricingTemplate: name, serviceType, baseCost (internal), basePrice (company selling), margin (computed), lineItems (JSON)
+  - SECURITY: PM cannot see what the company charges — only the cost of items
+
+- Lint clean, all 4 APIs verified (200), cash flow forecast working with real data

@@ -117,6 +117,7 @@ model Account {
   referralsFrom Referral[] @relation("ReferralFromAccount")
   referralsTo   Referral[] @relation("ReferralToAccount")
   paymentConfirmations PaymentConfirmation[]
+  contracts      Contract[]
 }
 
 model Contact {
@@ -258,6 +259,9 @@ model Project {
   paymentRequests PaymentRequest[]
   vendorCosts    ProjectVendorCost[]
   equipment      ProjectEquipment[]
+  contracts      Contract[]
+  eventDayLogs   EventDayLog[]
+  eventDayStatus EventDayStatus?
 }
 
 model Milestone {
@@ -946,6 +950,87 @@ model ProjectEquipment {
   status      String   @default("LISTED") // LISTED, PRICED, APPROVED, ORDERED, DELIVERED, PAID
   notes       String?
   createdBy   String   // who added this (PM or founder)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// TIER 1: CONTRACTS, CASH FLOW, EVENT DAY, PRICING
+// ============================================================
+
+model Contract {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  title       String
+  contractNumber String?
+  status      String   @default("DRAFT") // DRAFT, SENT, SIGNED, ACTIVE, EXPIRED, TERMINATED
+  value       Float
+  startDate   DateTime?
+  endDate     DateTime?
+  signedDate  DateTime?
+  signedBy    String?
+  fileUrl     String?
+  terms       String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CashFlowForecast {
+  id          String   @id @default(cuid())
+  date        DateTime
+  description String
+  type        String   // INFLOW, OUTFLOW
+  amount      Float
+  probability Int      @default(100) // 0-100 (for expected payments)
+  category    String   // INVOICE_PAYMENT, VENDOR_PAYMENT, SALARY, RENT, SUBSCRIPTION, EQUIPMENT, OTHER
+  projectId   String?
+  source      String   // MANUAL, AUTO_INVOICE, AUTO_EXPENSE, AUTO_RECURRING
+  createdAt   DateTime @default(now())
+}
+
+model EventDayLog {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  timestamp   DateTime @default(now())
+  category    String   // CREW, EQUIPMENT, TECH, SCHEDULE, ISSUE, GENERAL
+  message     String
+  severity    String   @default("INFO") // INFO, WARNING, CRITICAL, RESOLVED
+  reportedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model EventDayStatus {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  project     Project  @relation(fields: [projectId], references: [id])
+  crewCheckedIn   Int  @default(0)
+  crewTotal       Int  @default(0)
+  equipmentLoaded Boolean @default(false)
+  techCheckDone   Boolean @default(false)
+  doorsOpen       Boolean @default(false)
+  eventStarted    Boolean @default(false)
+  eventEnded      Boolean @default(false)
+  currentStep     String @default("PRE_EVENT") // PRE_EVENT, LOAD_IN, TECH_CHECK, DOORS, LIVE, WRAP, POST
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+}
+
+model PricingTemplate {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Conference Coverage Package"
+  serviceType String
+  description String?
+  baseCost    Float    @default(0) // internal cost (PM can see this)
+  basePrice   Float    @default(0) // company selling price (PM CANNOT see this)
+  margin      Float    @default(0) // computed
+  lineItems   String   // JSON array of {name, cost, price, quantity}
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
