@@ -1801,3 +1801,58 @@ FINAL VERIFICATION:
 - Lint: clean (0 errors)
 - Session: Kelvin Keshy (FOUNDER)
 - All 3 tiers complete
+
+---
+Task ID: DIDI-SMART (DIDI BUBBLE REBUILD)
+Agent: Main (orchestrator)
+Task: Fix DIDI bubble not rendering + make DIDI smarter with page context
+
+Work Log:
+- ROOT CAUSE FOUND: DidiBubble was imported in app-shell.tsx but never rendered in the JSX. Added <DidiBubble /> after the footer.
+- Completely rebuilt didi-bubble.tsx with major improvements:
+
+1. PAGE CONTEXT AWARENESS:
+   - 18 page contexts defined with: premise, suggestions (4 per page), dataHints
+   - When user is on CRM page, DIDI knows it's about "real customers, potentials, pipeline, proposals, follow-ups"
+   - When on Finance page, DIDI knows about "revenue, expenses, profit, invoices, cash flow"
+   - Each page has 4 context-specific quick suggestion buttons
+
+2. SMARTER CHAT:
+   - Every message to the AI includes page context: "[Context: User is on the crm page. CRM data: real customers, potential customers, open opportunities, pipeline value] What proposals need follow-up?"
+   - DIDI's reply is page-aware — she gives answers relevant to the current page
+   - Verified: asked about CRM follow-ups → DIDI responded with specific proposal names (GTBank, Shell)
+
+3. PROACTIVE INSIGHTS:
+   - Fetches from /api/doz/didi/proactive on first open
+   - Shows insight count badge on the bubble button (red number)
+   - Bell icon toggles insights panel with severity-colored cards
+   - 6 insights detected: 1 CRITICAL (overdue ₦4.5M), 2 WARNING (overdue tasks, follow-ups), 2 ACTION (pending approvals, content behind), 1 OPPORTUNITY (₦24M deal)
+   - Smart recommendations section below insights
+
+4. UX IMPROVEMENTS:
+   - Auto-scroll to latest message
+   - Auto-focus input when opened
+   - Page-specific placeholder: "Ask DIDI about crm..."
+   - "DIDI is thinking..." loading state with bouncing dots
+   - Action result confirmations (✓ Task created)
+   - Conversation resets when switching pages (fresh context per page)
+   - Insights only fetched once per session (not on every page switch)
+   - Pulsing animation on the bubble button
+   - Online status indicator (green dot)
+   - Gradient header with DIDI branding
+   - Responsive: max-w-[calc(100vw-3rem)] on mobile
+
+5. VERIFIED:
+   - DIDI proactive: 200, 6 insights, 3 recommendations
+   - DIDI chat with CRM context: 200, responded with specific proposal names
+   - Lint clean
+   - Bubble renders on every page (confirmed in app-shell JSX)
+
+Stage Summary:
+- DIDI bubble now renders on EVERY page (was imported but never placed in JSX)
+- DIDI is page-context aware — she knows what page you're on and gives relevant answers
+- Each page has 4 context-specific quick suggestions
+- Proactive insights with severity colors and recommended actions
+- Smart recommendations section
+- Auto-task creation for critical issues
+- Action confirmations when DIDI takes actions through chat

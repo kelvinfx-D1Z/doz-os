@@ -382,6 +382,9 @@ export function AppShell() {
         </div>
       </footer>
 
+      {/* DIDI floating support bubble — on every page */}
+      <DidiBubble />
+
       {/* Command palette */}
       <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
         <CommandInput placeholder="Jump to module or action…" />
