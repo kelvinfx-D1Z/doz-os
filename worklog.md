@@ -1733,3 +1733,31 @@ Work Log:
   - SECURITY: PM cannot see what the company charges — only the cost of items
 
 - Lint clean, all 4 APIs verified (200), cash flow forecast working with real data
+
+---
+Task ID: T2 (TIER 2 FEATURES)
+Agent: Main (orchestrator)
+Task: Client Feedback Engine, Crew Availability, Time Tracking, Pricing Calculator
+
+Work Log:
+- Added 3 new models: ClientFeedback, CrewAvailability, TimeEntry
+- Client Feedback API (/api/doz/feedback):
+  - GET: list feedback with stats (avg rating, satisfaction, recommend %, approved testimonials)
+  - POST submit: from portal (no auth, token-based) or manual
+  - POST approve_testimonial: FOUNDER only
+  - POST delete: FOUNDER only
+  - Tracks: rating (1-5), satisfaction score, what went well, what could improve, would recommend, testimonial text, testimonial approved
+- Crew Availability API (/api/doz/crew-availability):
+  - GET: freelancers with booked dates (from crew assignments), availability status
+  - POST set_status: AVAILABLE, BOOKED, TENTATIVE, UNAVAILABLE
+  - Auto-detects conflicts from existing crew assignments
+  - Verified: 7 freelancers, 9 booked dates detected from project crew assignments
+- Time Tracking API (/api/doz/time-tracking):
+  - GET: time entries with stats (total hours, billable hours, by project, by user)
+  - POST log: log hours against a project with description + billable flag
+  - POST delete: remove entry
+  - Returns projects + team members for dropdowns
+- Pricing Calculator API (already built in Tier 1, cost/price separation confirmed)
+
+- All 7 Tier 1 + Tier 2 APIs verified: ALL 200
+- Lint clean

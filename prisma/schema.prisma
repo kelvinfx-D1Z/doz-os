@@ -43,6 +43,8 @@ model User {
   activityLogs     ActivityLog[]
   sopAuthors       Sop[]
   routineLogs      RoutineLog[]
+  crewAvailability CrewAvailability[]
+  timeEntries      TimeEntry[]
 }
 
 // ============================================================
@@ -117,6 +119,7 @@ model Account {
   referralsFrom Referral[] @relation("ReferralFromAccount")
   referralsTo   Referral[] @relation("ReferralToAccount")
   paymentConfirmations PaymentConfirmation[]
+  clientFeedback   ClientFeedback[]
   contracts      Contract[]
 }
 
@@ -262,6 +265,8 @@ model Project {
   contracts      Contract[]
   eventDayLogs   EventDayLog[]
   eventDayStatus EventDayStatus?
+  clientFeedback  ClientFeedback[]
+  timeEntries     TimeEntry[]
 }
 
 model Milestone {
@@ -1033,4 +1038,53 @@ model PricingTemplate {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ============================================================
+// TIER 2: FEEDBACK, CREW AVAILABILITY, TIME TRACKING
+// ============================================================
+
+model ClientFeedback {
+  // Note: projectId is not unique — a project can have multiple feedback entries over time
+
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  rating      Int      // 1-5
+  satisfactionScore Float? // 0-100
+  whatWentWell String?
+  whatCouldImprove String?
+  wouldRecommend Boolean?
+  testimonial String?
+  testimonialApproved Boolean @default(false)
+  submittedVia String  @default("PORTAL") // PORTAL, MANUAL
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CrewAvailability {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  date        DateTime
+  status      String   @default("AVAILABLE") // AVAILABLE, BOOKED, TENTATIVE, UNAVAILABLE
+  projectId   String?  // if booked, which project
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  date        DateTime
+  hours       Float
+  description String?
+  billable    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 }
