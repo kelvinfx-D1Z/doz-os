@@ -6,12 +6,18 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const [projects, tasks, invoices, followUps] = await Promise.all([
-    db.project.findMany({ where: { eventDate: { not: null } }, include: { account: true } }),
-    db.task.findMany({ where: { dueDate: { not: null }, status: { not: "DONE" } }, include: { assignee: true } }),
-    db.invoice.findMany({ where: { dueDate: { not: null }, status: { not: "PAID" } }, include: { account: true } }),
-    db.followUp.findMany({ where: { dueDate: { not: null }, completed: false }, include: { contact: true } }),
+  const [allProjects, allTasks, allInvoices, allFollowUps] = await Promise.all([
+    db.project.findMany({ include: { account: true } }),
+    db.task.findMany({ where: { status: { not: "DONE" } }, include: { assignee: true } }),
+    db.invoice.findMany({ where: { status: { not: "PAID" } }, include: { account: true } }),
+    db.followUp.findMany({ where: { completed: false }, include: { contact: true } }),
   ]);
+
+  // Filter out null dates in JS
+  const projects = allProjects.filter(p => p.eventDate);
+  const tasks = allTasks.filter(t => t.dueDate);
+  const invoices = allInvoices.filter(i => i.dueDate);
+  const followUps = allFollowUps.filter(f => f.dueDate);
 
   const events: any[] = [];
 

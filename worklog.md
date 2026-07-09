@@ -1532,3 +1532,57 @@ Stage Summary:
 - 3-pillar structure (DOZ Studios, Fiestivo, FounderOS) reflected in every quarter
 - Weekly structure, monthly learning goals, and performance reviews all seeded
 - Akpala Arome and Esther Joseph properly assigned to their tracks
+
+---
+Task ID: S3 (CRM REBUILD)
+Agent: Main (orchestrator)
+Task: CRM — separate Real Customers vs Potential Customers, add/delete, proposal tracking, follow-up assignment
+
+Work Log:
+- Added assigneeId field to FollowUp model (who should follow up)
+- Updated CRM GET API:
+  - Accounts now split into realCustomers (have projects) and potentialCustomers (no projects)
+  - Added isRealCustomer flag to each account
+  - Added website field to account shape
+  - Follow-ups now include assigneeId + assignee name
+  - Added teamMembers list (for follow-up assignment dropdown)
+  - Stats now include realCustomers and potentialCustomers counts
+- Updated CRM create API:
+  - create_followup now accepts assigneeId
+  - Added delete_account, delete_opportunity, delete_proposal, delete_followup actions
+- Lint clean, API verified: 6 real customers, 2 potentials, 5 team members available
+
+Stage Summary:
+- CRM now distinguishes real customers (have projects) from potential customers (no projects yet)
+- Can add and delete accounts, opportunities, proposals, and follow-ups
+- Follow-ups can be assigned to specific team members
+- Team members list available for assignment dropdown
+
+---
+Task ID: S4-S6 (MARKETING + VERIFICATION)
+Agent: Main (orchestrator)
+Task: Marketing redesign + CRM rebuild + final verification
+
+Work Log:
+- Added SEOGap, EmailSubscriber, Partnership models to schema
+- Updated Marketing API:
+  - Added postsThisMonth computation (published content this month)
+  - Added contentGoalMonthly (12) to stats
+  - Added POST actions: add_seo_gap, add_email_subscriber, add_partnership, update_partnership
+- Fixed marketing API: undefined `today` variable → changed to `now`
+- Fixed calendar API: `not: null` Prisma syntax error → fetch all and filter in JS
+- CRM API updated:
+  - Accounts split into realCustomers (have projects) and potentialCustomers (no projects)
+  - Added isRealCustomer flag
+  - Follow-ups now include assigneeId + assignee name
+  - Added teamMembers list for follow-up assignment
+  - Added delete actions: delete_account, delete_opportunity, delete_proposal, delete_followup
+  - create_followup now accepts assigneeId
+- All 11 key APIs verified: ALL return 200
+- Lint clean
+
+Stage Summary:
+- CRM: Real customers (6) vs Potential customers (2) clearly separated, can add/delete all entities, follow-ups assignable to team members
+- Marketing: 12 posts/month tracking, SEO content gaps, email list building, strategic partnerships — API ready
+- Calendar: fixed, returns all events (projects, tasks, invoices, follow-ups)
+- All systems operational

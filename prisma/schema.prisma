@@ -202,6 +202,7 @@ model FollowUp {
   dueDate       DateTime
   completed     Boolean  @default(false)
   completedAt   DateTime?
+  assigneeId    String?  // who should follow up
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -862,4 +863,43 @@ model IndustryNews {
   summary     String?
   publishedAt DateTime?
   createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// MARKETING ENHANCEMENTS — SEO, Email List, Partnerships
+// ============================================================
+
+model SEOGap {
+  id          String   @id @default(cuid())
+  keyword     String
+  searchIntent String  // informational, commercial, transactional
+  difficulty  String   @default("MEDIUM") // LOW, MEDIUM, HIGH
+  status      String   @default("IDEA") // IDEA, DRAFTING, PUBLISHED
+  title       String?
+  url         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EmailSubscriber {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String?
+  source      String   @default("WEBSITE") // WEBSITE, LEAD_MAGNET, NEWSLETTER, WAITLIST
+  status      String   @default("ACTIVE") // ACTIVE, UNSUBSCRIBED
+  createdAt   DateTime @default(now())
+}
+
+model Partnership {
+  id          String   @id @default(cuid())
+  partnerName String
+  partnerType String   // EQUIPMENT_RENTAL, EVENT_PLANNER, HOTEL, CONFERENCE_CENTRE, NGO, GOVERNMENT, CREATIVE_AGENCY, SOFTWARE
+  contactPerson String?
+  email       String?
+  phone       String?
+  status      String   @default("IDENTIFIED") // IDENTIFIED, CONTACTED, MEETING_SCHEDULED, ACTIVE, DECLINED
+  mutualBenefit String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

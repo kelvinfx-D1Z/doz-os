@@ -105,6 +105,13 @@ export async function GET() {
       return d >= weekStart && d < weekEnd;
     }).length;
 
+    // Posts this month = published content items this month
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const postsThisMonth = contentItems.filter((c) => {
+      if (!c.publishedDate) return false;
+      return c.publishedDate >= monthStart;
+    }).length;
+
     // Overdue nurtures = referral sources past their nextNurtureDate
     const overdueNurtureList = referralSources.filter(
       (r) => r.nextNurtureDate && r.nextNurtureDate < todayStart
@@ -222,6 +229,8 @@ export async function GET() {
         contentThisWeek,
         referralSourcesActive: referralSources.length,
         overdueNurtures,
+        postsThisMonth,
+        contentGoalMonthly: 12,
       },
       leadSourceBreakdown,
       campaigns: campaignsShaped,
@@ -428,6 +437,42 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+  }
+
+  // =====================================================
+  // add_seo_gap
+  // =====================================================
+  if (action === "add_seo_gap") {
+    const keyword = body?.keyword?.trim();
+    if (!keyword) return NextResponse.json({ error: "keyword_required" }, { status: 400 });
+    const gap = await db.sEOGap.create({ data: { keyword, searchIntent: body.searchIntent || "informational", difficulty: body.difficulty || "MEDIUM" } });
+    return NextResponse.json({ seoGap: gap }, { status: 201 });
+  }
+
+  // add_email_subscriber
+  if (action === "add_email_subscriber") {
+    const email = body?.email?.trim().toLowerCase();
+    if (!email) return NextResponse.json({ error: "email_required" }, { status: 400 });
+    const existing = await db.emailSubscriber.findUnique({ where: { email } });
+    if (existing) return NextResponse.json({ error: "already_subscribed" }, { status: 409 });
+    const sub = await db.emailSubscriber.create({ data: { email, name: body.name || null, source: body.source || "WEBSITE" } });
+    return NextResponse.json({ subscriber: sub }, { status: 201 });
+  }
+
+  // add_partnership
+  if (action === "add_partnership") {
+    const partnerName = body?.partnerName?.trim();
+    if (!partnerName) return NextResponse.json({ error: "partnerName_required" }, { status: 400 });
+    const p = await db.partnership.create({ data: { partnerName, partnerType: body.partnerType || "CREATIVE_AGENCY", contactPerson: body.contactPerson || null, email: body.email || null, phone: body.phone || null, mutualBenefit: body.mutualBenefit || null, notes: body.notes || null } });
+    return NextResponse.json({ partnership: p }, { status: 201 });
+  }
+
+  // update_partnership
+  if (action === "update_partnership") {
+    const partnershipId = body?.partnershipId;
+    if (!partnershipId) return NextResponse.json({ error: "partnershipId_required" }, { status: 400 });
+    const updated = await db.partnership.update({ where: { id: partnershipId }, data: { status: body.status, notes: body.notes } });
+    return NextResponse.json({ partnership: updated });
   }
 
   return NextResponse.json({ error: "unknown_action" }, { status: 400 });

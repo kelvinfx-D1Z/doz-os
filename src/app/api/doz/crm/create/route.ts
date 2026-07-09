@@ -49,6 +49,14 @@ export async function POST(req: Request) {
         return await createFollowUp(body);
       case "create_referral":
         return await createReferral(body);
+      case "delete_account":
+        return await deleteAccount(body);
+      case "delete_opportunity":
+        return await deleteOpportunity(body);
+      case "delete_proposal":
+        return await deleteProposal(body);
+      case "delete_followup":
+        return await deleteFollowUp(body);
       default:
         return NextResponse.json(
           { error: `Unknown action: ${action}` },
@@ -271,6 +279,7 @@ async function createFollowUp(body: any) {
       notes: notes?.trim() || null,
       dueDate: parsedDue,
       completed: false,
+      assigneeId: body.assigneeId || null,
     },
     include: {
       contact: true,
@@ -342,4 +351,36 @@ async function createReferral(body: any) {
   });
 
   return NextResponse.json({ ok: true, referral }, { status: 201 });
+}
+
+// ============================================================
+// DELETE FUNCTIONS
+// ============================================================
+
+async function deleteAccount(body: any) {
+  const { accountId } = body;
+  if (!accountId) return NextResponse.json({ error: "accountId required" }, { status: 400 });
+  await db.account.delete({ where: { id: accountId } });
+  return NextResponse.json({ ok: true });
+}
+
+async function deleteOpportunity(body: any) {
+  const { opportunityId } = body;
+  if (!opportunityId) return NextResponse.json({ error: "opportunityId required" }, { status: 400 });
+  await db.opportunity.delete({ where: { id: opportunityId } });
+  return NextResponse.json({ ok: true });
+}
+
+async function deleteProposal(body: any) {
+  const { proposalId } = body;
+  if (!proposalId) return NextResponse.json({ error: "proposalId required" }, { status: 400 });
+  await db.proposal.delete({ where: { id: proposalId } });
+  return NextResponse.json({ ok: true });
+}
+
+async function deleteFollowUp(body: any) {
+  const { followUpId } = body;
+  if (!followUpId) return NextResponse.json({ error: "followUpId required" }, { status: 400 });
+  await db.followUp.delete({ where: { id: followUpId } });
+  return NextResponse.json({ ok: true });
 }

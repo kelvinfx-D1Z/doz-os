@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 export async function GET() {
   const now = new Date();
 
-  const [opportunities, accounts, contacts, leads, proposals, followUps, referrals] =
+  const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals] =
     await Promise.all([
       db.opportunity.findMany({
         include: {
@@ -41,6 +41,7 @@ export async function GET() {
         },
         orderBy: { dueDate: "asc" },
       }),
+      db.user.findMany({ where: { isActive: true, role: { in: ["FOUNDER", "STAFF", "INTERN"] } }, select: { id: true, name: true, role: true, title: true } }),
       db.referral.findMany({
         include: { toAccount: true, fromAccount: true, referrer: true },
         orderBy: { createdAt: "desc" },
@@ -113,8 +114,14 @@ export async function GET() {
     lifetimeValue: a.lifetimeValue,
     portalToken: a.portalToken,
     portalActive: a.portalActive,
+    website: a.website,
+    isRealCustomer: a._count.projects > 0,
     _count: { opportunities: a._count.opportunities, projects: a._count.projects },
   }));
+
+  // Split into real customers and potential customers
+  const realCustomers = shapedAccounts.filter(a => a.isRealCustomer);
+  const potentialCustomers = shapedAccounts.filter(a => !a.isRealCustomer);
 
   const shapedContacts = contacts.map((c) => ({
     id: c.id,
@@ -158,6 +165,8 @@ export async function GET() {
     notes: f.notes,
     dueDate: f.dueDate,
     completed: f.completed,
+    assigneeId: f.assigneeId,
+    assignee: teamMembers.find(u => u.id === f.assigneeId) ? { name: teamMembers.find(u => u.id === f.assigneeId)!.name } : null,
     contact: f.contact ? { name: f.contact.name } : null,
     opportunity: f.opportunity
       ? { name: f.opportunity.name, account: f.opportunity.account ? { name: f.opportunity.account.name } : null }
@@ -187,13 +196,18 @@ export async function GET() {
       overdueFollowUps: overdueFollowUps.length,
       strategicAccounts,
       totalReferralValue,
+      realCustomers: realCustomers.length,
+      potentialCustomers: potentialCustomers.length,
     },
     opportunities: shapedOpps,
     accounts: shapedAccounts,
+    realCustomers,
+    potentialCustomers,
     contacts: shapedContacts,
     leads: shapedLeads,
     proposals: shapedProposals,
     followUps: shapedFollowUps,
+    teamMembers: teamMembers.map(u => ({ id: u.id, name: u.name, role: u.role, title: u.title })),
     referrals: shapedReferrals,
     pipelineByStage,
   });
