@@ -805,3 +805,61 @@ model StaffRole {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ============================================================
+// INTERNSHIP + FOUNDER ROADMAP + STAFF ROLES + NEWS
+// ============================================================
+
+model InternshipMilestone {
+  id          String   @id @default(cuid())
+  track       String
+  monthStart  Int
+  monthEnd    Int
+  phase       String
+  title       String
+  description String
+  deliverable String?
+  kpi         String?
+  status      String   @default("NOT_STARTED")
+  assigneeId  String?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+
+model DailyStandup {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime
+  yesterday   String
+  today       String
+  blockers    String?
+  createdAt   DateTime @default(now())
+}
+
+model FounderMilestone {
+  id          String   @id @default(cuid())
+  quarter     Int
+  phase       String
+  title       String
+  description String
+  deliverable String?
+  category    String
+  status      String   @default("NOT_STARTED")
+  dueMonth    Int?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model IndustryNews {
+  id          String   @id @default(cuid())
+  title       String
+  url         String
+  source      String
+  category    String
+  summary     String?
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+}

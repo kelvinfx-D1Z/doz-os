@@ -1506,3 +1506,29 @@ Stage Summary:
 - Can assign tasks to anyone
 - DIDI can create tasks from a natural language description
 - Tasks are trackable (toggle complete, see overdue)
+
+---
+Task ID: S2 (INTERNSHIP REBUILD)
+Agent: Main (orchestrator)
+Task: Rebuild internship program with new 12-month plan
+
+Work Log:
+- Added InternshipMilestone, DailyStandup, FounderMilestone, IndustryNews models to schema (were lost during file operations)
+- Created seed-internship-v2.ts with the complete rebuilt NJFP programme:
+  - 84 total milestones (45 Operations, 39 Content)
+  - Q1 (Months 1-3): Learn the Business — shared learning topics + intern-specific tasks/deliverables/skills
+  - Q2 (Months 4-6): Build Systems — DOZ/Fiestivo/FounderOS responsibilities for each intern
+  - Q3 (Months 7-9): Own Projects — lead client onboarding, proposals, content campaigns, Fiestivo pilots
+  - Q4 (Months 10-12): Lead & Graduate — operate with minimal supervision, final projects (Operations Manual, Brand Playbook), graduation
+  - Weekly Structure: Mon=Planning, Tue=Learning, Wed=Project Work, Thu=Innovation, Fri=Reflection
+  - 12 Monthly Learning Goals (Month 1: Workplace professionalism → Month 12: Career planning)
+  - 4 Performance Reviews (Months 3, 6, 9, 12) measuring Professionalism, Learning, Contribution, Leadership
+  - Intern names: Akpala Arome (Operations), Esther Joseph (Content)
+  - 3-pillar allocation: 50% DOZ Studios, 30% Fiestivo, 20% FounderOS
+- Lint clean, all APIs working, page renders
+
+Stage Summary:
+- Complete rebuilt internship programme with 84 milestones across 4 quarters
+- 3-pillar structure (DOZ Studios, Fiestivo, FounderOS) reflected in every quarter
+- Weekly structure, monthly learning goals, and performance reviews all seeded
+- Akpala Arome and Esther Joseph properly assigned to their tracks
