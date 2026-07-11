@@ -24,6 +24,7 @@ import {
   Pencil,
   Trash2,
   Info,
+  UserCog,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1018,6 +1019,34 @@ function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: bo
 
 // ---------- Project Detail Dialog ----------
 function ProjectDialog({ project: p }: { project: Project }) {
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
+  const [teamMembers, setTeamMembers] = useState<{id:string;name:string;role:string}[]>([]);
+  const [assigningPM, setAssigningPM] = useState(false);
+
+  // Fetch team members for PM assignment (founder only)
+  useEffect(() => {
+    if (isFounder) {
+      fetch("/api/doz/team").then(r => r.json()).then(d => {
+        setTeamMembers((d.members || []).filter((m:any) => m.isActive));
+      }).catch(() => {});
+    }
+  }, [isFounder]);
+
+  async function assignPM(userId: string) {
+    try {
+      const res = await fetch("/api/doz/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: p.id, managerId: userId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Production Manager assigned");
+      setAssigningPM(false);
+      // The parent will reload on dialog close
+    } catch { toast.error("Failed to assign PM"); }
+  }
+
   const milestones = [...p.milestones].sort(
     (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
   );
@@ -1053,6 +1082,26 @@ function ProjectDialog({ project: p }: { project: Project }) {
             </span>
           )}
           {p.manager && <span>· PM: {p.manager.name}</span>}
+          {isFounder && (
+            assigningPM ? (
+              <Select onValueChange={(v) => v && assignPM(v)}>
+                <SelectTrigger className="h-6 w-44 text-xs"><SelectValue placeholder="Select PM..." /></SelectTrigger>
+                <SelectContent>
+                  {teamMembers.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name} ({m.role})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <button
+                onClick={() => setAssigningPM(true)}
+                className="inline-flex items-center gap-1 rounded text-primary hover:underline"
+              >
+                <UserCog className="h-3 w-3" />
+                {p.manager ? "Change PM" : "Assign PM"}
+              </button>
+            )
+          )}
         </div>
       </DialogHeader>
 

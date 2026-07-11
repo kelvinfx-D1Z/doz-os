@@ -424,3 +424,31 @@ export async function POST(req: Request) {
     );
   }
 }
+
+// PATCH — update a project (including managerId for PM assignment)
+export async function PATCH(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => null);
+  if (!body?.projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+
+  const existing = await db.project.findUnique({ where: { id: body.projectId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const data: any = {};
+  if (body.name !== undefined) data.name = body.name;
+  if (body.code !== undefined) data.code = body.code;
+  if (body.serviceType !== undefined) data.serviceType = body.serviceType;
+  if (body.status !== undefined) data.status = body.status;
+  if (body.eventDate !== undefined) data.eventDate = body.eventDate ? new Date(body.eventDate) : null;
+  if (body.venue !== undefined) data.venue = body.venue;
+  if (body.budget !== undefined) data.budget = Number(body.budget);
+  if (body.revenue !== undefined) data.revenue = Number(body.revenue);
+  if (body.managerId !== undefined) data.managerId = body.managerId || null;
+  if (body.accountId !== undefined) data.accountId = body.accountId || null;
+  if (body.progress !== undefined) data.progress = Number(body.progress);
+
+  const updated = await db.project.update({ where: { id: body.projectId }, data });
+  return NextResponse.json({ ok: true, project: updated });
+}

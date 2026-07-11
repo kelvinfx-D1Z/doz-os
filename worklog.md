@@ -1973,3 +1973,35 @@ Work Log:
   - Founder login: 302 (success)
   - DIDI: FOUND on every page
   - Page: 200
+
+---
+Task ID: PM-FINAL (PM Scoping + Assignment + Procurement Removal)
+Agent: Main (orchestrator)
+Task: Remove Procurement from PM role, assign Chinwe to Amina project, add PM assignment in project dialog
+
+Work Log:
+1. REMOVED PROCUREMENT FROM PM ROLE:
+   - FREELANCER modules: ["command", "field", "projects", "help"] — Procurement removed
+   - PMs now only see: Command Center, Field Mode, Projects & Events, Help
+   - PMs do NOT see: Procurement, Team Management, Finance, CRM, Marketing, or any other module
+
+2. ASSIGNED CHINWE TO AMINA PROJECT:
+   - Created CrewAssignment(userId=chinwe, projectId=Amina, role=PRODUCTION_MANAGER, status=CONFIRMED)
+   - Set Chinwe as project.managerId on Amina project
+   - Chinwe now manages: MTN Brand Film + Livestream, Nollywood Title Sequence — 'Amina'
+
+3. PM ASSIGNMENT IN PROJECT DIALOG:
+   - Added useCurrentUser() to ProjectDialog component
+   - Founder sees "Assign PM" or "Change PM" button next to the project name in the dialog header
+   - Clicking opens a Select dropdown with all active team members
+   - Selecting a member calls PATCH /api/doz/projects with { projectId, managerId }
+   - Toast confirms assignment
+   - PMs (non-founders) do NOT see this button — only the founder can assign PMs
+   - Added PATCH handler to /api/doz/projects (supports: name, code, serviceType, status, eventDate, venue, budget, revenue, managerId, accountId, progress)
+
+4. VERIFIED:
+   - Lint: clean
+   - Chinwe login: 302 (success, session: "Chinwe")
+   - PATCH assign PM: works (assigned Tunde to Shell project as test)
+   - DIDI: FOUND on every page
+   - Page: 200
