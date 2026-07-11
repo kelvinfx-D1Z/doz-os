@@ -1001,7 +1001,7 @@ function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: bo
 
           {/* Footer hint */}
           <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
-            <span>{p._count.tasks} tasks · {p._count.invoices} invoices · {p._count.expenses} expenses</span>
+            <span>{p._count.tasks} tasks{!isPM && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
             <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
               View details →
             </span>
@@ -1104,7 +1104,8 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
       </DialogHeader>
 
       <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
-        {/* Quick facts */}
+        {/* Quick facts — FOUNDER/STAFF see company financials; PM sees only their budget */}
+        {!isPM ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border/60 p-2.5">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Earned (Contract)</p>
@@ -1135,15 +1136,22 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
             </p>
           </div>
         </div>
+        ) : (
+        /* PM Pro-Forma Budget Summary — shows only their costs */
+        <PMBudgetSummary projectId={p.id} />
+        )}
 
-        {/* Vendor Costs & Financials — project-level vendor tracking */}
-        <VendorCostsSection projectId={p.id} revenue={p.revenue} />
+        {/* Vendor Costs & Financials — hidden for PMs */}
+        {!isPM && <VendorCostsSection projectId={p.id} revenue={p.revenue} />}
 
         {/* Equipment List — production equipment with vendor attachment */}
-        <EquipmentSection projectId={p.id} />
+        <EquipmentSection projectId={p.id} isPM={isPM} />
 
         {/* Services List — production services with vendor attachment */}
         <ServicesSection projectId={p.id} isPM={isPM} />
+
+        {/* PM: Total budget summary at the bottom (pro-forma total) */}
+        {isPM && <PMBudgetTotal projectId={p.id} />}
 
         {/* Event + dates */}
         <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
@@ -1296,13 +1304,15 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
           )}
         </div>
 
-        {/* Footer counts */}
+        {/* Footer counts — invoices/expenses hidden for PMs */}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
           <span>{p._count.tasks} tasks</span>
-          <span>·</span>
-          <span>{p._count.invoices} invoices</span>
-          <span>·</span>
-          <span>{p._count.expenses} expenses</span>
+          {!isPM && (<>
+            <span>·</span>
+            <span>{p._count.invoices} invoices</span>
+            <span>·</span>
+            <span>{p._count.expenses} expenses</span>
+          </>)}
         </div>
       </div>
     </DialogContent>
@@ -2071,7 +2081,7 @@ interface EquipmentPayload {
   canManage: boolean;
 }
 
-function EquipmentSection({ projectId }: { projectId: string }) {
+function EquipmentSection({ projectId, isPM = false }: { projectId: string; isPM?: boolean }) {
   const [data, setData] = useState<EquipmentPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -2677,5 +2687,111 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ============================================================
+// PM Budget Summary — shows at top of project dialog (PM view)
+// Fetches both equipment and services totals and displays a pro-forma header
+// ============================================================
+function PMBudgetSummary({ projectId }: { projectId: string }) {
+  const [eqTotal, setEqTotal] = useState(0);
+  const [svcTotal, setSvcTotal] = useState(0);
+  const [eqItems, setEqItems] = useState(0);
+  const [svcItems, setSvcItems] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/doz/equipment?projectId=${projectId}`).then(r => r.json()).catch(() => ({ totals: { totalValue: 0, items: 0 } })),
+      fetch(`/api/doz/services?projectId=${projectId}`).then(r => r.json()).catch(() => ({ totals: { totalValue: 0, items: 0 } })),
+    ]).then(([eq, sv]) => {
+      setEqTotal(eq.totals?.totalValue || 0);
+      setSvcTotal(sv.totals?.totalValue || 0);
+      setEqItems(eq.totals?.items || 0);
+      setSvcItems(sv.totals?.items || 0);
+      setLoading(false);
+    });
+  }, [projectId]);
+
+  if (loading) return <Skeleton className="h-20 w-full" />;
+
+  const grandTotal = eqTotal + svcTotal;
+
+  return (
+    <div className="rounded-lg border-2 border-primary/30 bg-primary/5 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-sm font-bold text-primary">Production Budget Summary</h4>
+        <Badge className="bg-primary/20 text-primary text-[10px]">PRO-FORMA</Badge>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg bg-background/50 p-3 text-center">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Equipment</p>
+          <p className="mt-1 text-lg font-bold">{formatNGN(eqTotal, true)}</p>
+          <p className="text-[10px] text-muted-foreground">{eqItems} item{eqItems !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="rounded-lg bg-background/50 p-3 text-center">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Services</p>
+          <p className="mt-1 text-lg font-bold">{formatNGN(svcTotal, true)}</p>
+          <p className="text-[10px] text-muted-foreground">{svcItems} item{svcItems !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="rounded-lg bg-primary/15 p-3 text-center border border-primary/30">
+          <p className="text-[10px] uppercase tracking-wider text-primary font-semibold">Total Budget</p>
+          <p className="mt-1 text-lg font-bold text-primary">{formatNGN(grandTotal, true)}</p>
+          <p className="text-[10px] text-muted-foreground">{eqItems + svcItems} total items</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PM Budget Total — shows at bottom of project dialog (pro-forma invoice total)
+// ============================================================
+function PMBudgetTotal({ projectId }: { projectId: string }) {
+  const [eqTotal, setEqTotal] = useState(0);
+  const [svcTotal, setSvcTotal] = useState(0);
+  const [eqItems, setEqItems] = useState(0);
+  const [svcItems, setSvcItems] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/doz/equipment?projectId=${projectId}`).then(r => r.json()).catch(() => ({ totals: { totalValue: 0, items: 0 } })),
+      fetch(`/api/doz/services?projectId=${projectId}`).then(r => r.json()).catch(() => ({ totals: { totalValue: 0, items: 0 } })),
+    ]).then(([eq, sv]) => {
+      setEqTotal(eq.totals?.totalValue || 0);
+      setSvcTotal(sv.totals?.totalValue || 0);
+      setEqItems(eq.totals?.items || 0);
+      setSvcItems(sv.totals?.items || 0);
+      setLoading(false);
+    });
+  }, [projectId]);
+
+  if (loading) return null;
+
+  const grandTotal = eqTotal + svcTotal;
+
+  return (
+    <div className="mt-6 rounded-lg border-2 border-primary/40 bg-card p-4">
+      <h4 className="mb-3 text-sm font-bold text-primary">Pro-Forma Invoice Total</h4>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-xs">
+          <span className="text-muted-foreground">Equipment Subtotal ({eqItems} items)</span>
+          <span className="font-mono font-semibold">{formatNGN(eqTotal)}</span>
+        </div>
+        <div className="flex items-center justify-between border-b border-border/50 pb-1.5 text-xs">
+          <span className="text-muted-foreground">Services Subtotal ({svcItems} items)</span>
+          <span className="font-mono font-semibold">{formatNGN(svcTotal)}</span>
+        </div>
+        <div className="flex items-center justify-between pt-2 text-sm">
+          <span className="font-bold text-primary">GRAND TOTAL</span>
+          <span className="font-mono text-lg font-bold text-primary">{formatNGN(grandTotal)}</span>
+        </div>
+      </div>
+      <p className="mt-3 text-center text-[10px] text-muted-foreground">
+        This budget will be submitted to the founder for approval. Once approved, payments will be processed for each vendor.
+      </p>
+    </div>
   );
 }
