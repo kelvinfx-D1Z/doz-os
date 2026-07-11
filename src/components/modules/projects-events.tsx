@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import {
   Calendar,
   MapPin,
@@ -198,6 +199,8 @@ function deliverableSummary(deliverables: Deliverable[]): string {
 
 // ---------- Main ----------
 export function ProjectsEvents() {
+  const { user } = useCurrentUser();
+  const isPM = user?.role === "FREELANCER";
   const [data, setData] = useState<ProjectsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -259,8 +262,13 @@ export function ProjectsEvents() {
 
   const { stats, projects } = data;
 
+  // PM: only show projects where they are the manager
+  const scopedProjects = isPM && user
+    ? projects.filter(p => p.managerId === user.id)
+    : projects;
+
   // Filter by tab
-  const filtered = projects.filter((p) => {
+  const filtered = scopedProjects.filter((p) => {
     if (tab === "all") return true;
     if (tab === "active") return ACTIVE_STATUSES.includes(p.status);
     if (tab === "planning") return p.status === "PLANNING";
@@ -273,14 +281,15 @@ export function ProjectsEvents() {
     <div className="space-y-6">
       <SectionHeader
         icon={<Clapperboard className="h-5 w-5" />}
-        title="Projects & Event Operations"
-        description={`${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
-        action={
-          <NewProjectButton onClick={() => setCreateOpen(true)} />
-        }
+        title={isPM ? "My Production Projects" : "Projects & Event Operations"}
+        description={isPM
+          ? `${scopedProjects.length} project(s) assigned to you`
+          : `${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
+        action={isPM ? undefined : <NewProjectButton onClick={() => setCreateOpen(true)} />}
       />
 
-      {/* KPI ROW */}
+      {/* KPI ROW — hidden for PMs (they don't see company financials) */}
+      {!isPM && (
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <StatCard
           label="Total Projects"
@@ -339,19 +348,20 @@ export function ProjectsEvents() {
           accent="default"
         />
       </div>
+      )}
 
       {/* PROJECT LIST WITH TABS */}
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="h-9">
-            <TabsTrigger value="all" className="text-xs">All ({projects.length})</TabsTrigger>
-            <TabsTrigger value="active" className="text-xs">Active ({projects.filter((p) => ACTIVE_STATUSES.includes(p.status)).length})</TabsTrigger>
-            <TabsTrigger value="planning" className="text-xs">Planning ({projects.filter((p) => p.status === "PLANNING").length})</TabsTrigger>
-            <TabsTrigger value="in_progress" className="text-xs">In Progress ({projects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
-            <TabsTrigger value="completed" className="text-xs">Completed ({projects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
+            <TabsTrigger value="all" className="text-xs">All ({scopedProjects.length})</TabsTrigger>
+            <TabsTrigger value="active" className="text-xs">Active ({scopedProjects.filter((p) => ACTIVE_STATUSES.includes(p.status)).length})</TabsTrigger>
+            <TabsTrigger value="planning" className="text-xs">Planning ({scopedProjects.filter((p) => p.status === "PLANNING").length})</TabsTrigger>
+            <TabsTrigger value="in_progress" className="text-xs">In Progress ({scopedProjects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
+            <TabsTrigger value="completed" className="text-xs">Completed ({scopedProjects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
           </TabsList>
           <p className="text-xs text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {projects.length}
+            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {scopedProjects.length}
           </p>
         </div>
 
@@ -365,7 +375,7 @@ export function ProjectsEvents() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {filtered.map((p) => (
-                <ProjectCard key={p.id} project={p} />
+                <ProjectCard key={p.id} project={p} isPM={isPM} />
               ))}
             </div>
           )}
@@ -735,7 +745,7 @@ function NewProjectDialog({
 }
 
 // ---------- Project Card ----------
-function ProjectCard({ project: p }: { project: Project }) {
+function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: boolean }) {
   const overBudgetWarn =
     p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
   const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
@@ -801,7 +811,8 @@ function ProjectCard({ project: p }: { project: Project }) {
             </div>
           )}
 
-          {/* Financial summary strip — Earned / Received / Balance / Cost */}
+          {/* Financial summary strip — hidden for PMs */}
+          {!isPM && (
           <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
             <div className="min-w-0">
               <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -851,8 +862,10 @@ function ProjectCard({ project: p }: { project: Project }) {
               </p>
             </div>
           </div>
+          )}
 
-          {/* Budget burn bar */}
+          {/* Budget burn bar — hidden for PMs */}
+          {!isPM && (
           <div className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2.5">
             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
               <span>Budget burn</span>
@@ -891,8 +904,10 @@ function ProjectCard({ project: p }: { project: Project }) {
               </div>
             )}
           </div>
+          )}
 
-          {/* Profit + margin */}
+          {/* Profit + margin — hidden for PMs */}
+          {!isPM && (
           <div className="mt-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Profit</span>
@@ -914,6 +929,7 @@ function ProjectCard({ project: p }: { project: Project }) {
               {p.margin.toFixed(1)}% margin
             </span>
           </div>
+          )}
 
           {/* Progress bar */}
           <div className="mt-3">

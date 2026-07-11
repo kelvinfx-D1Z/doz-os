@@ -96,7 +96,7 @@ const ROLE_MODULES: Record<string, ModuleId[]> = {
   FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help"],
   STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help"],
   INTERN: ["command", "field", "team", "staff-hub", "sop", "help"],
-  FREELANCER: ["command", "field", "projects", "team", "help"],
+  FREELANCER: ["command", "field", "projects", "procurement", "help"],
 };
 
 const MODULES: Record<ModuleId, React.ReactNode> = {

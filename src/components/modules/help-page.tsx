@@ -98,18 +98,38 @@ const ROLE_GUIDES: Record<string, { title: string; icon: React.ReactNode; sectio
     ],
   },
   FREELANCER: {
-    title: "Freelancer Guide",
+    title: "Production Manager Guide",
     icon: <Briefcase className="h-5 w-5 text-fuchsia-400" />,
     sections: [
       { title: "Your Daily Flow", items: [
-        "Open the Command Center — see your crew assignments and tasks",
-        "Check your deliverables and their due dates",
-        "File your daily report before end of day",
+        "Open the Command Center — see your assigned tasks and crew status",
+        "Check your project's equipment list and budget status",
+        "File your daily report before end of day (Field Mode)",
       ]},
-      { title: "Your Projects", items: [
-        "Projects & Events: See your crew role, day rate, and assignments",
-        "Check deliverables you're responsible for",
-        "Use Field Mode on-site for event day checklists",
+      { title: "Managing Your Project", items: [
+        "Projects & Events: You only see projects where you're the PM",
+        "Build the equipment list from the 304-item library (28 categories)",
+        "For each item: set quantity, unit price, and attach a vendor",
+        "Select vendors from the database OR add new ones with bank details",
+        "Submit your budget for founder approval when ready",
+        "Track budget status: DRAFT → SUBMITTED → APPROVED",
+      ]},
+      { title: "What You Can See", items: [
+        "Your project's equipment list and costs (your budget)",
+        "Vendors with contact details and bank information",
+        "RFQs and purchase orders for your project",
+        "Your crew assignments and tasks",
+        "You CANNOT see: company revenue, contract value, profit, or client payment details",
+      ]},
+      { title: "Procurement", items: [
+        "View RFQs, quotes, and purchase orders for your project",
+        "Add new vendors to the database (they appear in Onboarding tab)",
+        "Track payment status for your vendors",
+      ]},
+      { title: "Field Mode", items: [
+        "File daily reports from your phone on-site",
+        "Run the event day checklist (offline capable)",
+        "Log issues and track crew check-in status",
       ]},
     ],
   },

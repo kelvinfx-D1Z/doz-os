@@ -1927,3 +1927,49 @@ Work Log:
    - Applications can be approved → creates Vendor record
 
 - Lint clean, all verified
+
+---
+Task ID: PM-SCOPE (Production Manager Scoping + Procurement + Help)
+Agent: Main (orchestrator)
+Task: PM role scoping, hide company financials from PM, vendor tab redesign, help page update
+
+Work Log:
+1. ASSIGNED CHINWE AS PM OF MTN PROJECT:
+   - Created CrewAssignment(userId=chinwe, projectId=MTN, role=PRODUCTION_MANAGER, status=CONFIRMED)
+   - Set Chinwe as project.managerId on the MTN project
+   - Verified: Chinwe can login (chinwe@digitonezero.com / demo1234)
+
+2. PM ROLE SCOPING IN APP SHELL:
+   - FREELANCER modules changed from ["command", "field", "projects", "team", "help"] to ["command", "field", "projects", "procurement", "help"]
+   - PMs NO LONGER see Team Management (removed)
+   - PMs CAN see Procurement (added — they need it for RFQs, vendors, POs)
+
+3. PROJECTS MODULE — PM SCOPING:
+   - Added useCurrentUser() hook to ProjectsEvents component
+   - PMs (FREELANCER role) only see projects where they are the manager (p.managerId === user.id)
+   - PM title shows "My Production Projects" instead of "Projects & Event Operations"
+   - PM description shows "X project(s) assigned to you"
+   - PM does NOT see the "New Project" button (only founder can create projects)
+   - PM does NOT see the 8-card KPI row (Total Projects, Revenue, Expenses, Profit, etc.)
+   - PM does NOT see the financial summary strip (Earned, Received, Balance, Cost)
+   - PM does NOT see the budget burn bar (Spent, % of budget, Collected progress)
+   - PM does NOT see profit + margin display
+   - PM DOES see: project name, code, status, event date, venue, progress bar, crew, milestones, deliverables, equipment list, vendor costs
+   - Tab counts use scopedProjects (PM's projects only)
+
+4. HELP PAGE — PM-SPECIFIC GUIDE:
+   - Updated FREELANCER role guide to "Production Manager Guide"
+   - 5 sections: Daily Flow, Managing Your Project, What You Can See, Procurement, Field Mode
+   - Clearly states what PMs can and cannot see (no company revenue, contract value, profit)
+
+5. PROCUREMENT — VENDOR TAB:
+   - Default sort changed to "Category" (was "Total Spend")
+   - When sorted by category, vendors are GROUPED with category headers and vendor counts
+   - Extracted VendorCard component for clean reuse
+   - 4 sort options: Category, Total Spend, Rating, Name
+
+- Lint clean, all verified:
+  - Chinwe login: 302 (success)
+  - Founder login: 302 (success)
+  - DIDI: FOUND on every page
+  - Page: 200
