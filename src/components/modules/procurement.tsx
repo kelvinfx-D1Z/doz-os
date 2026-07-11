@@ -745,13 +745,13 @@ function PurchaseOrdersTab({ pos }: { pos: PurchaseOrder[] }) {
 // Vendors Tab
 // ============================================================
 function VendorsTab({ vendors }: { vendors: Vendor[] }) {
-  const [sortBy, setSortBy] = useState<"totalSpent" | "rating" | "name">("totalSpent");
-
+  const [sortBy, setSortBy] = useState<"totalSpent" | "rating" | "name" | "category">("category");
   const sorted = useMemo(() => {
     const copy = [...vendors];
     if (sortBy === "totalSpent") copy.sort((a, b) => b.totalSpent - a.totalSpent);
     if (sortBy === "rating") copy.sort((a, b) => b.rating - a.rating);
     if (sortBy === "name") copy.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortBy === "category") copy.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     return copy;
   }, [vendors, sortBy]);
 
@@ -761,7 +761,7 @@ function VendorsTab({ vendors }: { vendors: Vendor[] }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Sort by:</span>
-        {(["totalSpent", "rating", "name"] as const).map((k) => (
+        {(["category", "totalSpent", "rating", "name"] as const).map((k) => (
           <Button
             key={k}
             size="sm"
@@ -769,60 +769,40 @@ function VendorsTab({ vendors }: { vendors: Vendor[] }) {
             className="h-7 text-xs"
             onClick={() => setSortBy(k)}
           >
-            {k === "totalSpent" ? "Total Spend" : k === "rating" ? "Rating" : "Name (A-Z)"}
+            {k === "category" ? "Category" : k === "totalSpent" ? "Total Spend" : k === "rating" ? "Rating" : "Name (A-Z)"}
           </Button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {sorted.map((v) => (
-          <Card key={v.id} className="p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{v.name}</p>
-                <Badge variant="outline" className="mt-1 h-5 px-1.5 text-[10px]">
-                  {v.category.replace(/_/g, " ")}
-                </Badge>
+      {sortBy === "category" ? (
+        // Grouped by category
+        <div className="space-y-4">
+          {Object.entries(
+            sorted.reduce<Record<string, typeof sorted>>((acc, v) => {
+              (acc[v.category] ||= []).push(v);
+              return acc;
+            }, {})
+          ).map(([cat, catVendors]) => (
+            <div key={cat}>
+              <div className="mb-2 flex items-center gap-2">
+                <Badge variant="outline" className="h-6 px-2 text-xs font-semibold">{cat.replace(/_/g, " ")}</Badge>
+                <span className="text-xs text-muted-foreground">{catVendors.length} vendor{catVendors.length > 1 ? "s" : ""}</span>
               </div>
-              {v.isActive ? (
-                <Badge className="h-5 gap-1 bg-primary/15 px-1.5 text-[9px] text-primary">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> ACTIVE
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
-                  INACTIVE
-                </Badge>
-              )}
-            </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <Stars rating={v.rating} />
-              <span className="text-[10px] text-muted-foreground">{v.rating.toFixed(1)} / 5</span>
-            </div>
-
-            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-              {v.contactName && <p className="truncate">{v.contactName}</p>}
-              {v.phone && <p className="truncate font-mono">{v.phone}</p>}
-              {v.email && <p className="truncate">{v.email}</p>}
-            </div>
-
-            <div className="mt-3 border-t border-border pt-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Total spent</span>
-                <span className="font-mono font-semibold text-primary">{formatNGN(v.totalSpent, true)}</span>
-              </div>
-              <div className="mt-1.5">
-                <MiniBar value={v.totalSpent} max={maxSpent} color="bg-primary" />
-              </div>
-              <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
-                <span>{v._count.quotes} quotes</span>
-                <span>·</span>
-                <span>{v._count.pos} POs</span>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {catVendors.map((v) => (
+                  <VendorCard key={v.id} v={v} maxSpent={maxSpent} />
+                ))}
               </div>
             </div>
-          </Card>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {sorted.map((v) => (
+            <VendorCard key={v.id} v={v} maxSpent={maxSpent} />
+          ))}
+        </div>
+      )}
 
       {vendors.length === 0 && (
         <EmptyState
@@ -832,6 +812,56 @@ function VendorsTab({ vendors }: { vendors: Vendor[] }) {
         />
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Vendor Card (extracted for reuse in grouped + flat views)
+// ============================================================
+function VendorCard({ v, maxSpent }: { v: Vendor; maxSpent: number }) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{v.name}</p>
+          <Badge variant="outline" className="mt-1 h-5 px-1.5 text-[10px]">
+            {v.category.replace(/_/g, " ")}
+          </Badge>
+        </div>
+        {v.isActive ? (
+          <Badge className="h-5 gap-1 bg-primary/15 px-1.5 text-[9px] text-primary">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" /> ACTIVE
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
+            INACTIVE
+          </Badge>
+        )}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <Stars rating={v.rating} />
+        <span className="text-[10px] text-muted-foreground">{v.rating.toFixed(1)} / 5</span>
+      </div>
+      <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+        {v.contactName && <p className="truncate">{v.contactName}</p>}
+        {v.phone && <p className="truncate font-mono">{v.phone}</p>}
+        {v.email && <p className="truncate">{v.email}</p>}
+      </div>
+      <div className="mt-3 border-t border-border pt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Total spent</span>
+          <span className="font-mono font-semibold text-primary">{formatNGN(v.totalSpent, true)}</span>
+        </div>
+        <div className="mt-1.5">
+          <MiniBar value={v.totalSpent} max={maxSpent} color="bg-primary" />
+        </div>
+        <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+          <span>{v._count.quotes} quotes</span>
+          <span>·</span>
+          <span>{v._count.pos} POs</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 

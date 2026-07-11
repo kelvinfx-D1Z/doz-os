@@ -1404,7 +1404,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "FOUNDER", label: "Founder" },
   { value: "STAFF", label: "Staff" },
   { value: "INTERN", label: "Intern" },
-  { value: "FREELANCER", label: "Freelancer" },
+  { value: "FREELANCER", label: "Freelancer / Production Manager" },
 ];
 
 // ============================================================

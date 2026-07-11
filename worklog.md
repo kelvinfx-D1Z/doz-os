@@ -1886,3 +1886,44 @@ END-TO-END TEST PASSED:
 
 WORKFLOW SUMMARY:
 Founder gets job → creates project → assigns PM (CrewAssignment role=PRODUCTION_MANAGER) → PM logs in → sees only their project → builds equipment list from 304-item library → sets costs → attaches vendors (from DB or new, with bank details) → submits budget → founder reviews → approves → system auto-creates payment requests with vendor bank details → founder/accountant releases payments
+
+---
+Task ID: FIX-ALL (Procurement + Team + DIDI + Chinwe)
+Agent: Main (orchestrator)
+Task: Fix all reported issues
+
+Work Log:
+1. CHINWE PM ACCOUNT CREATED:
+   - Email: chinwe@digitonezero.com, Password: demo1234
+   - Role: FREELANCER, Title: Production Manager
+   - Login verified: 302 success, session returns "Chinwe"
+
+2. TEAM MANAGEMENT — ROLE OPTIONS UPDATED:
+   - "Freelancer" label changed to "Freelancer / Production Manager" in Add Member and Edit Member role dropdown
+   - Founder can now add Production Managers directly from Team Management
+
+3. DIDI BUBBLE — CONFIRMED WORKING ON EVERY PAGE:
+   - DidiBubble was already rendered at line 386 of app-shell.tsx (after footer)
+   - Verified via agent-browser: "DIDI FOUND" — the floating button is present
+   - DIDI shows after login (not on sign-in page, which is correct)
+   - Fixed-position bottom-right, z-50, with pulsing animation
+
+4. PROCUREMENT — VENDOR TAB SORTED BY CATEGORY:
+   - Added "Category" as the DEFAULT sort option (was "Total Spend")
+   - When sorted by category, vendors are GROUPED by category with headers
+   - Each group shows category name + vendor count (e.g., "LED_SCREEN — 2 vendors")
+   - All 4 sort options: Category, Total Spend, Rating, Name (A-Z)
+   - Extracted VendorCard component for clean code reuse
+
+5. PROCUREMENT — REQUESTER + PROJECT ALREADY VISIBLE:
+   - Payment requests already show: requester name + role badge + project name + relative time
+   - RFQs already show: project name + needed by date
+   - POs already show: project name
+   - No change needed — this was already implemented
+
+6. PROCUREMENT — ONBOARDING TAB:
+   - Already shows vendor applications (from VendorApplication model)
+   - Populated by vendors added by founder or PM (via Add Vendor form)
+   - Applications can be approved → creates Vendor record
+
+- Lint clean, all verified
