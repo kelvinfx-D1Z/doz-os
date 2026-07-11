@@ -243,22 +243,17 @@ export function ProjectsEvents() {
       <div className="space-y-6">
         <SectionHeader
           icon={<Clapperboard className="h-5 w-5" />}
-          title="Projects & Event Operations"
-          description="Deliver every event on time, on budget"
-          action={
-            <NewProjectButton onClick={() => setCreateOpen(true)} />
-          }
+          title={isPM ? "My Production Projects" : "Projects & Event Operations"}
+          description={isPM ? "Your assigned projects" : "Deliver every event on time, on budget"}
         />
         <EmptyState
           icon={<AlertTriangle className="h-8 w-8" />}
           title="Couldn't load projects"
           hint={error ?? "Unknown error"}
         />
-        <NewProjectDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          onCreated={load}
-        />
+        <Button variant="outline" onClick={load} className="gap-2">
+          <Loader2 className="h-4 w-4" /> Retry
+        </Button>
       </div>
     );
   }
@@ -1014,13 +1009,13 @@ function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: bo
         </Card>
       </DialogTrigger>
 
-      <ProjectDialog project={p} />
+      <ProjectDialog project={p} isPM={isPM} />
     </Dialog>
   );
 }
 
 // ---------- Project Detail Dialog ----------
-function ProjectDialog({ project: p }: { project: Project }) {
+function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: boolean }) {
   const { user } = useCurrentUser();
   const isFounder = user?.role === "FOUNDER";
   const [teamMembers, setTeamMembers] = useState<{id:string;name:string;role:string}[]>([]);
