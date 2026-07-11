@@ -1856,3 +1856,33 @@ Stage Summary:
 - Smart recommendations section
 - Auto-task creation for critical issues
 - Action confirmations when DIDI takes actions through chat
+
+---
+Task ID: PM-WORKFLOW (Production Manager System)
+Agent: Main (orchestrator)
+Task: Build full PM workflow — project-scoped login, equipment budget, vendor attachment, approval, auto-payment
+
+Work Log:
+- Completely rewrote /api/doz/equipment with full PM workflow:
+  1. PM PROJECT SCOPING: Freelancer role with CrewAssignment(role=PRODUCTION_MANAGER) only sees their assigned project(s). If no projectId specified, returns list of assigned projects.
+  2. PM ADD EQUIPMENT: PM selects from 28-category/304-item library, sets quantity + unit price, attaches vendor (from database or manual entry). When vendor selected from database, auto-fills vendor name, contact, phone, email, and bank details.
+  3. PM ADD VENDOR: PM can add new vendors to the database while building the equipment list (adds to Vendor table for future reuse).
+  4. PM UPDATE EQUIPMENT: PM can edit items while in LISTED status. Once submitted, PM cannot edit (locked for approval).
+  5. PM SUBMIT BUDGET: PM submits all LISTED items → status changes to BUDGET_SUBMITTED. Budget is locked for PM.
+  6. FOUNDER APPROVE: Founder reviews submitted budget → all items change to APPROVED → AUTO-CREATES payment requests for each item with vendor name + bank details pre-filled in the description.
+  7. FOUNDER REJECT: Founder rejects with reason → items go back to LISTED with rejection note. PM can revise.
+  8. PM DELETE: PM can only delete items in LISTED status (not submitted/approved).
+
+- Security: PM (FREELANCER role) can only access projects they're assigned to as PRODUCTION_MANAGER. Verified with 403 if not assigned.
+- Auto-payment: When budget is approved, payment requests are created with format: "Line array speakers — SoundBytes Pro Audio (Bank: FirstBank — 6677889900)" so the founder/accountant has all vendor bank details.
+
+END-TO-END TEST PASSED:
+1. Equipment library: 28 categories, 304 items ✓
+2. PM adds equipment with vendor + bank details ✓
+3. PM submits budget (1 item → BUDGET_SUBMITTED) ✓
+4. Founder approves budget (1 item → APPROVED, 1 payment request auto-created) ✓
+5. Budget status: APPROVED, ₦600,000 total ✓
+6. Lint clean ✓
+
+WORKFLOW SUMMARY:
+Founder gets job → creates project → assigns PM (CrewAssignment role=PRODUCTION_MANAGER) → PM logs in → sees only their project → builds equipment list from 304-item library → sets costs → attaches vendors (from DB or new, with bank details) → submits budget → founder reviews → approves → system auto-creates payment requests with vendor bank details → founder/accountant releases payments
