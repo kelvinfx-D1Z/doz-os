@@ -2102,3 +2102,56 @@ VERIFIED:
 - Add service to Amina: "Sound system design", ₦250,000 ✓
 - Get project services: 1 item, total ₦250,000 ✓
 - Page: 200
+
+---
+Task ID: UPDATES (Update System + Backup/Restore)
+Agent: Main (orchestrator)
+Task: Build in-app update system with zip upload + database backup/restore
+
+Work Log:
+1. ROOT CAUSE IDENTIFIED:
+   - Every update used `rm -f db/custom.db && bun run db:push && seed` — this DESTROYS all real data
+   - `db:push` is destructive (drops/recreates tables)
+   - Need to switch to `prisma migrate` (incremental, non-destructive) for production
+
+2. BUILT UPDATE SYSTEM:
+   - API: /api/doz/updates (GET: system info + backups list; POST: backup/restore/apply zip)
+   - Apply update flow:
+     a. Auto-backup database to db/backups/pre-update-{timestamp}.db
+     b. Save uploaded zip
+     c. Extract to temp directory
+     d. Read update.json manifest
+     e. Copy src/ files (code updates)
+     f. Copy prisma/schema.prisma + migrations
+     g. Copy package.json if present
+     h. Run `prisma generate` (regenerate client)
+     i. Run `prisma migrate deploy` (non-destructive — ALTER TABLE not DROP TABLE)
+     j. Run `bun install` if package.json changed
+     k. Clean up temp files
+     l. If migration fails → backup is safe, report error
+
+3. BUILT BACKUP/RESTORE SYSTEM:
+   - Create backup: copies db/custom.db to db/backups/backup-{timestamp}.db
+   - Auto-cleanup: keeps last 10 backups, deletes older ones
+   - Restore: copies backup back to db/custom.db (creates safety backup first)
+   - Delete backup: removes individual backup file
+   - All backups listed with size + date
+
+4. BUILT UPDATES PAGE (founder-only):
+   - System info: DB size, total records, version, backup count
+   - Upload zone: drag/drop or click to browse for .zip files
+   - Upload progress: "Applying update... Back up → Extract → Migrate → Install"
+   - Upload result: success/failure with backup name + manifest description
+   - Backups list: each with size, date, Restore + Delete buttons
+   - Record counts: users, projects, vendors, opportunities, invoices, tasks
+   - "How Updates Work" guide explaining the 6-step process
+
+5. ADDED TO APP SHELL:
+   - "Updates & Backups" in Scale nav group (Package icon)
+   - FOUNDER only (not visible to staff, interns, freelancers)
+
+VERIFIED:
+- Lint: clean
+- Updates API: returns version v5.0, DB 752 KB, 60 total records, 14 users, 7 projects
+- Backup creation: "backup-2026-07-11T21-44-34.db" created successfully
+- Page: 200

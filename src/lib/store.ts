@@ -15,7 +15,8 @@ export type ModuleId =
   | "routines"
   | "marketing"
   | "staff-hub"
-  | "help";
+  | "help"
+  | "updates";
 
 interface AppState {
   activeModule: ModuleId;
