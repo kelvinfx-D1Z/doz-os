@@ -263,6 +263,7 @@ model Project {
   vendorCosts    ProjectVendorCost[]
   equipment      ProjectEquipment[]
   contracts      Contract[]
+  services         ProjectService[]
   eventDayLogs   EventDayLog[]
   eventDayStatus EventDayStatus?
   clientFeedback  ClientFeedback[]
@@ -351,6 +352,7 @@ model Vendor {
   expenses Expense[]
   projectCosts ProjectVendorCost[]
   equipment    ProjectEquipment[]
+  projectServices  ProjectService[]
   vendorReviews  VendorReview[]
 }
 
@@ -1172,4 +1174,48 @@ model Competitor {
   lastUpdated   DateTime @default(now())
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// ============================================================
+// SERVICES LIBRARY + PROJECT SERVICES
+// ============================================================
+
+model ServiceCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  icon        String?
+  sortOrder   Int      @default(0)
+  items       ServiceItem[]
+}
+
+model ServiceItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  category    ServiceCategory @relation(fields: [categoryId], references: [id])
+  name        String
+  isCustom    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model ProjectService {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  serviceName String
+  category    String
+  quantity    Int      @default(1)
+  unitPrice   Float    @default(0)
+  totalPrice  Float    @default(0)
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  vendorName  String?
+  vendorContact String?
+  vendorPhone String?
+  vendorEmail String?
+  vendorBankDetails String?
+  status      String   @default("LISTED") // LISTED, BUDGET_SUBMITTED, APPROVED, ORDERED, DELIVERED, PAID
+  notes       String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

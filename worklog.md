@@ -2055,3 +2055,50 @@ VERIFIED:
 - Chinwe login: 302 (success)
 - RFQ creation: RFQ-2026-005 ✓
 - DIDI: FOUND on every page
+
+---
+Task ID: SERVICES (Production Services Library + PM Budget View)
+Agent: Main (orchestrator)
+Task: Add 30-category services library, project services with vendor attachment, PM budget view
+
+Work Log:
+1. SCHEMA: Added ServiceCategory, ServiceItem, ProjectService models
+   - ProjectService has same structure as ProjectEquipment: serviceName, category, quantity, unitPrice, totalPrice, vendor details (name, contact, phone, email, bank details), status (LISTED → BUDGET_SUBMITTED → APPROVED → PAID)
+   - Added services relation to Project, projectServices relation to Vendor
+
+2. SEEDED 30 SERVICE CATEGORIES with 276 items:
+   - Event Production Management (14 items), Creative & Event Design (13), Audio Production (13), Lighting Production (12), Video Production (13), Live Streaming & Hybrid Events (10), LED Display Services (8), Projection Services (6), Stage & Rigging Services (9), Event Technology (21), Exhibition Services (9), Event Branding (10), Scenic Fabrication (8), Photography Services (8), Drone Services (5), Broadcast Services (7), Content Production (10), Presentation Management (7), Special Effects (10), Internet & Networking (7), Power Services (5), Furniture & Décor (7), Hospitality Services (5), Event Staffing (15), Security Services (5), Logistics Services (6), Safety & Compliance (7), Event Marketing Support (7), Post-Event Services (10), Consultancy & Strategy (8)
+
+3. API (/api/doz/services): Same workflow as equipment API
+   - GET: service library + project services with totals
+   - POST add_service: add from library or custom, with vendor auto-fill from database
+   - POST update_service: edit price/vendor (PM can only edit LISTED items)
+   - POST delete_service: remove (PM can only delete LISTED)
+   - POST submit_budget: PM submits all LISTED → BUDGET_SUBMITTED
+   - POST approve_budget: Founder approves → APPROVED + auto-creates payment requests with vendor bank details
+   - POST add_custom_item: add to library for future reuse
+
+4. UI (ServicesSection in project dialog):
+   - Shows below Equipment Section in the project detail dialog
+   - PM view: "Your Budget" badge + 3-cell summary (Services Cost, Items, Status)
+   - Founder view: 4-cell summary (Items, Total Cost, Priced, Approved)
+   - "Add Service" button opens ServiceFormDialog (same pattern as equipment)
+   - Service form: category dropdown (30 categories) → item dropdown (276 items) → quantity + price → vendor (from DB or manual) → notes
+   - Budget submission: "Submit Services Budget for Approval" button (PM)
+   - Budget approval: "Approve" + "Reject" buttons (Founder)
+   - Status badges per service: LISTED, BUDGET_SUBMITTED, APPROVED
+   - Edit/delete per service (PM restricted to LISTED status)
+
+5. PM BUDGET ISOLATION:
+   - PM sees: Services total cost (their budget), equipment total cost, items, status
+   - PM does NOT see: company revenue, contract value, received, balance, profit, margin
+   - Founder sees: PM's proposed budget + company financials (to calculate profit)
+   - When Chinwe clicks on Amina project, she sees: "Services Cost: ₦0.25M, Items: 1, Status: DRAFT"
+   - She does NOT see: Earned ₦2.8M, Received, Balance, Profit/Margin
+
+VERIFIED:
+- Lint: clean
+- Services API: 30 categories, 276 items
+- Add service to Amina: "Sound system design", ₦250,000 ✓
+- Get project services: 1 item, total ₦250,000 ✓
+- Page: 200
