@@ -2005,3 +2005,53 @@ Work Log:
    - PATCH assign PM: works (assigned Tunde to Shell project as test)
    - DIDI: FOUND on every page
    - Page: 200
+
+---
+Task ID: FIX-ALL-2 (PM Assignment + RFQ/PO + Chinwe Projects + Vendors)
+Agent: Main (orchestrator)
+
+Work Log:
+1. FIXED PM ASSIGNMENT SAVE:
+   - assignPM() now calls PATCH /api/doz/projects with { projectId, managerId }
+   - After successful assignment, shows toast + reloads page after 800ms
+   - The "Assign PM" / "Change PM" button is visible only to FOUNDER
+   - Clicking opens a Select dropdown with all active team members
+   - Selecting a member saves immediately and reloads
+
+2. FIXED CHINWE NOT SEEING HER PROJECTS:
+   - Root cause: the projects API GET response didn't include `managerId` field
+   - Added `managerId: p.managerId` to the API response
+   - Added `managerId: string | null` to the Project interface
+   - PM scoping now works: `projects.filter(p => p.managerId === user.id)` returns Chinwe's 2 projects (MTN + Amina)
+
+3. ADDED NEW RFQ BUTTON:
+   - RfqsTab now has a "New RFQ" button at top-right
+   - Opens RfqFormDialog with: title, description, category, budget, neededBy (due date), project
+   - Calls POST /api/doz/procurement with action: "create_rfq"
+   - Auto-generates RFQ code (RFQ-2026-005)
+   - Due date sets a reminder
+   - Verified: RFQ-2026-005 created successfully
+
+4. ADDED NEW PO BUTTON:
+   - PurchaseOrdersTab now has a "New PO" button at top-right
+   - Opens PoFormDialog with: vendor (from database), amount, description, project
+   - Calls POST /api/doz/procurement with action: "create_po"
+   - Auto-generates PO code (PO-2026-005)
+   - Verified: PO created successfully
+
+5. ADDED create_rfq AND create_po TO PROCUREMENT API:
+   - create_rfq: creates Rfq record with auto-generated code, due date, budget, category, project link
+   - create_po: creates PurchaseOrder record with vendor, amount, description, project link
+
+6. VENDOR TAB — CATEGORY SORTING (from previous fix):
+   - Default sort by Category, vendors grouped by category with headers
+
+7. ADDED MISSING IMPORTS:
+   - Dialog, Input, Label, Select, Textarea, Loader2 added at module level in procurement.tsx
+
+VERIFIED:
+- Lint: clean
+- Page: 200
+- Chinwe login: 302 (success)
+- RFQ creation: RFQ-2026-005 ✓
+- DIDI: FOUND on every page

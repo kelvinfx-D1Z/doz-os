@@ -105,6 +105,7 @@ interface Project {
   startDate: string | null;
   endDate: string | null;
   account: { name: string; isStrategic: boolean } | null;
+  managerId: string | null;
   manager: { name: string } | null;
   crew: CrewMember[];
   milestones: Milestone[];
@@ -1043,7 +1044,8 @@ function ProjectDialog({ project: p }: { project: Project }) {
       if (!res.ok) throw new Error();
       toast.success("Production Manager assigned");
       setAssigningPM(false);
-      // The parent will reload on dialog close
+      // Reload the page to reflect the change
+      setTimeout(() => window.location.reload(), 800);
     } catch { toast.error("Failed to assign PM"); }
   }
 

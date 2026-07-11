@@ -146,6 +146,7 @@ export async function GET(req: Request) {
       account: p.account
         ? { name: p.account.name, isStrategic: p.account.isStrategic }
         : null,
+      managerId: p.managerId,
       manager: p.manager ? { name: p.manager.name } : null,
       crew: p.crew.map((c) => ({
         id: c.id,

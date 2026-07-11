@@ -189,6 +189,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // ===== Create RFQ =====
+  if (body.action === "create_rfq") {
+    if (!body.title) return NextResponse.json({ error: "title required" }, { status: 400 });
+    const count = await db.rfq.count();
+    const code = `RFQ-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
+    const created = await db.rfq.create({
+      data: {
+        code,
+        projectId: body.projectId || null,
+        title: body.title,
+        description: body.description || null,
+        category: body.category || null,
+        budget: Number(body.budget) || null,
+        status: "OPEN",
+        neededBy: body.neededBy ? new Date(body.neededBy) : null,
+      },
+    });
+    return NextResponse.json({ ok: true, rfq: created }, { status: 201 });
+  }
+
+  // ===== Create Purchase Order =====
+  if (body.action === "create_po") {
+    if (!body.vendorId || !body.amount) return NextResponse.json({ error: "vendorId and amount required" }, { status: 400 });
+    const count = await db.purchaseOrder.count();
+    const code = `PO-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
+    const created = await db.purchaseOrder.create({
+      data: {
+        code,
+        projectId: body.projectId || null,
+        vendorId: body.vendorId,
+        quoteId: body.quoteId || null,
+        amount: Number(body.amount),
+        description: body.description || null,
+        status: "DRAFT",
+      },
+    });
+    return NextResponse.json({ ok: true, po: created }, { status: 201 });
+  }
+
   const { id, action, approverId, payerId, comment } = body as {
     id?: string;
     action?: "APPROVE" | "REJECT" | "PAY";

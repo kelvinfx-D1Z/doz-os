@@ -38,6 +38,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2 } from "lucide-react";
 
 // ============================================================
 // Types
@@ -668,18 +674,21 @@ function RfqCard({ rfq }: { rfq: Rfq }) {
   );
 }
 
-function RfqsTab({ rfqs }: { rfqs: Rfq[] }) {
+function RfqsTab({ rfqs, onSaved }: { rfqs: Rfq[]; onSaved?: () => void }) {
+  const [showForm, setShowForm] = useState(false);
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground" onClick={() => setShowForm(true)}>
+          <Plus className="h-3.5 w-3.5" /> New RFQ
+        </Button>
+      </div>
       {rfqs.length === 0 ? (
-        <EmptyState
-          icon={<FileText className="h-8 w-8" />}
-          title="No RFQs"
-          hint="Raise a new RFQ to start collecting vendor quotes."
-        />
+        <EmptyState icon={<FileText className="h-8 w-8" />} title="No RFQs" hint="Click 'New RFQ' to raise a request for quotes." />
       ) : (
         rfqs.map((r) => <RfqCard key={r.id} rfq={r} />)
       )}
+      {showForm && <RfqFormDialog onClose={() => setShowForm(false)} onSaved={onSaved || (() => {})} />}
     </div>
   );
 }
@@ -687,17 +696,18 @@ function RfqsTab({ rfqs }: { rfqs: Rfq[] }) {
 // ============================================================
 // Purchase Orders Tab
 // ============================================================
-function PurchaseOrdersTab({ pos }: { pos: PurchaseOrder[] }) {
-  if (pos.length === 0) {
-    return (
-      <EmptyState
-        icon={<FileText className="h-8 w-8" />}
-        title="No purchase orders"
-        hint="Approved quotes can be converted to purchase orders."
-      />
-    );
-  }
+function PurchaseOrdersTab({ pos, vendors, onSaved }: { pos: PurchaseOrder[]; vendors: Vendor[]; onSaved?: () => void }) {
+  const [showForm, setShowForm] = useState(false);
   return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" className="gap-1.5 bg-primary text-primary-foreground" onClick={() => setShowForm(true)}>
+          <Plus className="h-3.5 w-3.5" /> New PO
+        </Button>
+      </div>
+      {pos.length === 0 ? (
+        <EmptyState icon={<FileText className="h-8 w-8" />} title="No purchase orders" hint="Click 'New PO' to create a purchase order." />
+      ) : (
     <Card className="overflow-hidden p-0">
       <Table>
         <TableHeader>
@@ -738,6 +748,9 @@ function PurchaseOrdersTab({ pos }: { pos: PurchaseOrder[] }) {
         </TableBody>
       </Table>
     </Card>
+      )}
+      {showForm && <PoFormDialog onClose={() => setShowForm(false)} onSaved={onSaved || (() => {})} vendors={vendors} />}
+    </div>
   );
 }
 
@@ -1182,11 +1195,11 @@ export function Procurement() {
         </TabsContent>
 
         <TabsContent value="rfqs" className="mt-4">
-          <RfqsTab rfqs={rfqs} />
+          <RfqsTab rfqs={rfqs} onSaved={load} />
         </TabsContent>
 
         <TabsContent value="pos" className="mt-4">
-          <PurchaseOrdersTab pos={purchaseOrders} />
+          <PurchaseOrdersTab pos={purchaseOrders} vendors={vendors} onSaved={load} />
         </TabsContent>
 
         <TabsContent value="vendors" className="mt-4">
@@ -1200,5 +1213,147 @@ export function Procurement() {
 
       {showApply && <AddVendorForm onClose={() => setShowApply(false)} onSaved={load} />}
     </div>
+  );
+}
+
+// ============================================================
+// RFQ Form Dialog
+// ============================================================
+function RfqFormDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
+  const [budget, setBudget] = useState("");
+  const [neededBy, setNeededBy] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<{id:string;name:string}[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/doz/projects").then(r => r.json()).then(d => setProjects((d.projects || []).map((p:any) => ({id:p.id,name:p.name})))).catch(() => {});
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) { toast.error("Title is required"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/procurement", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_rfq",
+          title: title.trim(),
+          description: description || undefined,
+          category: category || undefined,
+          budget: budget || undefined,
+          neededBy: neededBy || undefined,
+          projectId: projectId || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("RFQ created — due date reminder set");
+      onSaved(); onClose();
+    } catch { toast.error("Failed to create RFQ"); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>New RFQ (Request for Quote)</DialogTitle></DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div><Label className="text-xs">Title *</Label><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., LED Wall 6x4m + processor" required /></div>
+          <div><Label className="text-xs">Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} placeholder="What do you need?" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="text-xs">Category</Label>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectContent>
+                  {["EQUIPMENT","SOUND","LIGHTING","LED_SCREEN","STAGE","DECOR","TRANSPORT","OTHER"].map(c => <SelectItem key={c} value={c}>{c.replace(/_/g," ")}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label className="text-xs">Budget (₦)</Label><Input type="number" value={budget} onChange={e => setBudget(e.target.value)} placeholder="0" /></div>
+          </div>
+          <div><Label className="text-xs">Needed By (Due Date)</Label><Input type="date" value={neededBy} onChange={e => setNeededBy(e.target.value)} /></div>
+          <div><Label className="text-xs">Project (optional)</Label>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger><SelectValue placeholder="No project" /></SelectTrigger>
+              <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create RFQ"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// PO Form Dialog
+// ============================================================
+function PoFormDialog({ onClose, onSaved, vendors }: { onClose: () => void; onSaved: () => void; vendors: Vendor[] }) {
+  const [vendorId, setVendorId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<{id:string;name:string}[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/doz/projects").then(r => r.json()).then(d => setProjects((d.projects || []).map((p:any) => ({id:p.id,name:p.name})))).catch(() => {});
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!vendorId || !amount) { toast.error("Vendor and amount are required"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/procurement", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_po",
+          vendorId,
+          amount: Number(amount),
+          description: description || undefined,
+          projectId: projectId || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Purchase order created");
+      onSaved(); onClose();
+    } catch { toast.error("Failed to create PO"); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>New Purchase Order</DialogTitle></DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div><Label className="text-xs">Vendor *</Label>
+            <Select value={vendorId} onValueChange={setVendorId}>
+              <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
+              <SelectContent>{vendors.map(v => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label className="text-xs">Amount (₦) *</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" required /></div>
+          <div><Label className="text-xs">Description</Label><Input value={description} onChange={e => setDescription(e.target.value)} placeholder="What is being purchased?" /></div>
+          <div><Label className="text-xs">Project (optional)</Label>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger><SelectValue placeholder="No project" /></SelectTrigger>
+              <SelectContent>{projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create PO"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
