@@ -197,6 +197,13 @@ export function AppShell() {
   }, {});
 
   const meta = MODULE_META[effectiveModule];
+  // Non-founders see "Command Center" instead of "CEO Command Center"
+  const displayTitle = effectiveModule === "command" && role !== "FOUNDER"
+    ? "Command Center"
+    : meta.title;
+  const displaySubtitle = effectiveModule === "command" && role !== "FOUNDER"
+    ? "Your tasks and priorities at a glance"
+    : meta.subtitle;
 
   async function handleSignOut() {
     await signOut({ redirect: false });
@@ -311,8 +318,8 @@ export function AppShell() {
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold sm:text-base">{meta.title}</h1>
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">{meta.subtitle}</p>
+              <h1 className="truncate text-sm font-semibold sm:text-base">{displayTitle}</h1>
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">{displaySubtitle}</p>
             </div>
 
             <Button

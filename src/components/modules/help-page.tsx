@@ -157,6 +157,7 @@ export function HelpPage() {
   const { user } = useCurrentUser();
   const role = user?.role || "FOUNDER";
   const guide = ROLE_GUIDES[role] || ROLE_GUIDES.FOUNDER;
+  const isFounder = role === "FOUNDER";
 
   return (
     <div className="space-y-6">
@@ -189,7 +190,8 @@ export function HelpPage() {
         </div>
       </Card>
 
-      {/* Module guides */}
+      {/* Module guides — FOUNDER only */}
+      {isFounder && (
       <Card className="p-5">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <Lightbulb className="h-4 w-4 text-amber-400" /> Module Guide — What Each Page Does
@@ -206,8 +208,10 @@ export function HelpPage() {
           ))}
         </div>
       </Card>
+      )}
 
-      {/* DIDI tip */}
+      {/* DIDI tip — FOUNDER only */}
+      {isFounder && (
       <Card className="border-l-4 border-l-amber-500/50 p-5">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="h-4 w-4 text-primary" /> DIDI is Here to Help
@@ -216,6 +220,7 @@ export function HelpPage() {
           DIDI is the floating bubble at the bottom-right of every page. Click it to ask questions about the current page, create tasks, draft proposals, or get business advice. DIDI knows which page you're on and has access to your live business data.
         </p>
       </Card>
+      )}
 
       {/* Quick tips */}
       <Card className="p-5">
@@ -225,13 +230,13 @@ export function HelpPage() {
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="text-xs text-muted-foreground">• Press <kbd className="rounded border bg-muted px-1 text-[10px]">⌘K</kbd> to jump between modules</div>
           <div className="text-xs text-muted-foreground">• Click task checkboxes to mark complete</div>
-          <div className="text-xs text-muted-foreground">• Use DIDI Assign in Staff Hub to create tasks from descriptions</div>
+          {isFounder && <div className="text-xs text-muted-foreground">• Use DIDI Assign in Staff Hub to create tasks from descriptions</div>}
           <div className="text-xs text-muted-foreground">• Click milestone icons to cycle status</div>
         </div>
       </Card>
 
       <p className="text-center text-[10px] text-muted-foreground">
-        DOZ OS v4.2 · Digit One Zero Ltd · Lagos, Nigeria
+        DOZ OS · Digit One Zero Ltd · Lagos, Nigeria
       </p>
     </div>
   );
