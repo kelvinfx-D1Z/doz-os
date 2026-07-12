@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { requireAuth, requireStaff } from "@/lib/auth";
 
 // ============================================================
 // Procurement & Vendor Management API
 // Enforces 3-way segregation: Requester ≠ Approver ≠ Payer
+// APPROVE/REJECT/PAY actions are FOUNDER-only; the approverId and
+// payerId are derived from the session, NEVER from the request body.
 // ============================================================
 
 export async function GET(req: Request) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requireStaff();
+  if ("error" in auth) return auth.error;
   const now = new Date();
 
   const [vendors, rfqs, purchaseOrders, paymentRequests, approvals] = await Promise.all([
@@ -189,6 +191,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // ===== Auth: all POST actions require at least a signed-in user =====
+  const auth = await requireStaff();
+  if ("error" in auth) return auth.error;
+  const user = auth.user;
+
   // ===== Create RFQ =====
   if (body.action === "create_rfq") {
     if (!body.title) return NextResponse.json({ error: "title required" }, { status: 400 });
@@ -228,16 +235,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, po: created }, { status: 201 });
   }
 
-  const { id, action, approverId, payerId, comment } = body as {
+  const { id, action, comment } = body as {
     id?: string;
     action?: "APPROVE" | "REJECT" | "PAY";
-    approverId?: string;
-    payerId?: string;
     comment?: string;
   };
 
   if (!id || !action) {
     return NextResponse.json({ error: "id and action are required" }, { status: 400 });
+  }
+
+  // APPROVE / REJECT / PAY are FOUNDER-only actions. The approverId and
+  // payerId come from the session, NEVER from the request body — this
+  // prevents privilege escalation and identity spoofing.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json(
+      { error: "forbidden — only the founder can approve, reject, or pay payment requests" },
+      { status: 403 },
+    );
   }
 
   const pr = await db.paymentRequest.findUnique({ where: { id } });
@@ -246,10 +261,8 @@ export async function POST(req: Request) {
   }
 
   if (action === "APPROVE" || action === "REJECT") {
-    if (!approverId) {
-      return NextResponse.json({ error: "approverId required for APPROVE/REJECT" }, { status: 400 });
-    }
-    if (approverId === pr.requesterId) {
+    // Segregation: founder cannot approve their own request
+    if (user.id === pr.requesterId) {
       return NextResponse.json(
         { error: "Segregation violation: requester cannot approve their own request" },
         { status: 403 }
@@ -260,7 +273,7 @@ export async function POST(req: Request) {
       where: { id },
       data: {
         status: newStatus,
-        approverId,
+        approverId: user.id,
         approvedAt: new Date(),
       },
     });
@@ -269,7 +282,7 @@ export async function POST(req: Request) {
         entityType: "PAYMENT_REQUEST",
         entityId: id,
         paymentRequestId: id,
-        approverId,
+        approverId: user.id,
         decision: newStatus,
         comment: comment ?? null,
       },
@@ -278,16 +291,14 @@ export async function POST(req: Request) {
   }
 
   if (action === "PAY") {
-    if (!payerId) {
-      return NextResponse.json({ error: "payerId required for PAY" }, { status: 400 });
-    }
-    if (payerId === pr.requesterId) {
+    // Segregation: founder cannot pay a request they requested or approved
+    if (user.id === pr.requesterId) {
       return NextResponse.json(
         { error: "Segregation violation: requester cannot pay their own request" },
         { status: 403 }
       );
     }
-    if (pr.approverId && payerId === pr.approverId) {
+    if (pr.approverId && user.id === pr.approverId) {
       return NextResponse.json(
         { error: "Segregation violation: approver cannot pay the request they approved" },
         { status: 403 }
@@ -303,7 +314,7 @@ export async function POST(req: Request) {
       where: { id },
       data: {
         status: "PAID",
-        payerId,
+        payerId: user.id,
         paidAt: new Date(),
       },
     });

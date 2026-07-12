@@ -52,3 +52,15 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Database files — NEVER commit (contains password hashes + business data)
+db/*.db
+db/*.db-journal
+db/backups/
+*.db
+*.db-journal
+
+# Environment files — already covered above but explicit for clarity
+.env
+.env.local
+.env.production
+.env.*.local

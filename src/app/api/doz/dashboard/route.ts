@@ -419,8 +419,103 @@ export async function GET() {
     title: sessionUser.title ?? null,
   };
 
+  // ============================================================
+  // ROLE-SCOPED RESPONSE
+  // FOUNDER sees the full company-wide payload.
+  // STAFF/INTERN/FREELANCER see ONLY their own myDay block — no
+  //   company revenue, profit, pipeline, approvals, invoices, etc.
+  //   This prevents financial data leakage and password-hash exposure
+  //   (the `founder` object previously included the password column).
+  // ============================================================
+  // Note: `isFounder` is already declared above (line ~283) for the
+  // pendingApprovals filter — we reuse it here.
+
+  // Never expose the raw user object — it includes the password hash.
+  // Only expose a safe subset.
+  const safeFounder = isFounder && users.find((u) => u.role === "FOUNDER")
+    ? {
+        id: (users.find((u) => u.role === "FOUNDER")!).id,
+        name: (users.find((u) => u.role === "FOUNDER")!).name,
+        email: (users.find((u) => u.role === "FOUNDER")!).email,
+        role: (users.find((u) => u.role === "FOUNDER")!).role,
+        title: (users.find((u) => u.role === "FOUNDER")!).title,
+      }
+    : null;
+
+  if (isFounder) {
+    return NextResponse.json({
+      founder: safeFounder,
+      currentUser,
+      myDay: {
+        tasks: myDayTasks,
+        taskCount: myDayTasks.length,
+        overdueCount: myOverdueCount,
+        doneToday: myDoneToday.length,
+        reportFiled,
+        todayReportId: myTodayReport?.id ?? null,
+        weeklyObjective: myWeeklyObjective,
+        pendingApprovals: myActionableApprovals.length,
+        pendingApprovalItems: myPendingApprovalItems,
+        myProjects,
+        myPendingRequests: mySubmittedRequestsShaped,
+        crewAssignments: myCrew,
+        deliverables: myDeliverablesShaped,
+        recentReports: myRecentReportsShaped,
+        learningPlan,
+        teamReportsToday,
+        teamReportsTotal: nonFounderUsers.length,
+        teamActivity,
+      },
+      stats: {
+        pipelineValue,
+        weightedPipeline,
+        openOpps: openOpps.length,
+        wonOpps: wonOpps.length,
+        proposalsSent: proposalsSent.length,
+        proposalsAccepted: proposalsAccepted.length,
+        conversionRate,
+        totalRevenue,
+        totalExpenses,
+        grossProfit: totalRevenue - totalExpenses,
+        marginPct: totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0,
+        outstandingAmount,
+        overdueAmount,
+        overdueCount: overdueInvoices.length,
+        cashPosition,
+        pendingApprovals: pendingApprovals.length,
+        pendingPaymentsValue: pendingApprovals.reduce((s, p) => s + p.amount, 0),
+        openTasks: tasks.filter((t) => t.status !== "DONE").length,
+        overdueTasks: tasks.filter((t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) < now).length,
+        activeProjects: projects.filter((p) => ["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)).length,
+        internsReporting: todayReports.length,
+        totalInterns: interns.length,
+        openRfqs: openRfqs.length,
+        distractions: distractions.length,
+      },
+      topPriorities,
+      weeklyGoal,
+      goals: goals.filter((g) => g.status === "ACTIVE"),
+      pendingApprovals,
+      upcoming,
+      openOpps: openOpps.slice(0, 8),
+      outstandingInvoices,
+      overdueInvoices,
+      serviceMix,
+      interns,
+      todayReports,
+      recentActivity: activityLogs,
+      aiInsights,
+      pendingRfqs: openRfqs,
+      followUpsDue: followUps.filter((f) => !f.completed && new Date(f.dueDate) <= new Date(now.getTime() + 86400000)),
+      lostOpps,
+      tasks,
+    });
+  }
+
+  // NON-FOUNDER RESPONSE — only the user's own myDay block.
+  // No company financials, no other users' data, no founder object.
   return NextResponse.json({
-    founder: users.find((u) => u.role === "FOUNDER"),
+    founder: null,
     currentUser,
     myDay: {
       tasks: myDayTasks,
@@ -442,48 +537,24 @@ export async function GET() {
       teamReportsTotal: nonFounderUsers.length,
       teamActivity,
     },
-    stats: {
-      pipelineValue,
-      weightedPipeline,
-      openOpps: openOpps.length,
-      wonOpps: wonOpps.length,
-      proposalsSent: proposalsSent.length,
-      proposalsAccepted: proposalsAccepted.length,
-      conversionRate,
-      totalRevenue,
-      totalExpenses,
-      grossProfit: totalRevenue - totalExpenses,
-      marginPct: totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0,
-      outstandingAmount,
-      overdueAmount,
-      overdueCount: overdueInvoices.length,
-      cashPosition,
-      pendingApprovals: pendingApprovals.length,
-      pendingPaymentsValue: pendingApprovals.reduce((s, p) => s + p.amount, 0),
-      openTasks: tasks.filter((t) => t.status !== "DONE").length,
-      overdueTasks: tasks.filter((t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) < now).length,
-      activeProjects: projects.filter((p) => ["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)).length,
-      internsReporting: todayReports.length,
-      totalInterns: interns.length,
-      openRfqs: openRfqs.length,
-      distractions: distractions.length,
-    },
-    topPriorities,
-    weeklyGoal,
-    goals: goals.filter((g) => g.status === "ACTIVE"),
-    pendingApprovals,
-    upcoming,
-    openOpps: openOpps.slice(0, 8),
-    outstandingInvoices,
-    overdueInvoices,
-    serviceMix,
-    interns,
-    todayReports,
-    recentActivity: activityLogs,
-    aiInsights,
-    pendingRfqs: openRfqs,
-    followUpsDue: followUps.filter((f) => !f.completed && new Date(f.dueDate) <= new Date(now.getTime() + 86400000)),
-    lostOpps,
-    tasks,
+    // Empty stats for non-founders — the UI uses myDay instead.
+    stats: {},
+    topPriorities: [],
+    weeklyGoal: null,
+    goals: [],
+    pendingApprovals: [],
+    upcoming: [],
+    openOpps: [],
+    outstandingInvoices: [],
+    overdueInvoices: [],
+    serviceMix: [],
+    interns: [],
+    todayReports: [],
+    recentActivity: [],
+    aiInsights: [],
+    pendingRfqs: [],
+    followUpsDue: [],
+    lostOpps: [],
+    tasks: myDayTasks,
   });
 }

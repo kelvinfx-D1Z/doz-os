@@ -98,6 +98,13 @@ export async function GET(req: Request) {
 // ------------------------------------------------------------
 export async function POST(req: Request) {
   try {
+    // Auth: vendor creation requires at least STAFF role.
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (user.role !== "FOUNDER" && user.role !== "STAFF" && user.role !== "FREELANCER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
@@ -244,6 +251,13 @@ export async function POST(req: Request) {
 // ------------------------------------------------------------
 export async function PATCH(req: Request) {
   try {
+    // Auth: APPROVE/REJECT of vendor applications is FOUNDER-only.
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });

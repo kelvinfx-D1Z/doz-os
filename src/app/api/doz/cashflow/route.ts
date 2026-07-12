@@ -6,6 +6,10 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Cash flow forecast is FOUNDER-only — exposes cash position + forecast.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const now = new Date();
   const day90 = new Date(now.getTime() + 90 * 86400000);

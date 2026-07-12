@@ -99,6 +99,12 @@ model Task {
   completedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([assigneeId])
+  @@index([creatorId])
+  @@index([projectId])
+  @@index([status])
+  @@index([dueDate])
 }
 
 // ============================================================
@@ -275,6 +281,11 @@ model Project {
   timeEntries     TimeEntry[]
   postEventReviews PostEventReview[]
   vendorReviewsFrom  VendorReview[]
+
+  @@index([managerId])
+  @@index([accountId])
+  @@index([status])
+  @@index([eventDate])
 }
 
 model Milestone {
@@ -317,6 +328,10 @@ model CrewAssignment {
   status      String   @default("ASSIGNED") // ASSIGNED, CONFIRMED, DECLINED
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
 }
 
 model ResourceBooking {
@@ -436,6 +451,11 @@ model PaymentRequest {
   updatedAt    DateTime @updatedAt
 
   approvals Approval[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([requesterId])
+  @@index([approverId])
 }
 
 model Approval {
@@ -477,6 +497,11 @@ model Invoice {
   updatedAt   DateTime @updatedAt
 
   paymentConfirmations PaymentConfirmation[]
+
+  @@index([projectId])
+  @@index([accountId])
+  @@index([status])
+  @@index([dueDate])
 }
 
 model Expense {
@@ -493,6 +518,10 @@ model Expense {
   receiptUrl  String?  // path to uploaded receipt file
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([vendorId])
+  @@index([category])
 }
 
 model Budget {
@@ -522,6 +551,9 @@ model DailyReport {
   mood        String?  // GREAT, OK, STRESSED
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reportDate])
 }
 
 model WeeklyReport {
@@ -583,6 +615,9 @@ model ActivityLog {
   opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
   detail      String?
   createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ============================================================

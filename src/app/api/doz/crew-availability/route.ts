@@ -77,25 +77,32 @@ export async function POST(req: Request) {
   if (!body?.action) return NextResponse.json({ error: "action required" }, { status: 400 });
 
   if (body.action === "set_status") {
-    if (!body.userId || !body.date || !body.status) {
-      return NextResponse.json({ error: "userId, date, and status required" }, { status: 400 });
+    if (!body.date || !body.status) {
+      return NextResponse.json({ error: "date and status required" }, { status: 400 });
+    }
+    // SECURITY: Only the FOUNDER can set another user's availability.
+    // Staff/interns set their own (body.userId is ignored).
+    const targetUserId = (user.role === "FOUNDER" && body.userId) ? body.userId : user.id;
+    const validStatuses = ["AVAILABLE", "ASSIGNED", "BLOCKED", "LEAVE"];
+    if (!validStatuses.includes(body.status)) {
+      return NextResponse.json({ error: "invalid status" }, { status: 400 });
     }
     const date = new Date(body.date);
     const existing = await db.crewAvailability.findFirst({
-      where: { userId: body.userId, date },
+      where: { userId: targetUserId, date },
     });
 
     if (existing) {
       const updated = await db.crewAvailability.update({
         where: { id: existing.id },
-        data: { status: body.status, projectId: body.projectId || null, notes: body.notes || null },
+        data: { status: body.status, projectId: body.projectId || null, notes: body.notes ? String(body.notes).slice(0, 500) : null },
       });
       return NextResponse.json({ ok: true, availability: updated });
     }
 
     const created = await db.crewAvailability.create({
       data: {
-        userId: body.userId,
+        userId: targetUserId,
         date,
         status: body.status,
         projectId: body.projectId || null,

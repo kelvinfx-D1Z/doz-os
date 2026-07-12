@@ -7,6 +7,10 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Financial Intelligence is FOUNDER-only — exposes revenue, profit, margins.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 

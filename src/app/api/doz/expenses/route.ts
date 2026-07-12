@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
@@ -47,6 +47,9 @@ function safeFilenamePart(s: string): string {
 // ---------- GET ----------
 export async function GET() {
   try {
+    const auth = await requireStaff();
+    if ("error" in auth) return auth.error;
+
     const expenses = await db.expense.findMany({
       include: {
         project: { select: { name: true } },
@@ -88,6 +91,9 @@ export async function GET() {
 // ---------- POST (multipart/form-data) ----------
 export async function POST(request: Request) {
   try {
+    const auth = await requireStaff();
+    if ("error" in auth) return auth.error;
+
     const formData = await request.formData();
     const file = formData.get("file");
     const expenseIdRaw = formData.get("expenseId");

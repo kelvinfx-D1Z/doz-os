@@ -186,6 +186,10 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // Invoice reminders expose outstanding/overdue invoice amounts — FOUNDER-only.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   try {
     const now = new Date();
@@ -424,8 +428,12 @@ export async function POST(req: Request) {
     // ============================================================
     // 2) verify_payment — verify or reject a PaymentConfirmation
     //    On verify: also update the related Invoice.amountPaid (+status)
+    //    FOUNDER-only — this modifies invoice payment status.
     // ============================================================
     if (action === "verify_payment") {
+      if (user.role !== "FOUNDER") {
+        return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+      }
       const confirmationId = body?.confirmationId;
       const subAction = body?.subAction; // "verify" | "reject"
 

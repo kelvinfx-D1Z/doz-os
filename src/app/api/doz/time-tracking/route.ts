@@ -82,13 +82,16 @@ export async function POST(req: Request) {
     if (!body.hours || !body.date) {
       return NextResponse.json({ error: "hours and date required" }, { status: 400 });
     }
+    // SECURITY: Only the FOUNDER can log time on behalf of another user.
+    // Staff/interns can only log their own time.
+    const targetUserId = (user.role === "FOUNDER" && body.userId) ? body.userId : user.id;
     const created = await db.timeEntry.create({
       data: {
-        userId: body.userId || user.id,
+        userId: targetUserId,
         projectId: body.projectId || null,
         date: new Date(body.date),
         hours: Number(body.hours),
-        description: body.description || null,
+        description: body.description ? String(body.description).slice(0, 500) : null,
         billable: body.billable !== false,
       },
     });
@@ -97,6 +100,12 @@ export async function POST(req: Request) {
 
   if (body.action === "delete") {
     if (!body.entryId) return NextResponse.json({ error: "entryId required" }, { status: 400 });
+    // Ownership check: only the entry's owner or a FOUNDER can delete it.
+    const entry = await db.timeEntry.findUnique({ where: { id: body.entryId }, select: { userId: true } });
+    if (!entry) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (entry.userId !== user.id && user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     await db.timeEntry.delete({ where: { id: body.entryId } });
     return NextResponse.json({ ok: true });
   }

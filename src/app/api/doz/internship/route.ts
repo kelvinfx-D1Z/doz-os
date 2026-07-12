@@ -51,6 +51,10 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  // Interns only see their own standups; founders/staff see all.
+  const isIntern = user.role === "INTERN";
+  const standupWhere = isIntern ? { userId: user.id } : undefined;
+
   const [milestones, interns, standups] = await Promise.all([
     db.internshipMilestone.findMany({
       orderBy: [{ track: "asc" }, { monthStart: "asc" }, { createdAt: "asc" }],
@@ -59,7 +63,7 @@ export async function GET() {
       where: { role: "INTERN", isActive: true },
       orderBy: { createdAt: "asc" },
     }),
-    db.dailyStandup.findMany({ orderBy: { date: "desc" }, take: 14 }),
+    db.dailyStandup.findMany({ where: standupWhere, orderBy: { date: "desc" }, take: 14 }),
   ]);
 
   // Group milestones by track

@@ -120,6 +120,13 @@ async function buildContextSummary() {
 
 export async function GET() {
   try {
+    // Auth: AI insights + context summary expose company financials — FOUNDER-only.
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+
     const [insights, contextSummary] = await Promise.all([
       db.aIInsight.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
       buildContextSummary(),
@@ -233,6 +240,13 @@ function buildUserPrompt(
 }
 
 export async function POST(req: Request) {
+  // Auth: AI chat can create tasks/accounts/opportunities — FOUNDER-only.
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ response: "Unauthorized.", error: true }, { status: 401 });
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ response: "Forbidden.", error: true }, { status: 403 });
+  }
+
   let body: AiPostBody;
   try {
     body = (await req.json()) as AiPostBody;

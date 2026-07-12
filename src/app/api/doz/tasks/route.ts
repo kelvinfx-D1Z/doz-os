@@ -117,22 +117,35 @@ function shapeTask(t: any) {
 // ---------------------------------------------------------------
 export async function GET(req: Request) {
   try {
+    // Auth: ALL task reads require a signed-in user.
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const assigneeId = url.searchParams.get("assigneeId");
     const scope = url.searchParams.get("scope"); // "my-day" | "week"
 
-    // For "my-day" we need the current user
+    // For "my-day" we always use the current user's id (ignore body).
     let filterAssigneeId = assigneeId;
     if (scope === "my-day") {
-      const user = await getSessionUser();
-      if (!user) {
-        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-      }
       filterAssigneeId = user.id;
+    }
+
+    // Non-FOUNDER users can only view tasks assigned to them. FOUNDER can
+    // view any task (needed for Staff Hub). This prevents IDOR where a
+    // staff/intern could read another user's tasks via ?assigneeId=<other>.
+    if (filterAssigneeId && user.role !== "FOUNDER" && filterAssigneeId !== user.id) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     const where: any = {};
     if (filterAssigneeId) where.assigneeId = filterAssigneeId;
+    // Non-founders without an explicit assigneeId only see their own tasks.
+    if (!filterAssigneeId && user.role !== "FOUNDER") {
+      where.assigneeId = user.id;
+    }
 
     if (scope === "my-day") {
       // Tasks due today or overdue (not done)
@@ -140,7 +153,7 @@ export async function GET(req: Request) {
       where.status = { not: "DONE" };
       where.dueDate = { lte: dayEnd };
     } else if (scope === "week") {
-      // Tasks due this week (Mon–Sun) — include null dueDate as well? No, must be in the week.
+      // Tasks due this week (Mon–Sun)
       const wkStart = startOfWeek();
       const wkEnd = endOfWeek();
       where.dueDate = { gte: wkStart, lte: wkEnd };
@@ -154,13 +167,14 @@ export async function GET(req: Request) {
         { priority: "asc" },
         { dueDate: "asc" },
       ],
+      take: 200, // bound the result set
     });
 
     return NextResponse.json({ tasks: tasks.map(shapeTask) });
   } catch (e) {
     console.error("[GET /api/doz/tasks] error", e);
     return NextResponse.json(
-      { error: "failed_to_load_tasks", detail: e instanceof Error ? e.message : String(e) },
+      { error: "failed_to_load_tasks" },
       { status: 500 },
     );
   }
@@ -274,6 +288,18 @@ export async function PATCH(req: Request) {
     });
     if (!existing) {
       return NextResponse.json({ error: "task_not_found" }, { status: 404 });
+    }
+
+    // ============================================================
+    // OWNERSHIP CHECK — only the task's assignee, its creator, or a
+    // FOUNDER can modify it. This prevents IDOR where any user could
+    // edit any task by guessing its ID.
+    // ============================================================
+    const isAssignee = existing.assigneeId === user.id;
+    const isCreator = existing.creatorId === user.id;
+    const isFounder = user.role === "FOUNDER";
+    if (!isAssignee && !isCreator && !isFounder) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     // ============================================================
@@ -476,10 +502,18 @@ export async function DELETE(req: Request) {
 
     const existing = await db.task.findUnique({
       where: { id: taskId },
-      select: { id: true, title: true },
+      select: { id: true, title: true, assigneeId: true, creatorId: true },
     });
     if (!existing) {
       return NextResponse.json({ error: "task_not_found" }, { status: 404 });
+    }
+
+    // OWNERSHIP CHECK — only the assignee, creator, or FOUNDER can delete.
+    const isAssignee = existing.assigneeId === user.id;
+    const isCreator = existing.creatorId === user.id;
+    const isFounder = user.role === "FOUNDER";
+    if (!isAssignee && !isCreator && !isFounder) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     await db.task.delete({ where: { id: taskId } });

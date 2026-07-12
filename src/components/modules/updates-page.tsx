@@ -1,12 +1,12 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Upload, Database, Download, RotateCcw, Trash2, Shield,
-  CheckCircle2, AlertTriangle, Loader2, Package, FileArchive, Info,
+  Database, Download, RotateCcw, Trash2, Shield,
+  CheckCircle2, AlertTriangle, Loader2, Package, Info,
 } from "lucide-react";
 import { SectionHeader, StatCard } from "@/components/doz/ui-primitives";
 import { formatDate, relativeTime } from "@/lib/format";
@@ -34,9 +34,6 @@ export function UpdatesPage() {
   const [loading, setLoading] = useState(true);
   const [backing, setBacking] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<any>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     try {
@@ -92,43 +89,6 @@ export function UpdatesPage() {
     } catch { toast.error("Failed"); }
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.name.endsWith(".zip")) { toast.error("Please upload a .zip file"); return; }
-
-    setUploading(true);
-    setUploadResult(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/doz/updates", { method: "POST", body: formData });
-      const d = await res.json();
-      setUploadResult(d);
-      if (d.ok) {
-        toast.success(d.message || "Update applied successfully");
-        // Auto-reload after 2 seconds to pick up code changes
-        setTimeout(() => window.location.reload(), 2000);
-      } else {
-        toast.error(d.message || d.error || "Update failed — backup was created");
-      }
-      load();
-    } catch (err: any) {
-      // The server may crash during update (execSync commands can kill the dev server)
-      // The update likely still succeeded — check by reloading
-      toast.success("Update may have been applied. The server is restarting. Page will reload in 3 seconds...");
-      setUploadResult({
-        ok: true,
-        message: "Update was applied. The server restarted during the process (this is normal). Reloading...",
-        backupName: "Check backups list",
-      });
-      setTimeout(() => window.location.reload(), 3000);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
   if (loading || !data) {
     return <div className="space-y-4"><Skeleton className="h-20 w-full" /><Skeleton className="h-64 w-full" /></div>;
   }
@@ -155,57 +115,25 @@ export function UpdatesPage() {
         <StatCard label="Version" value={data.version} icon={<Info className="h-4 w-4" />} />
       </div>
 
-      {/* Upload Update */}
-      <Card className="border-l-4 border-l-primary p-5">
+      {/* Update deployment notice */}
+      <Card className="border-l-4 border-l-amber-500/50 p-5">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Upload className="h-4 w-4 text-primary" /> Apply Update Package
+          <Shield className="h-4 w-4 text-amber-400" /> Deploying Updates
         </div>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Upload a <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">.zip</code> file containing updated DOZ OS code.
-          The system will automatically: <strong>1)</strong> back up your database, <strong>2)</strong> extract and apply code changes,
-          <strong>3)</strong> run database migrations (non-destructive), <strong>4)</strong> restart the server.
-          Your existing data is always preserved.
+        <p className="text-xs text-muted-foreground">
+          For security, in-app code updates are disabled. Deploy new versions of DOZ OS via your
+          CI/CD pipeline or version control system (git push). This prevents arbitrary code execution
+          via uploaded archives. Database backup and restore remain available below — use them before
+          and after any deployment.
         </p>
-
-        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border p-8">
-          {uploading ? (
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-xs text-muted-foreground">Applying update... This may take a minute.</p>
-              <p className="text-[10px] text-muted-foreground">Back up → Extract → Migrate → Install</p>
-            </div>
-          ) : (
-            <>
-              <FileArchive className="h-10 w-10 text-muted-foreground/50" />
-              <p className="text-sm font-medium">Drop update package here or click to browse</p>
-              <p className="text-[10px] text-muted-foreground">Supports .zip files only</p>
-              <Button variant="outline" size="sm" className="mt-2 gap-1.5" onClick={() => fileRef.current?.click()}>
-                <Upload className="h-3.5 w-3.5" /> Select Update File
-              </Button>
-              <input ref={fileRef} type="file" accept=".zip" className="hidden" onChange={handleUpload} />
-            </>
-          )}
+        <div className="mt-3 rounded-lg bg-muted/30 p-3 text-[11px] text-muted-foreground">
+          <p className="font-semibold text-foreground mb-1">Recommended deploy flow:</p>
+          <ol className="ml-4 list-decimal space-y-0.5">
+            <li>Click "Create Backup" below to snapshot your current database</li>
+            <li>Deploy the new code via your hosting platform (Vercel, Docker, etc.)</li>
+            <li>If something breaks, use "Restore" on the backup you just created</li>
+          </ol>
         </div>
-
-        {uploadResult && (
-          <div className={`mt-3 rounded-lg border p-3 ${uploadResult.ok ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"}`}>
-            <div className="flex items-start gap-2">
-              {uploadResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />}
-              <div>
-                <p className="text-xs font-semibold">{uploadResult.ok ? "Update Applied Successfully" : "Update Failed"}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{uploadResult.message}</p>
-                {uploadResult.backupName && (
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Backup saved: <code className="font-mono">{uploadResult.backupName}</code>
-                  </p>
-                )}
-                {uploadResult.manifest?.description && (
-                  <p className="text-[10px] text-primary mt-1">{uploadResult.manifest.description}</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </Card>
 
       {/* Backups */}

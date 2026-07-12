@@ -177,15 +177,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, userId: body.userId, permissions: perms });
   }
 
-  // Assign task to a staff member
+  // Assign task to a staff member — FOUNDER + STAFF only.
   if (body.action === "assign_task") {
+    if (user.role !== "FOUNDER" && user.role !== "STAFF") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     if (!body.title || !body.assigneeId) {
       return NextResponse.json({ error: "title and assigneeId required" }, { status: 400 });
     }
     const created = await db.task.create({
       data: {
-        title: String(body.title),
-        description: body.description || null,
+        title: String(body.title).slice(0, 200),
+        description: body.description ? String(body.description).slice(0, 2000) : null,
         assigneeId: body.assigneeId,
         creatorId: user.id,
         priority: body.priority || "MEDIUM",
@@ -197,8 +200,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, task: created }, { status: 201 });
   }
 
-  // Set staff role/responsibilities (pillars)
+  // Set staff role/responsibilities (pillars) — FOUNDER only.
   if (body.action === "set_roles") {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     if (!body.userId || !body.roles) {
       return NextResponse.json({ error: "userId and roles required" }, { status: 400 });
     }
@@ -218,11 +224,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Toggle task status
+  // Toggle task status — assignee, creator, or FOUNDER can toggle.
   if (body.action === "toggle_task") {
     if (!body.taskId) return NextResponse.json({ error: "taskId required" }, { status: 400 });
-    const task = await db.task.findUnique({ where: { id: body.taskId } });
+    const task = await db.task.findUnique({ where: { id: body.taskId }, select: { id: true, status: true, assigneeId: true, creatorId: true } });
     if (!task) return NextResponse.json({ error: "not found" }, { status: 404 });
+    // Ownership check
+    if (task.assigneeId !== user.id && task.creatorId !== user.id && user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
     const newStatus = task.status === "DONE" ? "TODO" : "DONE";
     await db.task.update({
       where: { id: body.taskId },
@@ -331,11 +341,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, id: body.taskId });
   }
 
-  // DIDI creates activities for staff — uses AI to parse description into structured tasks
+  // DIDI creates activities for staff — FOUNDER only. Uses AI to parse
+  // description into structured tasks and bulk-create them.
   if (body.action === "didi_create_activities") {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+    }
     if (!body.description || !body.assigneeId) {
       return NextResponse.json({ error: "description and assigneeId required" }, { status: 400 });
     }
+    // Bound the description length to prevent abuse.
+    const description = String(body.description).slice(0, 5000);
 
     const assignee = await db.user.findUnique({ where: { id: body.assigneeId } });
     const assigneeName = assignee?.name || "the staff member";
@@ -363,7 +379,7 @@ Return ONLY the JSON array. No explanation, no markdown.`,
           },
           {
             role: "user",
-            content: body.description,
+            content: description,
           },
         ],
         thinking: { type: "disabled" },
@@ -381,11 +397,11 @@ Return ONLY the JSON array. No explanation, no markdown.`,
 
     // Fallback: if AI didn't return valid tasks, split by sentences
     if (!parsedTasks || parsedTasks.length === 0) {
-      const lines = body.description.split(/\n|\. (?=[A-Z])/).map((s: string) => s.trim()).filter(Boolean);
+      const lines = description.split(/\n|\. (?=[A-Z])/).map((s: string) => s.trim()).filter(Boolean);
       parsedTasks = lines.slice(0, 10).map((line: string) => ({
         title: line.substring(0, 200),
         priority: body.priority || "MEDIUM",
-        description: `Created by DIDI from: ${body.description}`,
+        description: `Created by DIDI from: ${description}`,
       }));
     }
 
@@ -395,7 +411,7 @@ Return ONLY the JSON array. No explanation, no markdown.`,
       const task = await db.task.create({
         data: {
           title: t.title.substring(0, 200),
-          description: t.description || `Created by DIDI: ${body.description}`,
+          description: t.description || `Created by DIDI: ${description}`,
           assigneeId: body.assigneeId,
           creatorId: user.id,
           priority: ["URGENT", "HIGH", "MEDIUM", "LOW"].includes(t.priority) ? t.priority : (body.priority || "MEDIUM"),

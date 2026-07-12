@@ -6,6 +6,11 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // CRM is FOUNDER + STAFF only — interns don't see sales pipeline.
+  if (user.role !== "FOUNDER" && user.role !== "STAFF") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const isFounder = user.role === "FOUNDER";
   const now = new Date();
 
   const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals] =
@@ -115,7 +120,9 @@ export async function GET(req: Request) {
     industry: a.industry,
     isStrategic: a.isStrategic,
     lifetimeValue: a.lifetimeValue,
-    portalToken: a.portalToken,
+    // SECURITY: portalToken is the credential clients use to access the
+    // client portal. Only the FOUNDER sees it — never expose to staff/interns.
+    portalToken: isFounder ? a.portalToken : undefined,
     portalActive: a.portalActive,
     website: a.website,
     isRealCustomer: a._count.projects > 0,

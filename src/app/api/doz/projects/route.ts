@@ -57,9 +57,17 @@ const VALID_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "ON
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const isFounder = user.role === "FOUNDER";
+  const isFreelancer = user.role === "FREELANCER";
+
+  // FREELANCERs (PMs) only see projects they manage. Founders and staff
+  // see all projects. This prevents a PM from reading other PMs' financials.
+  const projectWhere = isFreelancer ? { managerId: user.id } : undefined;
+
   // Single efficient query: one trip to the DB for everything we need.
   const [projects, expenses, invoices] = await Promise.all([
     db.project.findMany({
+      where: projectWhere,
       orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
       include: {
         account: { select: { id: true, name: true, isStrategic: true } },
@@ -138,8 +146,11 @@ export async function GET(req: Request) {
       status: p.status,
       eventDate: p.eventDate,
       venue: p.venue,
-      budget: p.budget,
-      revenue: p.revenue,
+      // FREELANCERs (PMs) do NOT see company financials (revenue, budget,
+      // profit, margin, received, balance). They only see their project's
+      // expenses (their budget) — not what the client paid.
+      budget: isFreelancer ? undefined : p.budget,
+      revenue: isFreelancer ? undefined : p.revenue,
       progress: p.progress,
       startDate: p.startDate,
       endDate: p.endDate,
@@ -172,32 +183,38 @@ export async function GET(req: Request) {
         deliveredAt: d.deliveredAt,
       })),
       _count: p._count,
-      // computed financial fields
-      expensesTotal,
-      received,
-      balance,
-      profit,
-      margin,
+      // computed financial fields — hidden from FREELANCERs
+      expensesTotal: isFreelancer ? undefined : expensesTotal,
+      received: isFreelancer ? undefined : received,
+      balance: isFreelancer ? undefined : balance,
+      profit: isFreelancer ? undefined : profit,
+      margin: isFreelancer ? undefined : margin,
     };
   });
 
   const totalProfit = totalRevenue - totalExpenses;
   const avgMargin = marginSamples > 0 ? marginSum / marginSamples : 0;
 
-  return NextResponse.json({
-    stats: {
-      total: projects.length,
-      active: activeCount,
-      completed: completedCount,
-      totalRevenue,
-      totalExpenses,
-      totalProfit,
-      totalReceived,
-      totalBalance,
-      avgMargin,
-    },
-    projects: decorated,
-  });
+  // FREELANCERs get a scoped summary (no company financials)
+  const stats = isFreelancer
+    ? {
+        total: projects.length,
+        active: activeCount,
+        completed: completedCount,
+      }
+    : {
+        total: projects.length,
+        active: activeCount,
+        completed: completedCount,
+        totalRevenue,
+        totalExpenses,
+        totalProfit,
+        totalReceived,
+        totalBalance,
+        avgMargin,
+      };
+
+  return NextResponse.json({ stats, projects: decorated });
 }
 
 // ------------------------------------------------------------
@@ -207,6 +224,13 @@ export async function GET(req: Request) {
 // ------------------------------------------------------------
 export async function POST(req: Request) {
   try {
+    // Auth: only FOUNDER and STAFF can create projects.
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    if (user.role !== "FOUNDER" && user.role !== "STAFF") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
       return NextResponse.json(
@@ -437,6 +461,17 @@ export async function PATCH(req: Request) {
   const existing = await db.project.findUnique({ where: { id: body.projectId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
+  // Permission: FOUNDER can edit anything. STAFF can edit projects they manage.
+  // FREELANCERs can only edit projects they manage (and only non-financial fields).
+  // INTERNs cannot edit projects.
+  const isFounder = user.role === "FOUNDER";
+  const isManager = existing.managerId === user.id;
+  if (!isFounder && !isManager) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  // FREELANCERs cannot change financial fields (budget, revenue) — only the founder can.
+  const canEditFinancials = isFounder;
+
   const data: any = {};
   if (body.name !== undefined) data.name = body.name;
   if (body.code !== undefined) data.code = body.code;
@@ -444,10 +479,11 @@ export async function PATCH(req: Request) {
   if (body.status !== undefined) data.status = body.status;
   if (body.eventDate !== undefined) data.eventDate = body.eventDate ? new Date(body.eventDate) : null;
   if (body.venue !== undefined) data.venue = body.venue;
-  if (body.budget !== undefined) data.budget = Number(body.budget);
-  if (body.revenue !== undefined) data.revenue = Number(body.revenue);
-  if (body.managerId !== undefined) data.managerId = body.managerId || null;
-  if (body.accountId !== undefined) data.accountId = body.accountId || null;
+  if (canEditFinancials && body.budget !== undefined) data.budget = Number(body.budget);
+  if (canEditFinancials && body.revenue !== undefined) data.revenue = Number(body.revenue);
+  // Only FOUNDER can reassign manager or account
+  if (isFounder && body.managerId !== undefined) data.managerId = body.managerId || null;
+  if (isFounder && body.accountId !== undefined) data.accountId = body.accountId || null;
   if (body.progress !== undefined) data.progress = Number(body.progress);
 
   const updated = await db.project.update({ where: { id: body.projectId }, data });
