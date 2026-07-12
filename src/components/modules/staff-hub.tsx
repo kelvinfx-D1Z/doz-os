@@ -48,6 +48,7 @@ export function StaffHub() {
   const [showAssignTask, setShowAssignTask] = useState(false);
   const [showDIDI, setShowDIDI] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string>("");
+  const [editingTask, setEditingTask] = useState<any | null>(null);
 
   async function load() {
     try {
@@ -68,6 +69,19 @@ export function StaffHub() {
       });
       load();
     } catch { toast.error("Failed to update task"); }
+  }
+
+  async function deleteTask(taskId: string, title: string) {
+    if (!confirm(`Delete task "${title}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch("/api/doz/staff-hub", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_task", taskId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Task deleted");
+      load();
+    } catch { toast.error("Failed to delete task"); }
   }
 
   async function deactivate(userId: string) {
@@ -115,7 +129,15 @@ export function StaffHub() {
       {/* Staff Cards */}
       <div className="space-y-4">
         {data.staff.filter((s: any) => s.isActive).map((staff: any) => (
-          <StaffCard key={staff.id} staff={staff} onToggleTask={toggleTask} onAssign={() => { setAssignTarget(staff.id); setShowAssignTask(true); }} onDeactivate={() => deactivate(staff.id)} />
+          <StaffCard
+            key={staff.id}
+            staff={staff}
+            onToggleTask={toggleTask}
+            onAssign={() => { setAssignTarget(staff.id); setShowAssignTask(true); }}
+            onDeactivate={() => deactivate(staff.id)}
+            onEditTask={(task: any) => setEditingTask(task)}
+            onDeleteTask={(taskId: string, title: string) => deleteTask(taskId, title)}
+          />
         ))}
       </div>
 
@@ -127,15 +149,36 @@ export function StaffHub() {
 
       {/* DIDI Assign Dialog */}
       {showDIDI && <DIDIAssignDialog onClose={() => setShowDIDI(false)} onSaved={load} staff={data.staff} />}
+
+      {/* Modify Task Dialog — founder edits any task */}
+      {editingTask && (
+        <ModifyTaskDialog
+          task={editingTask}
+          staff={data.staff}
+          onClose={() => setEditingTask(null)}
+          onSaved={() => { setEditingTask(null); load(); }}
+        />
+      )}
     </div>
   );
 }
 
 // ============================================================
 // Staff Card — shows roles, responsibilities, and tasks
+// Adds Modify (pencil) + Delete (trash) buttons per task so the
+// founder can edit any staff/intern task directly.
 // ============================================================
-function StaffCard({ staff, onToggleTask, onAssign, onDeactivate }: any) {
+function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, onDeleteTask }: any) {
   const [showTasks, setShowTasks] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  // Merge this-week tasks with completed tasks so the founder sees the
+  // full picture (completed tasks are tucked under a collapsible section).
+  const openTasks = [
+    ...staff.tasks.thisWeek,
+    ...staff.tasks.today.filter((t: any) => !staff.tasks.thisWeek.find((x: any) => x.id === t.id)),
+  ];
+  const completedTasks = staff.tasks.completed || [];
 
   return (
     <Card className="overflow-hidden">
@@ -189,48 +232,273 @@ function StaffCard({ staff, onToggleTask, onAssign, onDeactivate }: any) {
       )}
 
       {/* Task Summary */}
-      <div className="flex items-center gap-3 border-b border-border p-3 text-xs">
+      <div className="flex items-center gap-3 border-b border-border p-3 text-xs flex-wrap">
         <span className="flex items-center gap-1 text-amber-400"><Clock className="h-3 w-3" /> {staff.tasks.today.length} today</span>
-        <span className="flex items-center gap-1 text-muted-foreground"><Target className="h-3 w-3" /> {staff.tasks.thisWeek.length} this week</span>
+        <span className="flex items-center gap-1 text-muted-foreground"><Target className="h-3 w-3" /> {openTasks.length} open</span>
         {staff.tasks.overdue.length > 0 && (
           <span className="flex items-center gap-1 text-rose-400"><AlertCircle className="h-3 w-3" /> {staff.tasks.overdue.length} overdue</span>
+        )}
+        {completedTasks.length > 0 && (
+          <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="h-3 w-3" /> {completedTasks.length} done</span>
         )}
         <Button variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => setShowTasks(!showTasks)}>
           {showTasks ? "Hide" : "Show"} tasks
         </Button>
       </div>
 
-      {/* Task List */}
-      {showTasks && staff.tasks.thisWeek.length > 0 && (
+      {/* Task List — open tasks */}
+      {showTasks && openTasks.length > 0 && (
         <div className="divide-y divide-border">
-          {staff.tasks.thisWeek.map((task: any) => (
-            <div key={task.id} className="flex items-start gap-2 p-3 hover:bg-muted/20">
-              <button onClick={() => onToggleTask(task.id)} className="mt-0.5 shrink-0">
-                {task.status === "DONE"
-                  ? <CheckCircle2 className="h-4 w-4 text-primary" />
-                  : <Circle className="h-4 w-4 text-muted-foreground" />}
-              </button>
-              <div className="min-w-0 flex-1">
-                <p className={`text-xs ${task.status === "DONE" ? "text-muted-foreground line-through" : ""}`}>{task.title}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <PriorityDot priority={task.priority} />
-                  <span className="text-[10px] text-muted-foreground">{PRIORITY_LABELS[task.priority] || task.priority}</span>
-                  {task.dueDate && (
-                    <span className={`text-[10px] ${new Date(task.dueDate) < new Date() ? "text-rose-400" : "text-muted-foreground"}`}>
-                      {relativeTime(task.dueDate)}
-                    </span>
-                  )}
-                  {task.isDistraction && <Badge className="text-[9px] bg-amber-500/15 text-amber-400">Distraction</Badge>}
-                </div>
-              </div>
-            </div>
+          {openTasks.map((task: any) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              onToggle={() => onToggleTask(task.id)}
+              onEdit={() => onEditTask(task)}
+              onDelete={() => onDeleteTask(task.id, task.title)}
+            />
           ))}
         </div>
       )}
-      {showTasks && staff.tasks.thisWeek.length === 0 && (
-        <div className="p-4 text-center text-xs text-muted-foreground">No tasks this week. Click "Task" to assign one.</div>
+
+      {/* Completed tasks (collapsible) */}
+      {showTasks && completedTasks.length > 0 && (
+        <>
+          <button
+            className="flex w-full items-center gap-2 border-t border-border bg-muted/30 px-3 py-2 text-left text-[11px] font-medium text-muted-foreground hover:bg-muted/50"
+            onClick={() => setShowCompleted(!showCompleted)}
+          >
+            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+            {showCompleted ? "Hide" : "Show"} {completedTasks.length} completed task{completedTasks.length !== 1 ? "s" : ""}
+          </button>
+          {showCompleted && (
+            <div className="divide-y divide-border">
+              {completedTasks.map((task: any) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onToggle={() => onToggleTask(task.id)}
+                  onEdit={() => onEditTask(task)}
+                  onDelete={() => onDeleteTask(task.id, task.title)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {showTasks && openTasks.length === 0 && completedTasks.length === 0 && (
+        <div className="p-4 text-center text-xs text-muted-foreground">No tasks yet. Click "Task" to assign one.</div>
       )}
     </Card>
+  );
+}
+
+// ============================================================
+// Task Row — single task with toggle + edit + delete actions
+// ============================================================
+function TaskRow({ task, onToggle, onEdit, onDelete }: any) {
+  const isDone = task.status === "DONE";
+  const isOverdue = !isDone && task.dueDate && new Date(task.dueDate).getTime() < Date.now();
+  return (
+    <div className="group flex items-start gap-2 p-3 hover:bg-muted/20">
+      <button onClick={onToggle} className="mt-0.5 shrink-0" title={isDone ? "Reopen" : "Mark done"}>
+        {isDone
+          ? <CheckCircle2 className="h-4 w-4 text-primary" />
+          : <Circle className="h-4 w-4 text-muted-foreground hover:text-primary" />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className={`text-xs ${isDone ? "text-muted-foreground line-through" : ""}`}>{task.title}</p>
+        {task.description && (
+          <p className="mt-0.5 text-[10px] text-muted-foreground/80 line-clamp-2">{task.description}</p>
+        )}
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <PriorityDot priority={task.priority} />
+          <span className="text-[10px] text-muted-foreground">{PRIORITY_LABELS[task.priority] || task.priority}</span>
+          {task.dueDate && (
+            <span className={`text-[10px] ${isOverdue ? "text-rose-400 font-medium" : "text-muted-foreground"}`}>
+              {relativeTime(task.dueDate)}
+            </span>
+          )}
+          {task.category && (
+            <span className="text-[10px] text-muted-foreground/70">· {task.category}</span>
+          )}
+          {task.isDistraction && <Badge className="text-[9px] bg-amber-500/15 text-amber-400">Distraction</Badge>}
+          {task.creator && (
+            <span className="text-[10px] text-muted-foreground/60">· by {task.creator}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onEdit} title="Modify task">
+          <Pencil className="h-3 w-3" />
+        </Button>
+        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-400 hover:text-rose-500" onClick={onDelete} title="Delete task">
+          <Trash2 className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Modify Task Dialog — founder edits an existing staff/intern task
+// Can change: title, description, assignee (reassign), priority,
+// category, due date, status. Also exposes a Delete button.
+// ============================================================
+function ModifyTaskDialog({ task, staff, onClose, onSaved }: any) {
+  // Pre-populate the form from the existing task
+  const dueDateValue = task.dueDate
+    ? new Date(task.dueDate).toISOString().slice(0, 10)
+    : "";
+
+  const [form, setForm] = useState({
+    title: task.title || "",
+    description: task.description || "",
+    assigneeId: task.assigneeId || "",
+    priority: task.priority || "MEDIUM",
+    category: task.category || "OPERATIONAL",
+    dueDate: dueDateValue,
+    status: task.status || "TODO",
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.title.trim()) { toast.error("Title cannot be empty"); return; }
+    setSubmitting(true);
+    try {
+      const fields: any = {
+        title: form.title,
+        description: form.description,
+        priority: form.priority,
+        category: form.category,
+        dueDate: form.dueDate || null,
+        status: form.status,
+      };
+      // Only send assigneeId if it actually changed (avoid nulling it accidentally)
+      if (form.assigneeId && form.assigneeId !== task.assigneeId) {
+        fields.assigneeId = form.assigneeId;
+      }
+
+      const res = await fetch("/api/doz/staff-hub", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_task", taskId: task.id, fields }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update");
+      toast.success("Task updated");
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update task");
+    } finally { setSubmitting(false); }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Delete task "${task.title}"? This cannot be undone.`)) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/staff-hub", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_task", taskId: task.id }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Task deleted");
+      onSaved();
+    } catch { toast.error("Failed to delete task"); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-primary" /> Modify Task
+          </DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <Label className="text-xs">Task Title *</Label>
+            <Input value={form.title} onChange={e => setForm({...form, title: e.target.value})} required />
+          </div>
+          <div>
+            <Label className="text-xs">Description</Label>
+            <Textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={2} />
+          </div>
+          <div>
+            <Label className="text-xs">Assigned To</Label>
+            <Select value={form.assigneeId} onValueChange={v => setForm({...form, assigneeId: v})}>
+              <SelectTrigger><SelectValue placeholder="Select staff member" /></SelectTrigger>
+              <SelectContent>
+                {staff.filter((s: any) => s.isActive).map((s: any) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name} ({s.role})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {form.assigneeId !== task.assigneeId && (
+              <p className="mt-1 text-[10px] text-amber-400">Reassigning — this will move the task to the new person's Command Center.</p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Priority</Label>
+              <Select value={form.priority} onValueChange={v => setForm({...form, priority: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Category</Label>
+              <Select value={form.category} onValueChange={v => setForm({...form, category: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="STRATEGIC">Strategic</SelectItem>
+                  <SelectItem value="OPERATIONAL">Operational</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Due Date</Label>
+              <Input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
+            </div>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={form.status} onValueChange={v => setForm({...form, status: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TODO">To Do</SelectItem>
+                  <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                  <SelectItem value="DONE">Done</SelectItem>
+                  <SelectItem value="BLOCKED">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-between gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={handleDelete} disabled={submitting}
+              className="gap-1.5 border-rose-500/40 text-rose-400 hover:bg-rose-500/10 hover:text-rose-500">
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+              <Button type="submit" disabled={submitting} className="gap-1.5">
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Pencil className="h-3.5 w-3.5" /> Save Changes</>}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

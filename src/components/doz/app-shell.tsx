@@ -94,11 +94,15 @@ const NAV: NavItem[] = [
   { id: "updates", label: "Updates & Backups", icon: <Package className="h-4 w-4" />, group: "Scale" },
 ];
 
-// Role-based module access (Phase 2)
+// Role-based module access
+// NOTE: Team Management and Staff Hub are FOUNDER-ONLY.
+//       Staff and interns do NOT see these pages. The founder assigns
+//       tasks to them from Staff Hub; those tasks appear on the staff/intern's
+//       Command Center via the myDay.tasks API (filtered by assigneeId).
 const ROLE_MODULES: Record<string, ModuleId[]> = {
   FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
-  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help"],
-  INTERN: ["command", "field", "team", "staff-hub", "sop", "help"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
+  INTERN: ["command", "field", "sop", "help"],
   FREELANCER: ["command", "field", "projects", "help"],
 };
 

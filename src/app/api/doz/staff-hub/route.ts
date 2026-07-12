@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, hashPassword } from "@/lib/auth";
 
-// GET — staff overview with roles, responsibilities, and tasks
+// GET — staff overview with roles, responsibilities, and tasks.
+// FOUNDER sees ALL tasks for every staff member (including completed).
+// STAFF/INTERN only see their own open tasks (they cannot open this page
+// anyway — it's restricted — but the API stays safe by filtering to their id).
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const isFounder = user.role === "FOUNDER";
 
   const [users, staffRoles, tasks] = await Promise.all([
     db.user.findMany({
@@ -14,9 +19,15 @@ export async function GET() {
     }),
     db.staffRole.findMany(),
     db.task.findMany({
-      where: { status: { not: "DONE" } },
+      // Founder sees every non-archived task; non-founders only see their own
+      where: isFounder
+        ? undefined
+        : { assigneeId: user.id },
       include: { assignee: true, creator: true },
-      orderBy: { dueDate: "asc" },
+      orderBy: [
+        { status: "asc" }, // DONE last
+        { dueDate: "asc" },
+      ],
     }),
   ]);
 
@@ -26,18 +37,29 @@ export async function GET() {
     if (t.assigneeId) {
       if (!tasksByUser[t.assigneeId]) tasksByUser[t.assigneeId] = [];
       tasksByUser[t.assigneeId].push({
-        id: t.id, title: t.title, status: t.status, priority: t.priority,
-        category: t.category, dueDate: t.dueDate, isDistraction: t.isDistraction,
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        status: t.status,
+        priority: t.priority,
+        category: t.category,
+        dueDate: t.dueDate,
+        isDistraction: t.isDistraction,
+        completedAt: t.completedAt,
         creator: t.creator?.name,
+        creatorId: t.creatorId,
+        assigneeId: t.assigneeId,
       });
     }
   }
 
   // Build staff profiles
+  const DAY = 86400000;
+  const now = Date.now();
   const staff = users.map(u => {
     const roles = staffRoles.filter(r => r.userId === u.id);
     const userTasks = tasksByUser[u.id] || [];
-    const doneToday = userTasks.filter(t => t.status === "DONE").length;
+    const doneToday = userTasks.filter(t => t.status === "DONE" && t.completedAt && new Date(t.completedAt).getTime() > now - DAY).length;
     return {
       id: u.id,
       name: u.name,
@@ -53,23 +75,25 @@ export async function GET() {
         responsibilities: r.responsibilities ? r.responsibilities.split("\n").filter(Boolean) : [],
       })),
       tasks: {
-        today: userTasks.filter(t => t.dueDate && new Date(t.dueDate) <= new Date(Date.now() + 86400000)),
-        thisWeek: userTasks.filter(t => t.dueDate && new Date(t.dueDate) <= new Date(Date.now() + 7 * 86400000)),
-        overdue: userTasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "DONE"),
+        today: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() <= now + DAY),
+        thisWeek: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() <= now + 7 * DAY),
+        overdue: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() < now),
+        completed: userTasks.filter(t => t.status === "DONE"),
         total: userTasks.length,
       },
+      doneToday,
     };
   });
 
   // Summary stats
   const summary = {
     totalStaff: users.filter(u => u.isActive).length,
-    totalTasks: tasks.length,
-    overdueTasks: tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date()).length,
-    todayTasks: tasks.filter(t => t.dueDate && new Date(t.dueDate) <= new Date(Date.now() + 86400000)).length,
+    totalTasks: tasks.filter(t => t.status !== "DONE").length,
+    overdueTasks: tasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() < now).length,
+    todayTasks: tasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() <= now + DAY).length,
   };
 
-  return NextResponse.json({ staff, summary });
+  return NextResponse.json({ staff, summary, isFounder });
 }
 
 // POST — add staff, assign task, create staff role
@@ -156,6 +180,106 @@ export async function POST(req: Request) {
       data: { status: newStatus, completedAt: newStatus === "DONE" ? new Date() : null },
     });
     return NextResponse.json({ ok: true, status: newStatus });
+  }
+
+  // Update task — FOUNDER only. Lets the founder modify any staff/intern task:
+  // title, description, priority, category, dueDate, assigneeId, status.
+  // Body: { action: "update_task", taskId, fields: { ... } }
+  if (body.action === "update_task") {
+    if (user.role !== "FOUNDER") return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+    if (!body.taskId) return NextResponse.json({ error: "taskId required" }, { status: 400 });
+    if (!body.fields || typeof body.fields !== "object") {
+      return NextResponse.json({ error: "fields object required" }, { status: 400 });
+    }
+
+    const existing = await db.task.findUnique({ where: { id: body.taskId } });
+    if (!existing) return NextResponse.json({ error: "task not found" }, { status: 404 });
+
+    const f = body.fields;
+    const data: any = {};
+
+    if (typeof f.title === "string" && f.title.trim().length > 0) {
+      data.title = f.title.trim();
+    }
+    if (f.description !== undefined) {
+      data.description = typeof f.description === "string" && f.description.trim().length > 0
+        ? f.description.trim()
+        : null;
+    }
+    if (typeof f.priority === "string" && ["URGENT", "HIGH", "MEDIUM", "LOW"].includes(f.priority)) {
+      data.priority = f.priority;
+    }
+    if (f.category !== undefined) {
+      data.category = (f.category === null || f.category === "" || ["STRATEGIC", "OPERATIONAL", "ADMIN", "DISTRACTION"].includes(f.category))
+        ? (f.category === "" ? null : f.category)
+        : existing.category;
+    }
+    if (f.assigneeId !== undefined) {
+      if (f.assigneeId === null || f.assigneeId === "") {
+        data.assigneeId = null;
+      } else if (typeof f.assigneeId === "string") {
+        const target = await db.user.findUnique({ where: { id: f.assigneeId }, select: { id: true } });
+        if (!target) return NextResponse.json({ error: "assignee not found" }, { status: 400 });
+        data.assigneeId = f.assigneeId;
+      }
+    }
+    if (f.dueDate !== undefined) {
+      if (f.dueDate === null || f.dueDate === "") {
+        data.dueDate = null;
+      } else {
+        const d = new Date(f.dueDate);
+        if (!isNaN(d.getTime())) data.dueDate = d;
+      }
+    }
+    if (typeof f.status === "string" && ["TODO", "IN_PROGRESS", "DONE", "BLOCKED"].includes(f.status)) {
+      data.status = f.status;
+      data.completedAt = f.status === "DONE" ? new Date() : null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: "no fields to update" }, { status: 400 });
+    }
+
+    const updated = await db.task.update({
+      where: { id: body.taskId },
+      data,
+    });
+
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: "UPDATED_TASK",
+          detail: `Modified "${updated.title}" (${Object.keys(data).join(", ")})`,
+        },
+      });
+    } catch {}
+
+    return NextResponse.json({ ok: true, task: updated });
+  }
+
+  // Delete task — FOUNDER only.
+  // Body: { action: "delete_task", taskId }
+  if (body.action === "delete_task") {
+    if (user.role !== "FOUNDER") return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+    if (!body.taskId) return NextResponse.json({ error: "taskId required" }, { status: 400 });
+
+    const existing = await db.task.findUnique({ where: { id: body.taskId }, select: { id: true, title: true } });
+    if (!existing) return NextResponse.json({ error: "task not found" }, { status: 404 });
+
+    await db.task.delete({ where: { id: body.taskId } });
+
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: "DELETED_TASK",
+          detail: `Deleted "${existing.title}"`,
+        },
+      });
+    } catch {}
+
+    return NextResponse.json({ ok: true, id: body.taskId });
   }
 
   // DIDI creates activities for staff — uses AI to parse description into structured tasks

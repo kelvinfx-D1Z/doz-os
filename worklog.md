@@ -2155,3 +2155,49 @@ VERIFIED:
 - Updates API: returns version v5.0, DB 752 KB, 60 total records, 14 users, 7 projects
 - Backup creation: "backup-2026-07-11T21-44-34.db" created successfully
 - Page: 200
+
+---
+Task ID: ROLE-RESTRICT (Founder-only Team Management + Staff Hub + Task Assignment flow)
+Agent: Main (orchestrator)
+Task: Restrict Team Management and Staff Hub to FOUNDER only. When founder assigns/modifies a task from Staff Hub, it must appear on the staff/intern Command Center.
+
+Work Log:
+1. ROLE_MODULES UPDATED (src/components/doz/app-shell.tsx):
+   - FOUNDER: ["command","planning","routines","ai","field","crm","marketing","projects","procurement","finance","team","staff-hub","sop","help","updates"] — UNCHANGED
+   - STAFF:    REMOVED "team" + "staff-hub" → now ["command","planning","routines","field","crm","marketing","projects","procurement","finance","sop","help"]
+   - INTERN:   REMOVED "team" + "staff-hub" → now ["command","field","sop","help"]
+   - FREELANCER: UNCHANGED — ["command","field","projects","help"]
+   - Result: Team Management + Staff Hub are now FOUNDER-ONLY in the sidebar.
+
+2. STAFF-HUB API UPDATED (src/app/api/doz/staff-hub/route.ts):
+   - GET now returns ALL tasks (including DONE) for the founder — so the founder sees full task history per staff member, not just open ones
+   - Non-founders (defensive — they can't open the page anyway) only see their own tasks
+   - GET response now includes isFounder flag, plus per-task: description, completedAt, creatorId, assigneeId, category
+   - Added `update_task` action (FOUNDER only) — supports: title, description, priority, category, assigneeId (reassign), dueDate, status. Writes ActivityLog entry.
+   - Added `delete_task` action (FOUNDER only) — removes task + writes ActivityLog entry
+   - Each staff profile now exposes `tasks.completed[]` so the UI can show completed-task history
+   - Added `doneToday` count (completed within last 24h) per staff member
+
+3. STAFF-HUB UI UPDATED (src/components/modules/staff-hub.tsx):
+   - New TaskRow component — each task row now has hover-revealed Modify (pencil) + Delete (trash) buttons
+   - New ModifyTaskDialog — pre-populated form with Title, Description, Assigned To (with reassign warning), Priority, Category, Due Date, Status, and a red Delete button
+   - StaffCard now merges today + this-week tasks and shows a collapsible "completed tasks" section so the founder sees the full picture
+   - Task summary row shows: today count, open count, overdue count, completed count
+   - ModifyTaskDialog shows an amber warning when reassigning ("this will move the task to the new person's Command Center")
+   - DeleteTask handler wired up in both the row hover button and the Modify dialog
+
+4. TASK ASSIGNMENT FLOW (works end-to-end via existing /api/doz/dashboard myDay.tasks):
+   - The dashboard GET already filters tasks by `assigneeId === currentUser` AND `status !== "DONE"` AND `dueDate <= todayEnd`
+   - So any task the founder assigns via Staff Hub → appears on the assignee's Command Center "Your Tasks Today" section automatically
+   - Verified: assigned "Call 5 prospective clients for the MTN event" to Akpala (intern) with due=today → it appeared on her Command Center
+
+Stage Summary — VERIFIED via agent-browser end-to-end:
+- FOUNDER (Kelvin) login: sidebar shows Team Management + Staff Hub ✓
+- FOUNDER opens Staff Hub: sees 5 staff cards, each with Modify + Delete buttons per task ✓
+- FOUNDER clicks Modify on Akpala's "LED screen" task → dialog pre-populated → changes Priority HIGH→URGENT + adds description → saves → DB confirmed updated ✓
+- FOUNDER clicks "Assign Task" → creates "Call 5 prospective clients for the MTN event" for Akpala ✓
+- INTERN (Akpala) login: sidebar shows ONLY Command Center, Field Mode, SOP, Help — NO Team Management, NO Staff Hub ✓
+- Akpala's Command Center "Your Tasks Today" shows the founder-assigned task with "today" due date ✓
+- STAFF (Tunde) login: sidebar shows operational modules only — NO Team Management, NO Staff Hub ✓
+- Lint: clean
+- Dev log: all 200/201 responses, no errors
