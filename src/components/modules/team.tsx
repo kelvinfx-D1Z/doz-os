@@ -34,6 +34,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   StatCard,
   StatusBadge,
@@ -46,6 +47,7 @@ import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { ModuleId } from "@/lib/store";
 import {
   Users,
   UserCog,
@@ -77,6 +79,18 @@ import {
   UserX,
   UserCheck,
   Key,
+  ShieldCheck,
+  LayoutDashboard,
+  Repeat,
+  Smartphone,
+  Users2,
+  Megaphone,
+  Clapperboard,
+  Truck,
+  Wallet,
+  BookOpen,
+  HelpCircle,
+  Package,
 } from "lucide-react";
 
 // ============================================================
@@ -100,6 +114,8 @@ interface Member {
   phone: string | null;
   capacity: number;
   isActive: boolean;
+  /** Per-user module permissions. null = use role defaults. */
+  permissions?: string[] | null;
   _count: MemberCount;
   openTasks: number;
   lastReport: { reportDate: string; mood: Mood; hoursWorked: number } | null;
@@ -302,6 +318,7 @@ function MemberCard({
   onEdit,
   onDeactivate,
   onReactivate,
+  onPermissions,
 }: {
   m: Member;
   isFounder: boolean;
@@ -309,10 +326,12 @@ function MemberCard({
   onEdit: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
+  onPermissions: () => void;
 }) {
   const today = new Date();
   const reportedToday =
     m.lastReport && isSameDay(new Date(m.lastReport.reportDate), today);
+  const hasCustomPerms = Array.isArray(m.permissions) && m.permissions.length > 0;
 
   return (
     <Card
@@ -348,6 +367,15 @@ function MemberCard({
                 className="border-rose-500/40 bg-rose-500/10 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-rose-300"
               >
                 Inactive
+              </Badge>
+            )}
+            {hasCustomPerms && (
+              <Badge
+                variant="outline"
+                className="border-primary/40 bg-primary/10 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-primary"
+                title={`${m.permissions!.length} custom modules`}
+              >
+                <ShieldCheck className="h-2.5 w-2.5" /> {m.permissions!.length} access
               </Badge>
             )}
           </div>
@@ -450,6 +478,17 @@ function MemberCard({
           >
             <Pencil className="h-3 w-3" />
             Edit
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-[11px] border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+            onClick={onPermissions}
+            title="Set which modules this user can see"
+          >
+            <ShieldCheck className="h-3 w-3" />
+            Access
           </Button>
           {m.isActive ? (
             <Button
@@ -1426,6 +1465,9 @@ function AddMemberDialog({
   const [phone, setPhone] = useState("");
   const [capacity, setCapacity] = useState("40");
   const [password, setPassword] = useState("");
+  // Per-user permissions. null → role defaults apply (not customized).
+  // When the founder toggles a module, we store the resulting array here.
+  const [permissions, setPermissions] = useState<ModuleId[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Reset form whenever the dialog is opened.
@@ -1442,9 +1484,15 @@ function AddMemberDialog({
       setPhone("");
       setCapacity("40");
       setPassword("");
+      setPermissions(null);
       setSubmitting(false);
     }
   }
+
+  // Effective selected modules: if the founder has customized, use their list;
+  // otherwise fall back to the role defaults. Computed during render (no effect).
+  const effectivePermissions: ModuleId[] =
+    permissions ?? (TEAM_ROLE_DEFAULTS[role] ?? TEAM_ROLE_DEFAULTS.STAFF);
 
   const valid =
     name.trim().length > 0 &&
@@ -1456,19 +1504,25 @@ function AddMemberDialog({
     if (!valid || submitting) return;
     setSubmitting(true);
     try {
+      const payload: any = {
+        action: "create",
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        role,
+        title: title.trim() || undefined,
+        phone: phone.trim() || undefined,
+        capacity: Number(capacity) || 40,
+        password,
+      };
+      // Only send permissions if the founder customized them; otherwise backend
+      // stores null and role defaults apply at sign-in.
+      if (permissions) {
+        payload.permissions = permissions;
+      }
       const res = await fetch("/api/doz/team/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role,
-          title: title.trim() || undefined,
-          phone: phone.trim() || undefined,
-          capacity: Number(capacity) || 40,
-          password,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -1493,7 +1547,7 @@ function AddMemberDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>Add Team Member</DialogTitle>
           <DialogDescription>
@@ -1584,6 +1638,29 @@ function AddMemberDialog({
               </p>
             </div>
           </div>
+
+          {/* Module Access Permissions */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5 text-xs">
+                <ShieldCheck className="h-3 w-3 text-primary" /> Module Access
+              </Label>
+              {!permissions && (
+                <span className="text-[10px] text-muted-foreground">
+                  Defaults for {role.toLowerCase()} — click to customize
+                </span>
+              )}
+            </div>
+            <TeamPermissionsPicker
+              selected={effectivePermissions}
+              onChange={(next) => setPermissions(next)}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Pick exactly which pages this person can see in their sidebar.
+              Command Center is always required.
+            </p>
+          </div>
+
           <DialogFooter>
             <Button
               type="button"
@@ -2061,6 +2138,7 @@ export function Team() {
   const [passwordMember, setPasswordMember] = useState<Member | null>(null);
   const [deactivateMember, setDeactivateMember] = useState<Member | null>(null);
   const [reactivatingMember, setReactivatingMember] = useState<Member | null>(null);
+  const [permissionsMember, setPermissionsMember] = useState<Member | null>(null);
 
   // ---- Load team data (with refresh support)
   const loadTeam = useCallback(async () => {
@@ -2331,6 +2409,7 @@ export function Team() {
                   onEdit={() => setEditingMember(m)}
                   onDeactivate={() => setDeactivateMember(m)}
                   onReactivate={() => handleReactivate(m)}
+                  onPermissions={() => setPermissionsMember(m)}
                 />
               ))}
             </div>
@@ -2473,6 +2552,13 @@ export function Team() {
             onOpenChange={(open) => !open && setDeactivateMember(null)}
             onConfirmed={loadTeam}
           />
+          {permissionsMember && (
+            <TeamPermissionsDialog
+              member={permissionsMember}
+              onClose={() => setPermissionsMember(null)}
+              onSaved={loadTeam}
+            />
+          )}
         </>
       )}
 
@@ -2486,5 +2572,207 @@ export function Team() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Module catalog + Permissions picker (shared with Staff Hub)
+// ============================================================
+const TEAM_MODULE_CATALOG: { id: ModuleId; label: string; icon: React.ReactNode; group: string }[] = [
+  { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "planning", label: "Strategic Planning", icon: <Target className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "routines", label: "Routines", icon: <Repeat className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "field", label: "Field Mode", icon: <Smartphone className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-3.5 w-3.5" />, group: "Grow" },
+  { id: "marketing", label: "Marketing & Growth", icon: <Megaphone className="h-3.5 w-3.5" />, group: "Grow" },
+  { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-3.5 w-3.5" />, group: "Deliver" },
+  { id: "procurement", label: "Procurement", icon: <Truck className="h-3.5 w-3.5" />, group: "Deliver" },
+  { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "team", label: "Team Management", icon: <UserCog className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-3.5 w-3.5" />, group: "Scale" },
+  { id: "help", label: "Help & Guide", icon: <HelpCircle className="h-3.5 w-3.5" />, group: "Scale" },
+  { id: "updates", label: "Updates & Backups", icon: <Package className="h-3.5 w-3.5" />, group: "Scale" },
+];
+
+const TEAM_ROLE_DEFAULTS: Record<string, ModuleId[]> = {
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
+  INTERN: ["command", "field", "sop", "help"],
+  FREELANCER: ["command", "field", "projects", "help"],
+};
+
+function TeamPermissionsPicker({
+  selected,
+  onChange,
+}: {
+  selected: ModuleId[];
+  onChange: (next: ModuleId[]) => void;
+}) {
+  const grouped = TEAM_MODULE_CATALOG.reduce<Record<string, typeof TEAM_MODULE_CATALOG>>((acc, m) => {
+    (acc[m.group] ||= []).push(m);
+    return acc;
+  }, {});
+
+  function toggle(id: ModuleId) {
+    if (id === "command") return; // always required
+    if (selected.includes(id)) {
+      onChange(selected.filter((s) => s !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  }
+
+  return (
+    <div className="max-h-64 space-y-3 overflow-y-auto scroll-thin rounded-lg border border-border bg-muted/20 p-3">
+      {Object.entries(grouped).map(([group, items]) => (
+        <div key={group}>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {group}
+          </p>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {items.map((m) => {
+              const checked = selected.includes(m.id);
+              const isLocked = m.id === "command";
+              return (
+                <label
+                  key={m.id}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-md border p-2 text-xs transition-colors",
+                    checked
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border hover:border-primary/30 hover:bg-muted/40",
+                    isLocked && "cursor-not-allowed opacity-70"
+                  )}
+                >
+                  <Checkbox
+                    checked={checked}
+                    disabled={isLocked}
+                    onCheckedChange={() => toggle(m.id)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span className="text-muted-foreground">{m.icon}</span>
+                  <span className={cn("flex-1", checked ? "font-medium text-foreground" : "text-muted-foreground")}>
+                    {m.label}
+                  </span>
+                  {isLocked && <span className="text-[9px] uppercase text-muted-foreground">required</span>}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// TeamPermissionsDialog — founder edits an existing user's module access
+// from the Team Management page. Calls PATCH /api/doz/team/manage with
+// action: "update_permissions".
+// ============================================================
+function TeamPermissionsDialog({
+  member,
+  onClose,
+  onSaved,
+}: {
+  member: Member;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const initial: ModuleId[] =
+    Array.isArray(member.permissions) && member.permissions.length > 0
+      ? (member.permissions as ModuleId[])
+      : (TEAM_ROLE_DEFAULTS[member.role] ?? TEAM_ROLE_DEFAULTS.INTERN);
+  const [selected, setSelected] = useState<ModuleId[]>(initial);
+  const [submitting, setSubmitting] = useState(false);
+  const hadCustomPerms = Array.isArray(member.permissions) && member.permissions.length > 0;
+
+  async function handleSave() {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: member.id,
+          action: "update_permissions",
+          permissions: selected,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(`Updated ${member.name}'s module access`);
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update permissions");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleReset() {
+    if (!confirm(`Reset ${member.name}'s access to the default modules for their role (${member.role})?`)) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/team/manage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: member.id,
+          action: "update_permissions",
+          permissions: null,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`${member.name} now uses ${member.role} role defaults`);
+      onSaved();
+    } catch {
+      toast.error("Failed to reset permissions");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary" /> Module Access — {member.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{member.name}</span> ·{" "}
+            <span className="text-[10px] uppercase tracking-wide">{member.role}</span>
+            {hadCustomPerms ? (
+              <span className="ml-2 text-primary">· Custom access ({member.permissions!.length} modules)</span>
+            ) : (
+              <span className="ml-2">· Using {member.role} role defaults</span>
+            )}
+          </div>
+          <Label className="text-xs">Visible Modules</Label>
+          <TeamPermissionsPicker selected={selected} onChange={setSelected} />
+          <p className="text-[10px] text-muted-foreground">
+            Changes take effect the next time {member.name} signs in. Command Center is always required.
+          </p>
+          <div className="flex justify-between gap-2 pt-1">
+            <Button type="button" variant="ghost" size="sm" onClick={handleReset} disabled={submitting} className="text-xs">
+              Reset to role defaults
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleSave} disabled={submitting} className="gap-1.5">
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><ShieldCheck className="h-3.5 w-3.5" /> Save Access</>)}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

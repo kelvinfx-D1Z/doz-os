@@ -2201,3 +2201,87 @@ Stage Summary — VERIFIED via agent-browser end-to-end:
 - STAFF (Tunde) login: sidebar shows operational modules only — NO Team Management, NO Staff Hub ✓
 - Lint: clean
 - Dev log: all 200/201 responses, no errors
+
+---
+Task ID: PERMS (Per-user module permissions + Help page filtering)
+Agent: Main (orchestrator)
+Task: When the founder creates a new team member, he should be able to select what they can see and what they shouldn't see. This permission should also affect the Help page.
+
+Work Log:
+1. SCHEMA — Added `permissions String?` column to User model
+   - Stores a JSON array of ModuleId strings, e.g. '["command","field","projects","help"]'
+   - null = use role-based defaults (ROLE_MODULES in app-shell)
+   - Pushed to DB with `bunx prisma db push` + regenerated client
+
+2. AUTH — Permissions now flow through the session
+   - authorize(): parses user.permissions JSON → returns string[] in the user object
+   - jwt callback: stores token.permissions
+   - session callback: exposes session.user.permissions
+   - getSessionUser() return type updated to include permissions
+   - Added parsePermissions() helper in auth.ts for reuse
+
+3. USE-CURRENT-USER HOOK — CurrentUser interface now includes `permissions?: string[] | null`
+
+4. APP-SHELL — New resolveAllowedModules(role, permissions) function
+   - If user has custom permissions array → use it (filtered to valid ModuleIds)
+   - Otherwise → fall back to ROLE_MODULES[role]
+   - "command" is always included so every user has a landing page
+   - ROLE_MODULES kept as the defaults for each role (FOUNDER/STAFF/INTERN/FREELANCER)
+
+5. STAFF-HUB API (src/app/api/doz/staff-hub/route.ts):
+   - GET now returns each user's `permissions` (parsed)
+   - add_staff action now accepts a `permissions` array (sanitized against VALID_MODULES)
+   - NEW update_permissions action (FOUNDER only) — sets or clears a user's permissions
+   - Both write to ActivityLog
+
+6. TEAM/MANAGE API (src/app/api/doz/team/manage/route.ts):
+   - POST (create) now accepts + persists permissions
+   - PATCH now supports action: "update_permissions" (separate from regular edit)
+   - Regular PATCH also persists permissions if provided
+   - All responses now include the parsed permissions
+
+7. TEAM API GET (src/app/api/doz/team/route.ts):
+   - Each member object now includes `permissions` (parsed from JSON column)
+
+8. STAFF-HUB UI (src/components/modules/staff-hub.tsx):
+   - New MODULE_CATALOG (15 modules with icons + groups) + ROLE_DEFAULT_MODULES
+   - New PermissionsPicker component — grouped checkbox grid, "command" locked as required
+   - AddStaffDialog: now includes the PermissionsPicker pre-filled with role defaults
+     - "Defaults for {role} — click to customize" hint shown until the founder toggles a box
+     - Only sends permissions to the API if the founder customized them
+   - NEW PermissionsDialog — opens when founder clicks "Access" on a staff card
+     - Shows current state (Custom access vs role defaults)
+     - Save / Reset to role defaults / Cancel
+   - StaffCard: new "Access" button next to "Task"; shows "{n} modules" badge when custom perms set
+
+9. TEAM UI (src/components/modules/team.tsx):
+   - Added Checkbox + ShieldCheck + module icon imports + ModuleId type import
+   - Member interface: added `permissions?: string[] | null`
+   - New TEAM_MODULE_CATALOG + TEAM_ROLE_DEFAULTS + TeamPermissionsPicker (mirrors staff-hub)
+   - New TeamPermissionsDialog — calls PATCH /api/doz/team/manage with action: "update_permissions"
+   - MemberCard: new "Access" button (founder only) next to Edit; shows "{n} access" badge when custom perms set
+   - AddMemberDialog: now includes the TeamPermissionsPicker pre-filled with role defaults
+   - Main Team component: new permissionsMember state + renders TeamPermissionsDialog
+
+10. HELP PAGE (src/components/modules/help-page.tsx):
+    - MODULE_GUIDES now tagged with ModuleId so they can be filtered
+    - New ROLE_DEFAULT_MODULES + resolveAllowedModules() (mirrors app-shell logic)
+    - HelpPage now resolves the user's effective modules and filters MODULE_GUIDES accordingly
+    - "Your access is customized" banner shown when user has custom permissions
+    - "X of Y modules" badge on the Module Guide card
+    - DIDI tip card only shows if user can access the "ai" module
+    - Role-specific guide (Founder/Staff/Intern/Freelancer) still shows regardless of perms
+
+Stage Summary — VERIFIED via agent-browser end-to-end:
+- FOUNDER login → Staff Hub → every staff card has an "Access" button ✓
+- FOUNDER clicks "Access" on Akpala → Permissions dialog opens, shows INTERN defaults (command+field+sop+help checked) ✓
+- FOUNDER checks "CRM & Sales" → Save → dialog closes, DB confirmed: ["command","field","sop","help","crm"] ✓
+- INTERN (Akpala) login → sidebar now shows 5 modules including CRM & Sales ✓
+- Akpala opens Help & Guide → "Your access is customized" banner + "4 of 14 modules" badge ✓
+- Help page Module Guide only shows: Command Center, Field Mode, CRM & Sales, SOP & Knowledge ✓
+- FOUNDER login → Team Management → every member card has "Edit" + "Access" buttons ✓
+- Akpala's card shows "5 ACCESS" badge indicating custom permissions ✓
+- FOUNDER clicks "Add Member" → dialog includes full Module Access picker pre-filled with STAFF defaults ✓
+- FOUNDER clicks "Add Staff" (Staff Hub) → dialog includes Module Access picker pre-filled with INTERN defaults ✓
+- Lint: clean
+- Dev log: all 200 responses, no errors

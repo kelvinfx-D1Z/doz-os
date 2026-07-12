@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser, hashPassword } from "@/lib/auth";
+import { getSessionUser, hashPassword, parsePermissions } from "@/lib/auth";
+import type { ModuleId } from "@/lib/store";
+
+// All valid module IDs — used to validate the permissions array.
+const VALID_MODULES: ModuleId[] = [
+  "command", "planning", "routines", "ai", "field", "crm", "marketing",
+  "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates",
+];
+
+// Sanitize an incoming permissions array → valid ModuleId[] | null.
+// Returns null if the input is empty or invalid (so role defaults kick in).
+function sanitizePermissions(input: any): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const filtered = input.filter((p) => typeof p === "string" && VALID_MODULES.includes(p as ModuleId));
+  return filtered.length > 0 ? filtered : null;
+}
 
 // GET — staff overview with roles, responsibilities, and tasks.
 // FOUNDER sees ALL tasks for every staff member (including completed).
@@ -69,6 +84,8 @@ export async function GET() {
       phone: u.phone,
       capacity: u.capacity,
       isActive: u.isActive,
+      // Per-user permissions (null = role defaults apply)
+      permissions: parsePermissions(u.permissions),
       roles: roles.map(r => ({
         pillar: r.pillar,
         percentage: r.percentage,
@@ -113,6 +130,8 @@ export async function POST(req: Request) {
     const existing = await db.user.findUnique({ where: { email: body.email.toLowerCase() } });
     if (existing) return NextResponse.json({ error: "email already exists" }, { status: 409 });
 
+    // Sanitize permissions array — null means "use role defaults"
+    const perms = sanitizePermissions(body.permissions);
     const created = await db.user.create({
       data: {
         name: body.name,
@@ -123,9 +142,39 @@ export async function POST(req: Request) {
         capacity: Number(body.capacity) || 40,
         password: hashPassword(body.password),
         isActive: true,
+        permissions: perms ? JSON.stringify(perms) : null,
       },
     });
     return NextResponse.json({ ok: true, user: { id: created.id, name: created.name } }, { status: 201 });
+  }
+
+  // Update permissions (FOUNDER only) — sets the per-user module access list.
+  // Body: { action: "update_permissions", userId, permissions: string[] | null }
+  // Pass permissions=null (or []) to clear the override and revert to role defaults.
+  if (body.action === "update_permissions") {
+    if (user.role !== "FOUNDER") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!body.userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+
+    const target = await db.user.findUnique({ where: { id: body.userId }, select: { id: true, name: true, role: true } });
+    if (!target) return NextResponse.json({ error: "user not found" }, { status: 404 });
+
+    const perms = sanitizePermissions(body.permissions);
+    await db.user.update({
+      where: { id: body.userId },
+      data: { permissions: perms ? JSON.stringify(perms) : null },
+    });
+
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: "UPDATED_PERMISSIONS",
+          detail: `Set ${target.name}'s module access to ${perms ? `${perms.length} module(s)` : "role defaults"}`,
+        },
+      });
+    } catch {}
+
+    return NextResponse.json({ ok: true, userId: body.userId, permissions: perms });
   }
 
   // Assign task to a staff member

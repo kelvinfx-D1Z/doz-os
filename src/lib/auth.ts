@@ -63,12 +63,26 @@ export const authOptions: NextAuthOptions = {
         });
         if (!user || !user.isActive || !user.password) return null;
         if (user.password !== hashPassword(credentials.password)) return null;
+        // Parse permissions once at sign-in so the JWT carries the array
+        // (avoids re-parsing the JSON column on every request).
+        let perms: string[] | null = null;
+        if (user.permissions) {
+          try {
+            const parsed = JSON.parse(user.permissions);
+            if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
+              perms = parsed;
+            }
+          } catch {
+            perms = null;
+          }
+        }
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           role: user.role,
           title: user.title ?? undefined,
+          permissions: perms,
         } as any;
       },
     }),
@@ -79,6 +93,7 @@ export const authOptions: NextAuthOptions = {
         token.id = (user as any).id;
         token.role = (user as any).role;
         token.title = (user as any).title;
+        token.permissions = (user as any).permissions ?? null;
       }
       return token;
     },
@@ -87,6 +102,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).id = token.id as string;
         (session.user as any).role = token.role as string;
         (session.user as any).title = token.title as string | undefined;
+        (session.user as any).permissions = (token.permissions as string[] | null) ?? null;
       }
       return session;
     },
@@ -100,6 +116,24 @@ export async function getSessionUser() {
   const { getServerSession } = await import("next-auth");
   const session = await getServerSession(authOptions);
   return session?.user as
-    | { id: string; name: string; email: string; role: string; title?: string }
+    | { id: string; name: string; email: string; role: string; title?: string; permissions?: string[] | null }
     | null;
+}
+
+// ============================================================
+// Parse a user's permissions from the DB column into a string[].
+// Returns null when no custom permissions are set (caller should
+// fall back to role-based defaults).
+// ============================================================
+export function parsePermissions(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
 }

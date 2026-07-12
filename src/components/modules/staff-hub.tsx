@@ -9,15 +9,135 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import type { ModuleId } from "@/lib/store";
 import {
   Users, Plus, Crown, GraduationCap, Briefcase, CheckCircle2, Circle,
   Clock, AlertCircle, Sparkles, Loader2, Pencil, Trash2, Target, Send,
+  ShieldCheck,
 } from "lucide-react";
 import { SectionHeader, MiniBar, PriorityDot } from "@/components/doz/ui-primitives";
 import { formatDate, relativeTime, initials, avatarColor } from "@/lib/format";
+
+// ============================================================
+// Module catalog — labels, icons, groups. Mirrors app-shell NAV.
+// Used by the PermissionsPicker so the founder can toggle what each
+// staff member sees in their sidebar.
+// NOTE: Most icons (Users, Plus, Sparkles, Target, etc.) are already imported
+// from lucide-react at the top of this file. We only add the additional
+// icons here that aren't already imported above.
+// ============================================================
+import {
+  LayoutDashboard, Repeat, Smartphone,
+  Megaphone, Clapperboard, Truck, Wallet,
+  UserCog, BookOpen, HelpCircle, Package, Users2,
+} from "lucide-react";
+
+type ModuleEntry = {
+  id: ModuleId;
+  label: string;
+  icon: React.ReactNode;
+  group: string;
+};
+
+const MODULE_CATALOG: ModuleEntry[] = [
+  { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "planning", label: "Strategic Planning", icon: <Target className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "routines", label: "Routines", icon: <Repeat className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "field", label: "Field Mode", icon: <Smartphone className="h-3.5 w-3.5" />, group: "Operate" },
+  { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-3.5 w-3.5" />, group: "Grow" },
+  { id: "marketing", label: "Marketing & Growth", icon: <Megaphone className="h-3.5 w-3.5" />, group: "Grow" },
+  { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-3.5 w-3.5" />, group: "Deliver" },
+  { id: "procurement", label: "Procurement", icon: <Truck className="h-3.5 w-3.5" />, group: "Deliver" },
+  { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "team", label: "Team Management", icon: <UserCog className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-3.5 w-3.5" />, group: "Scale" },
+  { id: "help", label: "Help & Guide", icon: <HelpCircle className="h-3.5 w-3.5" />, group: "Scale" },
+  { id: "updates", label: "Updates & Backups", icon: <Package className="h-3.5 w-3.5" />, group: "Scale" },
+];
+
+// Role-based module defaults — kept in sync with app-shell ROLE_MODULES.
+// When the founder picks a role, the picker pre-selects these modules
+// so they can start from a sane baseline and tweak from there.
+const ROLE_DEFAULT_MODULES: Record<string, ModuleId[]> = {
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
+  INTERN: ["command", "field", "sop", "help"],
+  FREELANCER: ["command", "field", "projects", "help"],
+};
+
+// ============================================================
+// PermissionsPicker — checkbox grid of all modules, grouped.
+// Controlled component: parent owns the `selected` array.
+// ============================================================
+function PermissionsPicker({
+  selected,
+  onChange,
+}: {
+  selected: ModuleId[];
+  onChange: (next: ModuleId[]) => void;
+}) {
+  // Group modules by group label for nicer UX
+  const grouped = MODULE_CATALOG.reduce<Record<string, ModuleEntry[]>>((acc, m) => {
+    (acc[m.group] ||= []).push(m);
+    return acc;
+  }, {});
+
+  function toggle(id: ModuleId) {
+    // "command" is always required — it's the landing page
+    if (id === "command") return;
+    if (selected.includes(id)) {
+      onChange(selected.filter((s) => s !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  }
+
+  return (
+    <div className="max-h-64 space-y-3 overflow-y-auto scroll-thin rounded-lg border border-border bg-muted/20 p-3">
+      {Object.entries(grouped).map(([group, items]) => (
+        <div key={group}>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            {group}
+          </p>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {items.map((m) => {
+              const checked = selected.includes(m.id);
+              const isLocked = m.id === "command"; // always-on
+              return (
+                <label
+                  key={m.id}
+                  className={`flex cursor-pointer items-center gap-2 rounded-md border p-2 text-xs transition-colors ${
+                    checked
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border hover:border-primary/30 hover:bg-muted/40"
+                  } ${isLocked ? "cursor-not-allowed opacity-70" : ""}`}
+                >
+                  <Checkbox
+                    checked={checked}
+                    disabled={isLocked}
+                    onCheckedChange={() => toggle(m.id)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span className="text-muted-foreground">{m.icon}</span>
+                  <span className={`flex-1 ${checked ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                    {m.label}
+                  </span>
+                  {isLocked && <span className="text-[9px] uppercase text-muted-foreground">required</span>}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const ROLE_ICONS: Record<string, React.ReactNode> = {
   FOUNDER: <Crown className="h-4 w-4 text-emerald-400" />,
@@ -49,6 +169,7 @@ export function StaffHub() {
   const [showDIDI, setShowDIDI] = useState(false);
   const [assignTarget, setAssignTarget] = useState<string>("");
   const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [permissionsUser, setPermissionsUser] = useState<any | null>(null);
 
   async function load() {
     try {
@@ -137,6 +258,7 @@ export function StaffHub() {
             onDeactivate={() => deactivate(staff.id)}
             onEditTask={(task: any) => setEditingTask(task)}
             onDeleteTask={(taskId: string, title: string) => deleteTask(taskId, title)}
+            onPermissions={() => setPermissionsUser(staff)}
           />
         ))}
       </div>
@@ -159,6 +281,15 @@ export function StaffHub() {
           onSaved={() => { setEditingTask(null); load(); }}
         />
       )}
+
+      {/* Permissions Dialog — founder sets what this user can see */}
+      {permissionsUser && (
+        <PermissionsDialog
+          user={permissionsUser}
+          onClose={() => setPermissionsUser(null)}
+          onSaved={() => { setPermissionsUser(null); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -168,7 +299,7 @@ export function StaffHub() {
 // Adds Modify (pencil) + Delete (trash) buttons per task so the
 // founder can edit any staff/intern task directly.
 // ============================================================
-function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, onDeleteTask }: any) {
+function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, onDeleteTask, onPermissions }: any) {
   const [showTasks, setShowTasks] = useState(true);
   const [showCompleted, setShowCompleted] = useState(false);
 
@@ -179,6 +310,8 @@ function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, on
     ...staff.tasks.today.filter((t: any) => !staff.tasks.thisWeek.find((x: any) => x.id === t.id)),
   ];
   const completedTasks = staff.tasks.completed || [];
+  // Has custom permissions? (null = role defaults apply)
+  const hasCustomPerms = Array.isArray(staff.permissions) && staff.permissions.length > 0;
 
   return (
     <Card className="overflow-hidden">
@@ -188,13 +321,21 @@ function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, on
           {initials(staff.name)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold">{staff.name}</h3>
             {ROLE_ICONS[staff.role]}
+            {hasCustomPerms && (
+              <Badge variant="outline" className="gap-1 border-primary/40 bg-primary/10 px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                <ShieldCheck className="h-2.5 w-2.5" /> {staff.permissions.length} modules
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">{staff.title} · {staff.email}</p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap justify-end">
+          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onPermissions} title="Module access permissions">
+            <ShieldCheck className="h-3 w-3" /> Access
+          </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onAssign}>
             <Plus className="h-3 w-3" /> Task
           </Button>
@@ -506,17 +647,35 @@ function ModifyTaskDialog({ task, staff, onClose, onSaved }: any) {
 // Add Staff Dialog
 // ============================================================
 function AddStaffDialog({ onClose, onSaved }: any) {
+  // `permissions` starts as null → role defaults will apply on the backend.
+  // When the founder toggles a module, we store the resulting array here.
   const [form, setForm] = useState({ name: "", email: "", role: "INTERN", title: "", phone: "", capacity: "40", password: "" });
+  const [permissions, setPermissions] = useState<ModuleId[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Effective selected modules: if the founder has customized, use their list;
+  // otherwise fall back to the role defaults. Computed during render (no effect).
+  const effectivePermissions: ModuleId[] =
+    permissions ?? (ROLE_DEFAULT_MODULES[form.role] ?? ROLE_DEFAULT_MODULES.INTERN);
+
+  function handlePermsChange(next: ModuleId[]) {
+    setPermissions(next);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name || !form.email || !form.password) { toast.error("Name, email, and password are required"); return; }
     setSubmitting(true);
     try {
+      // Only send permissions if the founder customized them; otherwise backend
+      // will store null and the role defaults will apply at sign-in time.
+      const payload: any = { action: "add_staff", ...form };
+      if (permissions) {
+        payload.permissions = permissions;
+      }
       const res = await fetch("/api/doz/staff-hub", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_staff", ...form }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -528,8 +687,8 @@ function AddStaffDialog({ onClose, onSaved }: any) {
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Add New Staff Member</DialogTitle></DialogHeader>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Add New Team Member</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div><Label className="text-xs">Full Name *</Label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} required /></div>
           <div><Label className="text-xs">Email *</Label><Input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required /></div>
@@ -552,11 +711,124 @@ function AddStaffDialog({ onClose, onSaved }: any) {
             <div><Label className="text-xs">Capacity (hrs/week)</Label><Input type="number" value={form.capacity} onChange={e => setForm({...form, capacity: e.target.value})} /></div>
           </div>
           <div><Label className="text-xs">Password *</Label><Input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required minLength={6} /></div>
+
+          {/* Module Access Permissions */}
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <Label className="text-xs flex items-center gap-1.5">
+                <ShieldCheck className="h-3 w-3 text-primary" /> Module Access
+              </Label>
+              {!permissions && (
+                <span className="text-[10px] text-muted-foreground">
+                  Defaults for {form.role.toLowerCase()} — click to customize
+                </span>
+              )}
+            </div>
+            <PermissionsPicker
+              selected={effectivePermissions}
+              onChange={handlePermsChange}
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Pick exactly which pages this person can see in their sidebar. Command Center is always required. The Help page will only show guides for modules they can access.
+            </p>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Staff"}</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Team Member"}</Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Permissions Dialog — founder edits an existing user's module access
+// ============================================================
+function PermissionsDialog({ user, onClose, onSaved }: any) {
+  // Start from the user's current permissions (or role defaults if none set)
+  const initial: ModuleId[] = Array.isArray(user.permissions) && user.permissions.length > 0
+    ? user.permissions
+    : (ROLE_DEFAULT_MODULES[user.role] ?? ROLE_DEFAULT_MODULES.INTERN);
+  const [selected, setSelected] = useState<ModuleId[]>(initial);
+  const [submitting, setSubmitting] = useState(false);
+  const hadCustomPerms = Array.isArray(user.permissions) && user.permissions.length > 0;
+
+  async function handleSave() {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/staff-hub", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_permissions",
+          userId: user.id,
+          permissions: selected,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(`Updated ${user.name}'s module access`);
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update permissions");
+    } finally { setSubmitting(false); }
+  }
+
+  async function handleResetToRoleDefaults() {
+    if (!confirm(`Reset ${user.name}'s access to the default modules for their role (${user.role})?`)) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/doz/staff-hub", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_permissions",
+          userId: user.id,
+          permissions: null, // clear the override
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`${user.name} now uses ${user.role} role defaults`);
+      onSaved();
+    } catch { toast.error("Failed to reset permissions"); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-primary" /> Module Access — {user.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-muted/30 border border-border p-2.5 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{user.name}</span> · <span className="uppercase tracking-wide text-[10px]">{user.role}</span>
+            {hadCustomPerms
+              ? <span className="ml-2 text-primary">· Custom access ({user.permissions.length} modules)</span>
+              : <span className="ml-2">· Using {user.role} role defaults</span>
+            }
+          </div>
+
+          <Label className="text-xs">Visible Modules</Label>
+          <PermissionsPicker selected={selected} onChange={setSelected} />
+          <p className="text-[10px] text-muted-foreground">
+            Changes take effect the next time {user.name} signs in. Command Center is always required.
+          </p>
+
+          <div className="flex justify-between gap-2 pt-1">
+            <Button type="button" variant="ghost" size="sm" onClick={handleResetToRoleDefaults} disabled={submitting} className="text-xs">
+              Reset to role defaults
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+              <Button type="button" onClick={handleSave} disabled={submitting} className="gap-1.5">
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ShieldCheck className="h-3.5 w-3.5" /> Save Access</>}
+              </Button>
+            </div>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

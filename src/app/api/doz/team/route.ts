@@ -128,6 +128,16 @@ export async function GET(req: Request) {
   // =====================================================
   const members = users.map((u) => {
     const last = lastReportByUser.get(u.id) ?? null;
+    // Parse per-user permissions (null = role defaults apply)
+    let perms: string[] | null = null;
+    if (u.permissions) {
+      try {
+        const parsed = JSON.parse(u.permissions);
+        if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
+          perms = parsed;
+        }
+      } catch {}
+    }
     return {
       id: u.id,
       name: u.name,
@@ -137,6 +147,7 @@ export async function GET(req: Request) {
       phone: u.phone,
       capacity: u.capacity,
       isActive: u.isActive,
+      permissions: perms,
       _count: {
         tasksAssigned: u._count.tasksAssigned,
         dailyReports: u._count.dailyReports,

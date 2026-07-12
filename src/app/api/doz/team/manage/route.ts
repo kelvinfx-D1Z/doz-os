@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser, hashPassword } from "@/lib/auth";
+import { getSessionUser, hashPassword, parsePermissions } from "@/lib/auth";
+import type { ModuleId } from "@/lib/store";
 
 // All routes require FOUNDER role
 async function requireFounder() {
@@ -8,6 +9,17 @@ async function requireFounder() {
   if (!user) return null;
   if (user.role !== "FOUNDER") return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   return { user };
+}
+
+const VALID_MODULES: ModuleId[] = [
+  "command", "planning", "routines", "ai", "field", "crm", "marketing",
+  "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates",
+];
+
+function sanitizePermissions(input: any): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const filtered = input.filter((p) => typeof p === "string" && VALID_MODULES.includes(p as ModuleId));
+  return filtered.length > 0 ? filtered : null;
 }
 
 // POST — create a new team member
@@ -24,6 +36,7 @@ export async function POST(req: Request) {
   const existing = await db.user.findUnique({ where: { email: body.email.toLowerCase() } });
   if (existing) return NextResponse.json({ error: "email already exists" }, { status: 409 });
 
+  const perms = sanitizePermissions(body.permissions);
   const created = await db.user.create({
     data: {
       name: body.name,
@@ -34,6 +47,7 @@ export async function POST(req: Request) {
       capacity: Number(body.capacity) || 40,
       password: hashPassword(body.password),
       isActive: true,
+      permissions: perms ? JSON.stringify(perms) : null,
     },
   });
 
@@ -48,11 +62,12 @@ export async function POST(req: Request) {
       phone: created.phone,
       capacity: created.capacity,
       isActive: created.isActive,
+      permissions: parsePermissions(created.permissions),
     },
   }, { status: 201 });
 }
 
-// PATCH — update a team member or change password
+// PATCH — update a team member, change password, or update permissions
 export async function PATCH(req: Request) {
   const auth = await requireFounder();
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -75,17 +90,43 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Regular update
+  // Update permissions only (used by the Permissions dialog in Team module)
+  if (body.action === "update_permissions") {
+    const perms = sanitizePermissions(body.permissions);
+    await db.user.update({
+      where: { id: body.userId },
+      data: { permissions: perms ? JSON.stringify(perms) : null },
+    });
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: auth.user.id,
+          action: "UPDATED_PERMISSIONS",
+          detail: `Set ${existing.name}'s module access to ${perms ? `${perms.length} module(s)` : "role defaults"}`,
+        },
+      });
+    } catch {}
+    return NextResponse.json({ ok: true, userId: body.userId, permissions: perms });
+  }
+
+  // Regular update (name, title, phone, role, capacity, isActive)
+  const data: any = {
+    name: body.name || existing.name,
+    title: body.title !== undefined ? body.title : existing.title,
+    phone: body.phone !== undefined ? body.phone : existing.phone,
+    role: body.role || existing.role,
+    capacity: body.capacity !== undefined ? Number(body.capacity) : existing.capacity,
+    isActive: body.isActive !== undefined ? body.isActive : existing.isActive,
+  };
+  // If permissions are provided on a regular update, sanitize + persist them too
+  if (body.permissions !== undefined) {
+    const perms = sanitizePermissions(body.permissions);
+    data.permissions = perms ? JSON.stringify(perms) : null;
+  }
+
   const updated = await db.user.update({
     where: { id: body.userId },
-    data: {
-      name: body.name || existing.name,
-      title: body.title !== undefined ? body.title : existing.title,
-      phone: body.phone !== undefined ? body.phone : existing.phone,
-      role: body.role || existing.role,
-      capacity: body.capacity !== undefined ? Number(body.capacity) : existing.capacity,
-      isActive: body.isActive !== undefined ? body.isActive : existing.isActive,
-    },
+    data,
   });
 
   return NextResponse.json({
@@ -99,6 +140,7 @@ export async function PATCH(req: Request) {
       phone: updated.phone,
       capacity: updated.capacity,
       isActive: updated.isActive,
+      permissions: parsePermissions(updated.permissions),
     },
   });
 }

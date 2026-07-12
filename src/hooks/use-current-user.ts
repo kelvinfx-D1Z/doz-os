@@ -7,6 +7,8 @@ export interface CurrentUser {
   email: string;
   role: string;
   title?: string;
+  /** Per-user module permissions. When null, the role-based defaults apply. */
+  permissions?: string[] | null;
 }
 
 export function useCurrentUser(): { user: CurrentUser | null; status: "loading" | "authenticated" | "unauthenticated" } {

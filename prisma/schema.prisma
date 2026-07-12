@@ -25,6 +25,11 @@ model User {
   capacity  Int      @default(40) // available hours/week
   isActive  Boolean  @default(true)
   password  String?  // hashed (sha256) — demo password: doz2025
+  // Per-user module permissions — JSON array of ModuleId strings.
+  // When set, this OVERRIDES the role-based ROLE_MODULES defaults in app-shell.tsx.
+  // When null/empty, the role-based defaults are used.
+  // Example: '["command","field","projects","help"]'
+  permissions String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

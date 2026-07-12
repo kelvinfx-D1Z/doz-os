@@ -95,16 +95,37 @@ const NAV: NavItem[] = [
 ];
 
 // Role-based module access
-// NOTE: Team Management and Staff Hub are FOUNDER-ONLY.
+// NOTE: Team Management and Staff Hub are FOUNDER-ONLY by default.
 //       Staff and interns do NOT see these pages. The founder assigns
 //       tasks to them from Staff Hub; those tasks appear on the staff/intern's
 //       Command Center via the myDay.tasks API (filtered by assigneeId).
+//
+// PER-USER OVERRIDE: If a user has `permissions` set in their record
+//       (managed from Staff Hub → Permissions or Team → Edit), that list
+//       OVERRIDES these role-based defaults. The founder can grant any
+//       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
   FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
   STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
   INTERN: ["command", "field", "sop", "help"],
   FREELANCER: ["command", "field", "projects", "help"],
 };
+
+// Resolve a user's effective module list.
+// 1. If the user has a custom `permissions` array → use it (filtered to valid ModuleIds).
+// 2. Otherwise → fall back to the role-based defaults.
+// "command" is always included so the user always has a landing page.
+function resolveAllowedModules(role: string, permissions?: string[] | null): ModuleId[] {
+  if (permissions && Array.isArray(permissions) && permissions.length > 0) {
+    const valid = NAV.map((n) => n.id);
+    const filtered = permissions.filter((p) => valid.includes(p as ModuleId)) as ModuleId[];
+    if (filtered.length > 0) {
+      // Always ensure "command" is present so the user has a landing page
+      return filtered.includes("command") ? filtered : (["command", ...filtered] as ModuleId[]);
+    }
+  }
+  return ROLE_MODULES[role] ?? ROLE_MODULES.FOUNDER;
+}
 
 const MODULES: Record<ModuleId, React.ReactNode> = {
   command: <CommandCenter />,
@@ -194,7 +215,7 @@ export function AppShell() {
   }
 
   const role = user.role;
-  const allowed = ROLE_MODULES[role] ?? ROLE_MODULES.FOUNDER;
+  const allowed = resolveAllowedModules(role, user.permissions);
   const visibleNav = NAV.filter((n) => allowed.includes(n.id));
 
   // If the active module isn't allowed for this role, fall back to command

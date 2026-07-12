@@ -2,11 +2,12 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import type { ModuleId } from "@/lib/store";
 import {
   HelpCircle, Crown, Briefcase, GraduationCap, LayoutDashboard, Target,
   Users2, Clapperboard, Truck, Wallet, UserCog, BookOpen, Sparkles,
   Smartphone, Repeat, Megaphone, Calendar, GraduationCap as Intern,
-  ArrowRight, Lightbulb, Shield,
+  ArrowRight, Lightbulb, Shield, ShieldCheck, Package,
 } from "lucide-react";
 import { SectionHeader } from "@/components/doz/ui-primitives";
 
@@ -135,29 +136,60 @@ const ROLE_GUIDES: Record<string, { title: string; icon: React.ReactNode; sectio
   },
 };
 
-const MODULE_GUIDES = [
-  { name: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, desc: "Your daily dashboard — priorities, approvals, cash, team activity" },
-  { name: "Growth Dashboard", icon: <Target className="h-4 w-4" />, desc: "Company health score and 39 live KPIs tracking the ₦500M vision" },
-  { name: "Founder's Roadmap", icon: <Crown className="h-4 w-4" />, desc: "12-month CEO plan — daily activities, quarterly milestones, ecosystem vision" },
-  { name: "DIDI", icon: <Sparkles className="h-4 w-4" />, desc: "AI Growth Coach — ask anything, create tasks, draft proposals. Floating bubble on every page." },
-  { name: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, desc: "Real customers vs potentials, pipeline, proposals, follow-ups with assignment" },
-  { name: "Marketing & Growth", icon: <Megaphone className="h-4 w-4" />, desc: "12 posts/month tracker, content ideas, SEO, email list, partnerships" },
-  { name: "Projects & Events", icon: <Clapperboard className="h-4 w-4" />, desc: "Project financials, crew, vendor costs, equipment lists, milestones" },
-  { name: "Procurement & Payments", icon: <Truck className="h-4 w-4" />, desc: "Vendors, expenses, payments, 3-way segregation (Requester ≠ Approver ≠ Payer)" },
-  { name: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, desc: "P&L by project/client/service, invoices, reminders, budgets" },
-  { name: "Staff Hub", icon: <UserCog className="h-4 w-4" />, desc: "Manage staff, assign tasks, DIDI creates activities, track pillar allocations" },
-  { name: "Calendar", icon: <Calendar className="h-4 w-4" />, desc: "All projects, tasks, invoices, and follow-ups in a month grid" },
-  { name: "Internship Program", icon: <Intern className="h-4 w-4" />, desc: "12-month NJFP program — 84 milestones, daily standups, performance reviews" },
-  { name: "Routines", icon: <Repeat className="h-4 w-4" />, desc: "Business rhythm checklists — morning, weekly review, event day, monthly close" },
-  { name: "Field Mode", icon: <Smartphone className="h-4 w-4" />, desc: "Mobile report filing + offline event run-sheet" },
-  { name: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, desc: "Templates, checklists, policies, case studies, training materials" },
+// Each module guide is tagged with the ModuleId it describes, so the Help
+// page can show only guides for modules the current user can actually access.
+const MODULE_GUIDES: { id: ModuleId; name: string; icon: React.ReactNode; desc: string }[] = [
+  { id: "command", name: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, desc: "Your daily dashboard — priorities, approvals, cash, team activity" },
+  { id: "planning", name: "Strategic Planning", icon: <Target className="h-4 w-4" />, desc: "Annual → Quarterly → Monthly → Weekly → Daily goal cascade" },
+  { id: "routines", name: "Routines", icon: <Repeat className="h-4 w-4" />, desc: "Business rhythm checklists — morning, weekly review, event day, monthly close" },
+  { id: "ai", name: "DIDI — AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, desc: "AI Growth Coach — ask anything, create tasks, draft proposals. Floating bubble on every page." },
+  { id: "field", name: "Field Mode", icon: <Smartphone className="h-4 w-4" />, desc: "Mobile report filing + offline event run-sheet" },
+  { id: "crm", name: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, desc: "Real customers vs potentials, pipeline, proposals, follow-ups with assignment" },
+  { id: "marketing", name: "Marketing & Growth", icon: <Megaphone className="h-4 w-4" />, desc: "12 posts/month tracker, content ideas, SEO, email list, partnerships" },
+  { id: "projects", name: "Projects & Events", icon: <Clapperboard className="h-4 w-4" />, desc: "Project financials, crew, vendor costs, equipment lists, milestones" },
+  { id: "procurement", name: "Procurement & Payments", icon: <Truck className="h-4 w-4" />, desc: "Vendors, expenses, payments, 3-way segregation (Requester ≠ Approver ≠ Payer)" },
+  { id: "finance", name: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, desc: "P&L by project/client/service, invoices, reminders, budgets" },
+  { id: "team", name: "Team Management", icon: <UserCog className="h-4 w-4" />, desc: "Add/edit/deactivate team members, change passwords, daily & weekly reports" },
+  { id: "staff-hub", name: "Staff Hub", icon: <Users2 className="h-4 w-4" />, desc: "Manage staff, assign tasks, DIDI creates activities, track pillar allocations" },
+  { id: "sop", name: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, desc: "Templates, checklists, policies, case studies, training materials" },
+  { id: "updates", name: "Updates & Backups", icon: <Package className="h-4 w-4" />, desc: "Apply system updates and restore database backups (founder only)" },
 ];
+
+// Role-based module defaults — mirrors app-shell ROLE_MODULES so the Help
+// page can resolve which modules a user sees even when they have no custom
+// permissions array (i.e. they're using the role defaults).
+const ROLE_DEFAULT_MODULES: Record<string, ModuleId[]> = {
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
+  INTERN: ["command", "field", "sop", "help"],
+  FREELANCER: ["command", "field", "projects", "help"],
+};
+
+// Resolve the effective module list for a user — same logic as app-shell.
+function resolveAllowedModules(role: string, permissions?: string[] | null): ModuleId[] {
+  if (permissions && Array.isArray(permissions) && permissions.length > 0) {
+    const valid = MODULE_GUIDES.map((m) => m.id);
+    const filtered = permissions.filter((p) => valid.includes(p as ModuleId)) as ModuleId[];
+    if (filtered.length > 0) {
+      return filtered.includes("command") ? filtered : (["command", ...filtered] as ModuleId[]);
+    }
+  }
+  return ROLE_DEFAULT_MODULES[role] ?? ROLE_DEFAULT_MODULES.FOUNDER;
+}
 
 export function HelpPage() {
   const { user } = useCurrentUser();
   const role = user?.role || "FOUNDER";
   const guide = ROLE_GUIDES[role] || ROLE_GUIDES.FOUNDER;
   const isFounder = role === "FOUNDER";
+  // Resolve which modules this user can access (custom permissions or role defaults).
+  // The Help page only shows guides for modules they can actually open.
+  const hasCustomPerms = Array.isArray(user?.permissions) && user!.permissions!.length > 0;
+  const allowedModules = resolveAllowedModules(role, user?.permissions);
+
+  // Filter the module guides to only those the user can access.
+  // Always include the "Help" guide (this page) and the always-on Command Center.
+  const visibleGuides = MODULE_GUIDES.filter((m) => allowedModules.includes(m.id));
 
   return (
     <div className="space-y-6">
@@ -166,6 +198,22 @@ export function HelpPage() {
         title="Help & Guide"
         description={`Personalized for ${user?.name || "you"} — ${guide.title}`}
       />
+
+      {/* Permissions banner — shows when the user has custom module access */}
+      {hasCustomPerms && (
+        <Card className="border-l-4 border-l-primary bg-primary/[0.04] p-4">
+          <div className="flex items-start gap-2">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div className="text-xs">
+              <p className="font-semibold text-primary">Your access is customized</p>
+              <p className="mt-0.5 text-muted-foreground">
+                You can see {allowedModules.length} modules. This guide only covers the pages you have access to.
+                {isFounder && " You can edit any user's access from Staff Hub → Access or Team Management → Access."}
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Role-specific guide */}
       <Card className="border-l-4 border-l-primary p-5">
@@ -190,28 +238,35 @@ export function HelpPage() {
         </div>
       </Card>
 
-      {/* Module guides — FOUNDER only */}
-      {isFounder && (
+      {/* Module guides — filtered to only modules the user can access */}
       <Card className="p-5">
-        <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Lightbulb className="h-4 w-4 text-amber-400" /> Module Guide — What Each Page Does
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Lightbulb className="h-4 w-4 text-amber-400" /> Module Guide — What Each Page Does
+          </div>
+          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+            {visibleGuides.length} of {MODULE_GUIDES.length} modules
+          </Badge>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {MODULE_GUIDES.map((m, i) => (
-            <div key={i} className="flex items-start gap-2 rounded-lg border border-border p-2.5">
-              <span className="mt-0.5 text-primary">{m.icon}</span>
-              <div>
-                <p className="text-xs font-semibold">{m.name}</p>
-                <p className="text-[10px] text-muted-foreground">{m.desc}</p>
+        {visibleGuides.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No module guides available for your access level.</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleGuides.map((m, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg border border-border p-2.5">
+                <span className="mt-0.5 text-primary">{m.icon}</span>
+                <div>
+                  <p className="text-xs font-semibold">{m.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{m.desc}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
-      )}
 
-      {/* DIDI tip — FOUNDER only */}
-      {isFounder && (
+      {/* DIDI tip — only if the user can access the AI module */}
+      {allowedModules.includes("ai") && (
       <Card className="border-l-4 border-l-amber-500/50 p-5">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <Sparkles className="h-4 w-4 text-primary" /> DIDI is Here to Help
