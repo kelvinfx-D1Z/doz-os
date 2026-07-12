@@ -172,7 +172,7 @@ function buildEmailDraft(opts: {
     `${COMPANY.founder}`,
     `${COMPANY.title}`,
     `${COMPANY.name}`,
-    "Lagos, Nigeria",
+    "Abuja, Nigeria",
   ].join("\n");
 
   return { subject, body };

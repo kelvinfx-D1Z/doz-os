@@ -236,7 +236,7 @@ export function HelpPage() {
       </Card>
 
       <p className="text-center text-[10px] text-muted-foreground">
-        DOZ OS · Digit One Zero Ltd · Lagos, Nigeria
+        DOZ OS · Digit One Zero Ltd · Abuja, Nigeria
       </p>
     </div>
   );

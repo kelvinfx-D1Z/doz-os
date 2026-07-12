@@ -389,7 +389,7 @@ export function AppShell() {
             <Badge variant="outline" className="gap-1 border-primary/30 text-[10px] text-primary">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Live
             </Badge>
-            <span className="hidden md:inline">Digit One Zero Ltd · Lagos, Nigeria</span>
+            <span className="hidden md:inline">Digit One Zero Ltd · Abuja, Nigeria</span>
           </div>
         </div>
       </footer>
