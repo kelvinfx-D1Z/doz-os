@@ -2457,7 +2457,7 @@ function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean
 
   useEffect(() => {
     load();
-    fetch("/api/doz/vendors").then(r => r.json()).then(d => setVendors((d.vendors || []).map((v:any) => ({id:v.id,name:v.name}))).catch(() => {}));
+    fetch("/api/doz/vendors").then(r => r.json()).then(d => setVendors((d.vendors || []).map((v:any) => ({id:v.id,name:v.name})))).catch(() => {});
   }, [load]);
 
   if (loading) return <Skeleton className="h-32 w-full" />;

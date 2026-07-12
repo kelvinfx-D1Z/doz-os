@@ -81,7 +81,7 @@ export function FounderTasks() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader icon={<Crown className="h-5 w-5" />} title="Founder's Roadmap" subtitle="From Operator → CEO — 12 months to build a company that can build other companies" />
+      <SectionHeader icon={<Crown className="h-5 w-5" />} title="Founder's Roadmap" description="From Operator → CEO — 12 months to build a company that can build other companies" />
 
       {/* 1. MONTHLY SCORECARD (on top) */}
       <Card className="border-l-4 border-l-primary p-5">

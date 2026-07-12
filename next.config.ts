@@ -50,9 +50,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  eslint: {
-    ignoreDuringBuilds: false,
-  },
   reactStrictMode: true,
   async headers() {
     return [

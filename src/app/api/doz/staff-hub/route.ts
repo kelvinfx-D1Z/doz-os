@@ -406,7 +406,7 @@ Return ONLY the JSON array. No explanation, no markdown.`,
     }
 
     // Create the tasks
-    const created = [];
+    const created: Awaited<ReturnType<typeof db.task.create>>[] = [];
     for (const t of parsedTasks.slice(0, 15)) {
       const task = await db.task.create({
         data: {

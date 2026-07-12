@@ -85,7 +85,9 @@ const AUTH_SECRET = resolveAuthSecret();
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 }, // 30 days
   pages: { signIn: "/" },
-  trustHost: true,
+  // trustHost is required in NextAuth v4.24+ but not in the type defs;
+  // cast to satisfy TypeScript without losing the runtime behavior.
+  ...({ trustHost: true } as object),
   // Use NextAuth's default cookie settings (sameSite=lax, httpOnly=true).
   // Previously this used sameSite:"none" + secure:true which weakens CSRF
   // protection and is unnecessary for a same-origin app.

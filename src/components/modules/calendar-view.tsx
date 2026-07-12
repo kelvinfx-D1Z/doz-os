@@ -62,7 +62,7 @@ export function CalendarView() {
 
   return (
     <div className="space-y-4">
-      <SectionHeader icon={<CalIcon className="h-5 w-5" />} title="Calendar" subtitle="All projects, tasks, and deadlines at a glance" />
+      <SectionHeader icon={<CalIcon className="h-5 w-5" />} title="Calendar" description="All projects, tasks, and deadlines at a glance" />
 
       <div className="grid gap-4 lg:grid-cols-4">
         {/* Calendar Grid */}

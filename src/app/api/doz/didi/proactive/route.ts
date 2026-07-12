@@ -15,7 +15,7 @@ export async function GET() {
     ]);
 
     // Auto-create tasks for CRITICAL insights that have autoCreateTask
-    const autoTasks = [];
+    const autoTasks: Awaited<ReturnType<typeof db.task.create>>[] = [];
     for (const insight of insights) {
       if (insight.autoCreateTask && (insight.severity === "CRITICAL" || insight.severity === "ACTION")) {
         // Check if a similar task already exists (avoid duplicates)
@@ -56,7 +56,7 @@ export async function GET() {
             data: {
               category: insight.type,
               message: insight.message,
-              severity: insight.severity === "CRITICAL" ? "ACTION" : insight.severity === "WARNING" ? "WARNING" : "INFO",
+              severity: (insight.severity as string) === "CRITICAL" ? "ACTION" : (insight.severity as string) === "WARNING" ? "WARNING" : "INFO",
             },
           });
         }

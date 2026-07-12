@@ -97,8 +97,9 @@ export async function GET() {
   items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   // Compute running balance
-  const currentCash = (await db.invoice.aggregate({ _sum: { amountPaid: true } }))._sum.amountPaid ?? 0
-    - (await db.expense.aggregate({ _sum: { amount: true } }))._sum.amount ?? 0;
+  const invoiceSum = (await db.invoice.aggregate({ _sum: { amountPaid: true } }))._sum;
+  const expenseSum = (await db.expense.aggregate({ _sum: { amount: true } }))._sum;
+  const currentCash = (invoiceSum.amountPaid ?? 0) - (expenseSum.amount ?? 0);
 
   let runningBalance = currentCash;
   const forecast = items.map(item => {
@@ -117,7 +118,7 @@ export async function GET() {
   const shortfalls = forecast.filter(f => f.runningBalance < 0);
 
   // DIDI warning
-  let didiWarning = null;
+  let didiWarning: { severity: string; message: string; recommendation: string } | null = null;
   if (shortfalls.length > 0) {
     const first = shortfalls[0];
     const daysUntil = Math.ceil((new Date(first.date).getTime() - now.getTime()) / 86400000);

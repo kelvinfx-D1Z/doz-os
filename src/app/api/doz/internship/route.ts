@@ -229,13 +229,13 @@ export async function POST(req: Request) {
 
     const track: string | undefined = body.track;
     const title: string | undefined = (body.title ?? "").toString().trim();
-    const phase: string | undefined = (body.phase ?? "").toString().trim() || "General";
+    const phase: string = (body.phase ?? "").toString().trim() || "General";
     const description: string | undefined = (body.description ?? "").toString().trim();
     const monthStart: number = Number(body.monthStart);
     const monthEnd: number = Number(body.monthEnd) || monthStart;
-    const deliverable: string | undefined = body.deliverable ? String(body.deliverable).trim() : null;
-    const kpi: string | undefined = body.kpi ? String(body.kpi).trim() : null;
-    const assigneeId: string | undefined = body.assigneeId || null;
+    const deliverable: string | undefined = body.deliverable ? String(body.deliverable).trim() : undefined;
+    const kpi: string | undefined = body.kpi ? String(body.kpi).trim() : undefined;
+    const assigneeId: string | undefined = body.assigneeId || undefined;
 
     if (!title) return NextResponse.json({ error: "title required" }, { status: 400 });
     if (!track || !["OPERATIONS_GROWTH", "CONTENT_BRAND"].includes(track))
