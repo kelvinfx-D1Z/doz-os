@@ -121,7 +121,7 @@ export async function geminiChatComplete(
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: turns[0].text }] }],
       systemInstruction: systemInstruction
-        ? { parts: [{ text: systemInstruction }] }
+        ? { role: "user", parts: [{ text: systemInstruction }] }
         : undefined,
     });
     rawText = result.response.text();
