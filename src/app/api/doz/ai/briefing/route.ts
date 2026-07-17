@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import ZAI from "z-ai-web-dev-sdk";
+import { geminiChatComplete } from "@/lib/gemini";
 import { getSessionUser } from "@/lib/auth";
 
 // ============================================================
@@ -209,8 +209,7 @@ export async function GET(req: Request) {
     // ---- 3. Call the LLM ----
     let briefing: string | null = null;
     try {
-      const zai = await ZAI.create();
-      const completion = await zai.chat.completions.create({
+      const completion = await geminiChatComplete({
         messages: [
           { role: "assistant", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -219,7 +218,7 @@ export async function GET(req: Request) {
       });
       briefing = completion?.choices?.[0]?.message?.content?.trim() ?? null;
     } catch (err) {
-      console.error("[briefing] z-ai-web-dev-sdk failed:", err);
+      console.error("[briefing] Gemini failed:", err);
     }
 
     // ---- 4. Fallback to rule-based briefing if LLM failed / empty ----

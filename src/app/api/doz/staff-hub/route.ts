@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, hashPassword, parsePermissions } from "@/lib/auth";
+import { geminiChatComplete } from "@/lib/gemini";
 import type { ModuleId } from "@/lib/store";
 
 // All valid module IDs — used to validate the permissions array.
@@ -359,9 +360,7 @@ export async function POST(req: Request) {
     // Use AI to parse the description into structured tasks
     let parsedTasks: { title: string; priority: string; description: string }[] = [];
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const zai = await ZAI.create();
-      const completion = await zai.chat.completions.create({
+      const completion = await geminiChatComplete({
         messages: [
           {
             role: "assistant",

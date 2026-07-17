@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import ZAI from "z-ai-web-dev-sdk";
+import { geminiChatComplete } from "@/lib/gemini";
 
 // ============================================================
 // AI Chief of Staff — Operations Director for Digit One Zero Ltd
@@ -312,8 +312,7 @@ export async function POST(req: Request) {
   const userPrompt = buildUserPrompt(action, message, opportunityName, ctx, opp);
 
   try {
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
+    const completion = await geminiChatComplete({
       messages: [
         { role: "assistant", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -329,7 +328,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ response: text, error: false });
   } catch (err) {
-    console.error("[AI POST] z-ai-web-dev-sdk failed:", err);
+    console.error("[AI POST] Gemini failed:", err);
     return NextResponse.json(
       {
         response:
@@ -409,8 +408,7 @@ async function handlePlanTasks(focusHint: string | undefined) {
     `Do not include any text before or after the JSON. Do not use markdown fences.`;
 
   try {
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
+    const completion = await geminiChatComplete({
       messages: [
         { role: "assistant", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -435,7 +433,7 @@ async function handlePlanTasks(focusHint: string | undefined) {
       raw: parsed.length === 0 ? text : undefined,
     });
   } catch (err) {
-    console.error("[plan_tasks] z-ai-web-dev-sdk failed:", err);
+    console.error("[plan_tasks] Gemini failed:", err);
     return NextResponse.json({
       error: false,
       offline: true,
@@ -499,8 +497,7 @@ async function handleChatWithActions(message: string | undefined) {
 
   let rawText = "";
   try {
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
+    const completion = await geminiChatComplete({
       messages: [
         { role: "assistant", content: DIDI_ACTIONS_SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -509,7 +506,7 @@ async function handleChatWithActions(message: string | undefined) {
     });
     rawText = completion?.choices?.[0]?.message?.content ?? "";
   } catch (err) {
-    console.error("[chat_with_actions] z-ai-web-dev-sdk failed:", err);
+    console.error("[chat_with_actions] Gemini failed:", err);
     return NextResponse.json({
       reply: "I'm offline right now. Quick guidance: prioritise overdue invoices, clear pending approvals, and protect the founder's calendar today.",
       actions: [],
