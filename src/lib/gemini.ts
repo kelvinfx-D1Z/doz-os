@@ -23,7 +23,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // existing call sites compile without modification.
 // ============================================================
 
-const MODEL_NAME = "gemini-1.5-flash";
+const MODEL_NAME = "gemini-1.5-flash-latest";
 
 let cachedClient: GoogleGenerativeAI | null = null;
 
