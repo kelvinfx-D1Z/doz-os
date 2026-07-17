@@ -134,8 +134,8 @@ export async function geminiChatComplete(
     const lastTurn = turns[turns.length - 1];
     const chat = model.startChat({
       history,
-      systemInstruction: systemInstruction
-        ? { parts: [{ text: systemInstruction }] }
+        systemInstruction: systemInstruction
+        ? { role: "user", parts: [{ text: systemInstruction }] }
         : undefined,
     });
     const result = await chat.sendMessage(lastTurn.text);
