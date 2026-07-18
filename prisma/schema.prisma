@@ -1,3 +1,4 @@
+// Force Vercel to rebuild Prisma Client for Postgres
 // DOZ OS — Digit One Zero Operating System
 // Prisma schema (SQLite)
 
