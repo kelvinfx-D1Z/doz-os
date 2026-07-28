@@ -929,9 +929,9 @@ function ProjectListRow({ project: p, isPM = false, onEdit, onDelete }: { projec
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Card className="group cursor-pointer border border-border/60 bg-background/80 p-4 transition-all hover:border-primary/40 hover:bg-accent/10">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0 flex-1">
+        <div className="group cursor-pointer rounded-lg border border-border/60 bg-background/80 p-3 transition-all hover:border-primary/40 hover:bg-accent/10">
+          <div className="grid gap-3 lg:grid-cols-[2.2fr_1.1fr_0.9fr_0.7fr_0.9fr] lg:items-center">
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 {p.code && (
                   <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -939,74 +939,73 @@ function ProjectListRow({ project: p, isPM = false, onEdit, onDelete }: { projec
                   </span>
                 )}
                 <h3 className="truncate text-sm font-semibold leading-tight">{p.name}</h3>
-                <StatusBadge status={p.status} />
+                <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
+                  {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+                  {serviceLabel(p.serviceType)}
+                </Badge>
               </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                {p.account && <span className="font-medium text-foreground">{p.account.name}</span>}
-                {p.manager && <span>PM: {p.manager.name}</span>}
-                {p.eventDate && <span>{formatDate(p.eventDate)}</span>}
-                {p.venue && <span>{p.venue}</span>}
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span>{p._count.tasks} tasks</span>
+                <span>•</span>
+                <span>{p._count.invoices} invoices</span>
+                <span>•</span>
+                <span>{p._count.expenses} expenses</span>
+                {nextMilestone && (
+                  <>
+                    <span>•</span>
+                    <span>Next: {nextMilestone.title}</span>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-              <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
-                {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
-                {serviceLabel(p.serviceType)}
-              </Badge>
-              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-                Budget: {formatNGN(p.budget || 0, true)}
+            <div className="text-sm">
+              {p.account && <div className="font-medium text-foreground">{p.account.name}</div>}
+              {p.manager && <div className="text-muted-foreground">PM: {p.manager.name}</div>}
+            </div>
+
+            <div className="text-sm text-muted-foreground">
+              {p.eventDate ? <div>{formatDate(p.eventDate)}</div> : <div className="text-muted-foreground/70">TBD</div>}
+              {p.venue && <div className="truncate">{p.venue}</div>}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <StatusBadge status={p.status} />
+              <span className="text-xs text-muted-foreground">{p.progress}%</span>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 lg:justify-end">
+              <div className="text-xs">
+                <div className="font-medium text-foreground">{formatNGN(p.budget || 0, true)}</div>
+                <div className="text-muted-foreground">{formatNGN(p.revenue || 0, true)}</div>
               </div>
-              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-                Revenue: {formatNGN(p.revenue || 0, true)}
-              </div>
-              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-                {p.progress}% done
+              <div className="flex items-center gap-2">
+                {canManage && onEdit && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit();
+                    }}
+                    className="inline-flex items-center gap-1 rounded text-primary hover:underline"
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
+                  </button>
+                )}
+                {canManage && onDelete && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete();
+                    }}
+                    className="inline-flex items-center gap-1 rounded text-rose-500 hover:underline"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                )}
               </div>
             </div>
           </div>
-
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-            <div className="flex flex-wrap items-center gap-3">
-              <span>{p._count.tasks} tasks</span>
-              <span>·</span>
-              <span>{p._count.invoices} invoices</span>
-              <span>·</span>
-              <span>{p._count.expenses} expenses</span>
-              {nextMilestone && (
-                <>
-                  <span>·</span>
-                  <span>Next: {nextMilestone.title}</span>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {canManage && onEdit && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit();
-                  }}
-                  className="inline-flex items-center gap-1 rounded text-primary hover:underline"
-                >
-                  <Pencil className="h-3 w-3" /> Edit
-                </button>
-              )}
-              {canManage && onDelete && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete();
-                  }}
-                  className="inline-flex items-center gap-1 rounded text-rose-500 hover:underline"
-                >
-                  <Trash2 className="h-3 w-3" /> Delete
-                </button>
-              )}
-            </div>
-          </div>
-        </Card>
+        </div>
       </DialogTrigger>
       <ProjectDialog project={p} isPM={isPM} />
     </Dialog>
