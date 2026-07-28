@@ -275,6 +275,17 @@ export function ProjectsEvents() {
     return true;
   });
 
+  // Edit dialog state handled at page level; founder triggers via window event
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    function onOpen(e: any) {
+      setEditingProject(e.detail ?? null);
+    }
+    window.addEventListener("doz:open-edit-project", onOpen as EventListener);
+    return () => window.removeEventListener("doz:open-edit-project", onOpen as EventListener);
+  }, []);
+
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -373,7 +384,7 @@ export function ProjectsEvents() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {filtered.map((p) => (
-                <ProjectCard key={p.id} project={p} isPM={isPM} />
+                <ProjectCard key={p.id} project={p} isPM={isPM} onUpdated={load} />
               ))}
             </div>
           )}
@@ -384,6 +395,12 @@ export function ProjectsEvents() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={load}
+      />
+
+      <EditProjectDialog
+        project={editingProject}
+        onOpenChange={(v) => { if (!v) setEditingProject(null); }}
+        onSaved={() => { setEditingProject(null); load(); }}
       />
     </div>
   );
@@ -743,7 +760,7 @@ function NewProjectDialog({
 }
 
 // ---------- Project Card ----------
-function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: boolean }) {
+function ProjectCard({ project: p, isPM = false, onUpdated }: { project: Project; isPM?: boolean; onUpdated?: () => void }) {
   const overBudgetWarn =
     p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
   const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
@@ -755,6 +772,9 @@ function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: bo
     .slice(0, 2);
 
   const positiveProfit = p.profit >= 0;
+
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
 
   return (
     <Dialog>
@@ -1002,9 +1022,24 @@ function ProjectCard({ project: p, isPM = false }: { project: Project; isPM?: bo
           {/* Footer hint */}
           <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
             <span>{p._count.tasks} tasks{!isPM && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
-            <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-              View details →
-            </span>
+            <div className="flex items-center gap-3">
+              {isFounder && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Open edit dialog by dispatching a custom event with project payload
+                    const ev = new CustomEvent("doz:open-edit-project", { detail: p });
+                    window.dispatchEvent(ev);
+                  }}
+                  className="inline-flex items-center gap-2 rounded text-primary hover:underline text-xs"
+                >
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+              )}
+              <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                View details →
+              </span>
+            </div>
           </div>
         </Card>
       </DialogTrigger>
@@ -1316,6 +1351,126 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
         </div>
       </div>
     </DialogContent>
+  );
+}
+
+// ---------- Edit Project Dialog (founder-only) ----------
+function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Project | null; onOpenChange: (open: boolean) => void; onSaved: () => void; }) {
+  const open = project !== null;
+  const [name, setName] = useState("");
+  const [serviceType, setServiceType] = useState<string>("");
+  const [status, setStatus] = useState<string>("PLANNING");
+  const [eventDate, setEventDate] = useState<string>("");
+  const [venue, setVenue] = useState<string>("");
+  const [budget, setBudget] = useState<string>("");
+  const [revenue, setRevenue] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!project) return;
+    setName(project.name || "");
+    setServiceType(project.serviceType || "");
+    setStatus(project.status || "PLANNING");
+    setEventDate(project.eventDate || "");
+    setVenue(project.venue || "");
+    setBudget(String(project.budget ?? ""));
+    setRevenue(String(project.revenue ?? ""));
+  }, [project]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!project) return;
+    setSubmitting(true);
+    try {
+      const payload: any = {
+        projectId: project.id,
+        name: name.trim(),
+        serviceType,
+        status,
+        eventDate: eventDate || null,
+        venue: venue.trim() || null,
+        budget: budget.trim() !== "" ? Number(budget) : null,
+        revenue: revenue.trim() !== "" ? Number(revenue) : null,
+      };
+      const res = await fetch("/api/doz/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.message || `Failed (${res.status})`);
+      toast.success("Project updated");
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error("Failed to update project");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Project</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Service Type</Label>
+              <Select value={serviceType} onValueChange={setServiceType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SERVICE_TYPES.map((s) => (
+                    <SelectItem key={s} value={s}>{serviceLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CREATE_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>{serviceLabel(s)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Event Date</Label>
+              <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Venue</Label>
+              <Input value={venue} onChange={(e) => setVenue(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Budget</Label>
+              <Input value={budget} onChange={(e) => setBudget(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Revenue</Label>
+              <Input value={revenue} onChange={(e) => setRevenue(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={submitting} className="gap-1.5">{submitting ? 'Saving...' : 'Save'}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -112,6 +112,10 @@ interface Member {
   title: string | null;
   email: string | null;
   phone: string | null;
+  address: string | null;
+  bankName: string | null;
+  bankAccount: string | null;
+  bankAccountName: string | null;
   capacity: number;
   isActive: boolean;
   /** Per-user module permissions. null = use role defaults. */
@@ -397,6 +401,38 @@ function MemberCard({
           </span>
         )}
       </div>
+      {(m.address || m.bankName || m.bankAccount || m.bankAccountName) && (
+        <div className="rounded-md border border-border bg-muted/30 p-3 text-[11px] text-muted-foreground">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide text-foreground">
+            <span>Employer data</span>
+            <Wallet className="h-3.5 w-3.5 text-primary" />
+          </div>
+          {m.address && (
+            <div className="mb-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Address</p>
+              <p className="truncate text-sm text-foreground">{m.address}</p>
+            </div>
+          )}
+          {m.bankName && (
+            <div className="mb-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Bank</p>
+              <p className="truncate text-sm text-foreground">{m.bankName}</p>
+            </div>
+          )}
+          {m.bankAccountName && (
+            <div className="mb-1">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Account name</p>
+              <p className="truncate text-sm text-foreground">{m.bankAccountName}</p>
+            </div>
+          )}
+          {m.bankAccount && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Account number</p>
+              <p className="truncate text-sm text-foreground">{m.bankAccount}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Capacity + utilization */}
       <div>
@@ -1463,6 +1499,10 @@ function AddMemberDialog({
   const [role, setRole] = useState<Role>("STAFF");
   const [title, setTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountName, setBankAccountName] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
   const [capacity, setCapacity] = useState("40");
   const [password, setPassword] = useState("");
   // Per-user permissions. null → role defaults apply (not customized).
@@ -1482,6 +1522,10 @@ function AddMemberDialog({
       setRole("STAFF");
       setTitle("");
       setPhone("");
+      setAddress("");
+      setBankName("");
+      setBankAccountName("");
+      setBankAccount("");
       setCapacity("40");
       setPassword("");
       setPermissions(null);
@@ -1489,7 +1533,6 @@ function AddMemberDialog({
     }
   }
 
-  // Effective selected modules: if the founder has customized, use their list;
   // otherwise fall back to the role defaults. Computed during render (no effect).
   const effectivePermissions: ModuleId[] =
     permissions ?? (TEAM_ROLE_DEFAULTS[role] ?? TEAM_ROLE_DEFAULTS.STAFF);
@@ -1511,6 +1554,10 @@ function AddMemberDialog({
         role,
         title: title.trim() || undefined,
         phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
+        bankName: bankName.trim() || undefined,
+        bankAccountName: bankAccountName.trim() || undefined,
+        bankAccount: bankAccount.trim() || undefined,
         capacity: Number(capacity) || 40,
         password,
       };
@@ -1624,6 +1671,43 @@ function AddMemberDialog({
               />
             </div>
             <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="add-address">Address</Label>
+              <Textarea
+                id="add-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Street, city, state"
+                rows={2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-bank-name">Bank name</Label>
+              <Input
+                id="add-bank-name"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder="Zenith Bank"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-bank-account-name">Account name</Label>
+              <Input
+                id="add-bank-account-name"
+                value={bankAccountName}
+                onChange={(e) => setBankAccountName(e.target.value)}
+                placeholder="Full account name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-bank-account">Account number</Label>
+              <Input
+                id="add-bank-account"
+                value={bankAccount}
+                onChange={(e) => setBankAccount(e.target.value)}
+                placeholder="1234567890"
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
               <Label htmlFor="add-password">Password *</Label>
               <Input
                 id="add-password"
@@ -1707,6 +1791,10 @@ function EditMemberDialog({
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountName, setBankAccountName] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
   const [role, setRole] = useState<Role>("STAFF");
   const [capacity, setCapacity] = useState("40");
   const [isActive, setIsActive] = useState(true);
@@ -1722,6 +1810,10 @@ function EditMemberDialog({
       setName(member.name);
       setTitle(member.title ?? "");
       setPhone(member.phone ?? "");
+      setAddress(member.address ?? "");
+      setBankName(member.bankName ?? "");
+      setBankAccountName(member.bankAccountName ?? "");
+      setBankAccount(member.bankAccount ?? "");
       setRole(member.role);
       setCapacity(String(member.capacity ?? 40));
       setIsActive(member.isActive);
@@ -1749,6 +1841,10 @@ function EditMemberDialog({
           name: name.trim(),
           title: title.trim() || null,
           phone: phone.trim() || null,
+          address: address.trim() || null,
+          bankName: bankName.trim() || null,
+          bankAccountName: bankAccountName.trim() || null,
+          bankAccount: bankAccount.trim() || null,
           role,
           capacity: Number(capacity) || 40,
           isActive,
@@ -1834,6 +1930,43 @@ function EditMemberDialog({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+234 ..."
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="edit-address">Address</Label>
+              <Textarea
+                id="edit-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Street, city, state"
+                rows={2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-bank-name">Bank name</Label>
+              <Input
+                id="edit-bank-name"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder="Zenith Bank"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-bank-account-name">Account name</Label>
+              <Input
+                id="edit-bank-account-name"
+                value={bankAccountName}
+                onChange={(e) => setBankAccountName(e.target.value)}
+                placeholder="Full account name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-bank-account">Account number</Label>
+              <Input
+                id="edit-bank-account"
+                value={bankAccount}
+                onChange={(e) => setBankAccount(e.target.value)}
+                placeholder="1234567890"
               />
             </div>
             <div className="col-span-2 flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2.5">

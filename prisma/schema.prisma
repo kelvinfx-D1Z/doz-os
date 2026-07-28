@@ -22,6 +22,10 @@ model User {
   role      String   @default("FOUNDER") // FOUNDER, STAFF, INTERN, FREELANCER
   title     String?
   phone     String?
+  address   String?
+  bankName  String?
+  bankAccount String?
+  bankAccountName String?
   avatar    String?
   capacity  Int      @default(40) // available hours/week
   isActive  Boolean  @default(true)

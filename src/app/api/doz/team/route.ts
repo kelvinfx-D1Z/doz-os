@@ -138,6 +138,7 @@ export async function GET(req: Request) {
         }
       } catch {}
     }
+    const canViewEmployerData = user.role === "FOUNDER" || user.id === u.id;
     return {
       id: u.id,
       name: u.name,
@@ -145,6 +146,10 @@ export async function GET(req: Request) {
       title: u.title,
       email: u.email,
       phone: u.phone,
+      address: canViewEmployerData ? u.address : null,
+      bankName: canViewEmployerData ? u.bankName : null,
+      bankAccount: canViewEmployerData ? u.bankAccount : null,
+      bankAccountName: canViewEmployerData ? u.bankAccountName : null,
       capacity: u.capacity,
       isActive: u.isActive,
       permissions: perms,
