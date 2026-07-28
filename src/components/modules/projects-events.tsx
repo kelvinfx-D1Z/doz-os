@@ -275,17 +275,6 @@ export function ProjectsEvents() {
     return true;
   });
 
-  // Edit dialog state handled at page level; founder triggers via window event
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-
-  useEffect(() => {
-    function onOpen(e: any) {
-      setEditingProject(e.detail ?? null);
-    }
-    window.addEventListener("doz:open-edit-project", onOpen as EventListener);
-    return () => window.removeEventListener("doz:open-edit-project", onOpen as EventListener);
-  }, []);
-
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -384,7 +373,7 @@ export function ProjectsEvents() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {filtered.map((p) => (
-                <ProjectCard key={p.id} project={p} isPM={isPM} onUpdated={load} />
+                <EditableProjectItem key={p.id} project={p} isPM={isPM} onUpdated={load} />
               ))}
             </div>
           )}
@@ -395,12 +384,6 @@ export function ProjectsEvents() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={load}
-      />
-
-      <EditProjectDialog
-        project={editingProject}
-        onOpenChange={(v) => { if (!v) setEditingProject(null); }}
-        onSaved={() => { setEditingProject(null); load(); }}
       />
     </div>
   );
@@ -759,8 +742,35 @@ function NewProjectDialog({
   );
 }
 
+// ---------- Editable Project Item ----------
+function EditableProjectItem({ project, isPM = false, onUpdated }: { project: Project; isPM?: boolean; onUpdated?: () => void }) {
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  const handleSaved = () => {
+    setEditingProject(null);
+    onUpdated?.();
+  };
+
+  return (
+    <>
+      <ProjectCard
+        project={project}
+        isPM={isPM}
+        onEdit={() => setEditingProject(project)}
+      />
+      <EditProjectDialog
+        project={editingProject}
+        onOpenChange={(open) => {
+          if (!open) setEditingProject(null);
+        }}
+        onSaved={handleSaved}
+      />
+    </>
+  );
+}
+
 // ---------- Project Card ----------
-function ProjectCard({ project: p, isPM = false, onUpdated }: { project: Project; isPM?: boolean; onUpdated?: () => void }) {
+function ProjectCard({ project: p, isPM = false, onEdit }: { project: Project; isPM?: boolean; onEdit?: () => void }) {
   const overBudgetWarn =
     p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
   const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
@@ -1023,13 +1033,11 @@ function ProjectCard({ project: p, isPM = false, onUpdated }: { project: Project
           <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
             <span>{p._count.tasks} tasks{!isPM && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
             <div className="flex items-center gap-3">
-              {isFounder && (
+              {isFounder && onEdit && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Open edit dialog by dispatching a custom event with project payload
-                    const ev = new CustomEvent("doz:open-edit-project", { detail: p });
-                    window.dispatchEvent(ev);
+                    onEdit();
                   }}
                   className="inline-flex items-center gap-2 rounded text-primary hover:underline text-xs"
                 >
