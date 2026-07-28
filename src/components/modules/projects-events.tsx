@@ -157,7 +157,19 @@ const SERVICE_TYPES = [
   "MOTION_GRAPHICS",
   "LIVESTREAM",
   "POST_PRODUCTION",
+  "EXHIBITION_BOOTH",
+  "CONSULTANCY",
+  "OTHERS",
 ] as const;
+
+function isPresetServiceType(value: string): boolean {
+  return (SERVICE_TYPES as readonly string[]).includes(value);
+}
+
+function getEffectiveServiceType(selected: string, customValue: string): string {
+  const trimmed = customValue.trim();
+  return selected === "OTHERS" && trimmed.length > 0 ? trimmed : selected;
+}
 
 // Statuses offered when creating a new project (post-create, IN_PROGRESS can
 // be set later). Defaults to PLANNING.
@@ -576,6 +588,7 @@ function NewProjectDialog({
     if (!open) {
       setName("");
       setServiceType("");
+      setCustomServiceType("");
       setStatus("PLANNING");
       setAccountId("");
       setEventDate("");
@@ -597,9 +610,10 @@ function NewProjectDialog({
   const projectedMargin =
     revenueNum > 0 ? (projectedProfit / revenueNum) * 100 : 0;
 
+  const effectiveServiceType = getEffectiveServiceType(serviceType, customServiceType);
   const canSubmit =
     name.trim().length > 0 &&
-    serviceType.length > 0 &&
+    effectiveServiceType.length > 0 &&
     budget.trim().length > 0 &&
     Number(budget) >= 0 &&
     revenue.trim().length > 0 &&
@@ -613,7 +627,7 @@ function NewProjectDialog({
     try {
       const payload: Record<string, unknown> = {
         name: name.trim(),
-        serviceType,
+        serviceType: effectiveServiceType,
         status,
         budget: budgetNum,
         revenue: revenueNum,
@@ -684,7 +698,13 @@ function NewProjectDialog({
                 <Label htmlFor="np-service">
                   Service Type <span className="text-rose-500">*</span>
                 </Label>
-                <Select value={serviceType} onValueChange={setServiceType}>
+                <Select
+                  value={serviceType}
+                  onValueChange={(value) => {
+                    setServiceType(value);
+                    if (value !== "OTHERS") setCustomServiceType("");
+                  }}
+                >
                   <SelectTrigger id="np-service">
                     <SelectValue placeholder="Select service…" />
                   </SelectTrigger>
@@ -696,6 +716,17 @@ function NewProjectDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {serviceType === "OTHERS" && (
+                  <div className="space-y-1.5 pt-2">
+                    <Label htmlFor="np-custom-service">Custom service</Label>
+                    <Input
+                      id="np-custom-service"
+                      value={customServiceType}
+                      onChange={(e) => setCustomServiceType(e.target.value)}
+                      placeholder="e.g. Brand Activation"
+                    />
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="np-status">Status</Label>
@@ -1622,6 +1653,7 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
   const open = project !== null;
   const [name, setName] = useState("");
   const [serviceType, setServiceType] = useState<string>("");
+  const [customServiceType, setCustomServiceType] = useState("");
   const [status, setStatus] = useState<string>("PLANNING");
   const [eventDate, setEventDate] = useState<string>("");
   const [venue, setVenue] = useState<string>("");
@@ -1632,7 +1664,13 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
   useEffect(() => {
     if (!project) return;
     setName(project.name || "");
-    setServiceType(project.serviceType || "");
+    if (project.serviceType && !isPresetServiceType(project.serviceType)) {
+      setServiceType("OTHERS");
+      setCustomServiceType(project.serviceType);
+    } else {
+      setServiceType(project.serviceType || "");
+      setCustomServiceType("");
+    }
     setStatus(project.status || "PLANNING");
     setEventDate(project.eventDate || "");
     setVenue(project.venue || "");
@@ -1648,7 +1686,7 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
       const payload: any = {
         projectId: project.id,
         name: name.trim(),
-        serviceType,
+        serviceType: getEffectiveServiceType(serviceType, customServiceType),
         status,
         eventDate: eventDate || null,
         venue: venue.trim() || null,
@@ -1686,7 +1724,13 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
             </div>
             <div className="space-y-1.5">
               <Label>Service Type</Label>
-              <Select value={serviceType} onValueChange={setServiceType}>
+              <Select
+                value={serviceType}
+                onValueChange={(value) => {
+                  setServiceType(value);
+                  if (value !== "OTHERS") setCustomServiceType("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -1696,6 +1740,16 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
                   ))}
                 </SelectContent>
               </Select>
+              {serviceType === "OTHERS" && (
+                <div className="space-y-1.5 pt-2">
+                  <Label>Custom service</Label>
+                  <Input
+                    value={customServiceType}
+                    onChange={(e) => setCustomServiceType(e.target.value)}
+                    placeholder="e.g. Brand Activation"
+                  />
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Status</Label>

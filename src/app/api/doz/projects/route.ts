@@ -25,16 +25,22 @@ const VALID_SERVICE_TYPES = [
   "MOTION_GRAPHICS",
   "LIVESTREAM",
   "POST_PRODUCTION",
+  "EXHIBITION_BOOTH",
+  "CONSULTANCY",
+  "OTHERS",
 ] as const;
-type ServiceType = (typeof VALID_SERVICE_TYPES)[number];
+type ServiceType = string;
 
-function isValidServiceType(s: string): s is ServiceType {
-  return (VALID_SERVICE_TYPES as readonly string[]).includes(s);
+function isValidServiceType(s: string): boolean {
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  if ((VALID_SERVICE_TYPES as readonly string[]).includes(trimmed)) return true;
+  return /^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(trimmed);
 }
 
 // Map a service type to a short code prefix used when auto-generating
 // project codes like EVT-2025-001, VID-2025-014, etc.
-const SERVICE_PREFIX: Record<ServiceType, string> = {
+const SERVICE_PREFIX: Record<string, string> = {
   EVENT_PRODUCTION: "EVT",
   EVENT_MANAGEMENT: "EVT",
   CONFERENCE_PRODUCTION: "CONF",
@@ -47,6 +53,9 @@ const SERVICE_PREFIX: Record<ServiceType, string> = {
   LIVESTREAM: "LIVE",
   POST_PRODUCTION: "POST",
   PHOTOGRAPHY: "PHOTO",
+  EXHIBITION_BOOTH: "EXH",
+  CONSULTANCY: "CONS",
+  OTHERS: "PRJ",
 };
 
 const VALID_STATUSES = ["PLANNING", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "ON_HOLD", "CANCELLED"];
