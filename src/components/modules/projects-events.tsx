@@ -544,6 +544,7 @@ function NewProjectDialog({
 }) {
   const [name, setName] = useState("");
   const [serviceType, setServiceType] = useState<string>("");
+  const [customServiceType, setCustomServiceType] = useState("");
   const [status, setStatus] = useState<string>("PLANNING");
   const [accountId, setAccountId] = useState<string>("");
   const [eventDate, setEventDate] = useState<string>("");
