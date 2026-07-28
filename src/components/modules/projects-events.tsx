@@ -209,6 +209,12 @@ export function ProjectsEvents() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "cards">("list");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [managerFilter, setManagerFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<"name" | "date" | "budget" | "progress">("date");
 
   const load = useCallback(() => {
     // Note: we intentionally do NOT call setLoading(true) here synchronously
@@ -273,6 +279,26 @@ export function ProjectsEvents() {
     if (tab === "in_progress") return p.status === "IN_PROGRESS";
     if (tab === "completed") return p.status === "COMPLETED";
     return true;
+  }).filter((p) => {
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+    return [p.name, p.code, p.venue, p.account?.name, p.manager?.name].filter(Boolean).some((value) =>
+      String(value).toLowerCase().includes(query)
+    );
+  }).filter((p) => {
+    if (statusFilter === "all") return true;
+    return p.status === statusFilter;
+  }).filter((p) => {
+    if (accountFilter === "all") return true;
+    return p.account?.name === accountFilter;
+  }).filter((p) => {
+    if (managerFilter === "all") return true;
+    return p.manager?.name === managerFilter;
+  }).sort((a, b) => {
+    if (sortKey === "name") return a.name.localeCompare(b.name);
+    if (sortKey === "budget") return (b.budget || 0) - (a.budget || 0);
+    if (sortKey === "progress") return (b.progress || 0) - (a.progress || 0);
+    return (a.eventDate ? new Date(a.eventDate).getTime() : Number.MAX_SAFE_INTEGER) - (b.eventDate ? new Date(b.eventDate).getTime() : Number.MAX_SAFE_INTEGER);
   });
 
   return (
@@ -349,6 +375,55 @@ export function ProjectsEvents() {
       )}
 
       {/* PROJECT LIST WITH TABS */}
+      <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-background/70 p-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex-1">
+          <Input
+            placeholder="Search projects, client, venue, PM..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-9 w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {CREATE_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>{serviceLabel(s)}</SelectItem>
+              ))}
+              <SelectItem value="COMPLETED">Completed</SelectItem>
+              <SelectItem value="ON_HOLD">On hold</SelectItem>
+              <SelectItem value="CANCELLED">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={accountFilter} onValueChange={setAccountFilter}>
+            <SelectTrigger className="h-9 w-[150px]">
+              <SelectValue placeholder="Client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All clients</SelectItem>
+              {Array.from(new Set(scopedProjects.map((p) => p.account?.name).filter(Boolean))).map((name) => (
+                <SelectItem key={name} value={name as string}>{name as string}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={managerFilter} onValueChange={setManagerFilter}>
+            <SelectTrigger className="h-9 w-[140px]">
+              <SelectValue placeholder="Manager" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All managers</SelectItem>
+              {Array.from(new Set(scopedProjects.map((p) => p.manager?.name).filter(Boolean))).map((name) => (
+                <SelectItem key={name} value={name as string}>{name as string}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="h-9">
@@ -358,9 +433,42 @@ export function ProjectsEvents() {
             <TabsTrigger value="in_progress" className="text-xs">In Progress ({scopedProjects.filter((p) => p.status === "IN_PROGRESS").length})</TabsTrigger>
             <TabsTrigger value="completed" className="text-xs">Completed ({scopedProjects.filter((p) => p.status === "COMPLETED").length})</TabsTrigger>
           </TabsList>
-          <p className="text-xs text-muted-foreground">
-            Showing <span className="font-medium text-foreground">{filtered.length}</span> of {scopedProjects.length}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={sortKey} onValueChange={(value) => setSortKey(value as "name" | "date" | "budget" | "progress")}>
+              <SelectTrigger className="h-8 w-[120px] text-xs">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date">Sort: Date</SelectItem>
+                <SelectItem value="name">Sort: Name</SelectItem>
+                <SelectItem value="budget">Sort: Budget</SelectItem>
+                <SelectItem value="progress">Sort: Progress</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex items-center rounded-md border border-border/60 bg-background p-1">
+              <Button
+                type="button"
+                variant={viewMode === "list" ? "default" : "ghost"}
+                size="sm"
+                className="h-8 px-3 text-xs"
+                onClick={() => setViewMode("list")}
+              >
+                List
+              </Button>
+              <Button
+                type="button"
+                variant={viewMode === "cards" ? "default" : "ghost"}
+                size="sm"
+                className="h-8 px-3 text-xs"
+                onClick={() => setViewMode("cards")}
+              >
+                Cards
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Showing <span className="font-medium text-foreground">{filtered.length}</span> of {scopedProjects.length}
+            </p>
+          </div>
         </div>
 
         <TabsContent value={tab} className="mt-4">
@@ -370,10 +478,23 @@ export function ProjectsEvents() {
               title="No projects in this view"
               hint="Switch tabs to see other projects, or create a new one."
             />
+          ) : viewMode === "list" ? (
+            <div className="space-y-3">
+              <div className="hidden rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground lg:grid lg:grid-cols-[2.2fr_1.1fr_0.9fr_0.7fr_0.9fr] lg:gap-3">
+                <span>Project</span>
+                <span>Client / PM</span>
+                <span>Event</span>
+                <span>Status</span>
+                <span>Budget / Revenue</span>
+              </div>
+              {filtered.map((p) => (
+                <EditableProjectItem key={p.id} project={p} isPM={isPM} onUpdated={load} viewMode="list" />
+              ))}
+            </div>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
               {filtered.map((p) => (
-                <EditableProjectItem key={p.id} project={p} isPM={isPM} onUpdated={load} />
+                <EditableProjectItem key={p.id} project={p} isPM={isPM} onUpdated={load} viewMode="cards" />
               ))}
             </div>
           )}
@@ -743,21 +864,48 @@ function NewProjectDialog({
 }
 
 // ---------- Editable Project Item ----------
-function EditableProjectItem({ project, isPM = false, onUpdated }: { project: Project; isPM?: boolean; onUpdated?: () => void }) {
+function EditableProjectItem({ project, isPM = false, onUpdated, viewMode = "list" }: { project: Project; isPM?: boolean; onUpdated?: () => void; viewMode?: "list" | "cards" }) {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSaved = () => {
     setEditingProject(null);
     onUpdated?.();
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete ${project.name}?`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/doz/projects?projectId=${encodeURIComponent(project.id)}`, { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || "Failed to delete project");
+      toast.success("Project deleted");
+      onUpdated?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <>
-      <ProjectCard
-        project={project}
-        isPM={isPM}
-        onEdit={() => setEditingProject(project)}
-      />
+      {viewMode === "list" ? (
+        <ProjectListRow
+          project={project}
+          isPM={isPM}
+          onEdit={() => setEditingProject(project)}
+          onDelete={deleting ? undefined : handleDelete}
+        />
+      ) : (
+        <ProjectCard
+          project={project}
+          isPM={isPM}
+          onEdit={() => setEditingProject(project)}
+          onDelete={deleting ? undefined : handleDelete}
+        />
+      )}
       <EditProjectDialog
         project={editingProject}
         onOpenChange={(open) => {
@@ -769,8 +917,104 @@ function EditableProjectItem({ project, isPM = false, onUpdated }: { project: Pr
   );
 }
 
+// ---------- List Row ----------
+function ProjectListRow({ project: p, isPM = false, onEdit, onDelete }: { project: Project; isPM?: boolean; onEdit?: () => void; onDelete?: () => void }) {
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
+  const canManage = isFounder || (!isPM && !!user);
+  const nextMilestone = [...p.milestones]
+    .filter((m) => m.status !== "DONE")
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Card className="group cursor-pointer border border-border/60 bg-background/80 p-4 transition-all hover:border-primary/40 hover:bg-accent/10">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                {p.code && (
+                  <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {p.code}
+                  </span>
+                )}
+                <h3 className="truncate text-sm font-semibold leading-tight">{p.name}</h3>
+                <StatusBadge status={p.status} />
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                {p.account && <span className="font-medium text-foreground">{p.account.name}</span>}
+                {p.manager && <span>PM: {p.manager.name}</span>}
+                {p.eventDate && <span>{formatDate(p.eventDate)}</span>}
+                {p.venue && <span>{p.venue}</span>}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <Badge variant="secondary" className="gap-1 text-[10px] font-medium">
+                {SERVICE_ICON[p.serviceType] ?? <Film className="h-3.5 w-3.5" />}
+                {serviceLabel(p.serviceType)}
+              </Badge>
+              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                Budget: {formatNGN(p.budget || 0, true)}
+              </div>
+              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                Revenue: {formatNGN(p.revenue || 0, true)}
+              </div>
+              <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                {p.progress}% done
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>{p._count.tasks} tasks</span>
+              <span>·</span>
+              <span>{p._count.invoices} invoices</span>
+              <span>·</span>
+              <span>{p._count.expenses} expenses</span>
+              {nextMilestone && (
+                <>
+                  <span>·</span>
+                  <span>Next: {nextMilestone.title}</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              {canManage && onEdit && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                  className="inline-flex items-center gap-1 rounded text-primary hover:underline"
+                >
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+              )}
+              {canManage && onDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  className="inline-flex items-center gap-1 rounded text-rose-500 hover:underline"
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+      </DialogTrigger>
+      <ProjectDialog project={p} isPM={isPM} />
+    </Dialog>
+  );
+}
+
 // ---------- Project Card ----------
-function ProjectCard({ project: p, isPM = false, onEdit }: { project: Project; isPM?: boolean; onEdit?: () => void }) {
+function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: Project; isPM?: boolean; onEdit?: () => void; onDelete?: () => void }) {
   const overBudgetWarn =
     p.revenue > 0 && p.expensesTotal / p.revenue > 0.8;
   const budgetUtil = p.budget > 0 ? Math.min(100, (p.expensesTotal / p.budget) * 100) : 0;
@@ -785,6 +1029,7 @@ function ProjectCard({ project: p, isPM = false, onEdit }: { project: Project; i
 
   const { user } = useCurrentUser();
   const isFounder = user?.role === "FOUNDER";
+  const canManage = isFounder || (!isPM && !!user);
 
   return (
     <Dialog>
@@ -1033,7 +1278,7 @@ function ProjectCard({ project: p, isPM = false, onEdit }: { project: Project; i
           <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
             <span>{p._count.tasks} tasks{!isPM && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
             <div className="flex items-center gap-3">
-              {isFounder && onEdit && (
+              {canManage && onEdit && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1042,6 +1287,17 @@ function ProjectCard({ project: p, isPM = false, onEdit }: { project: Project; i
                   className="inline-flex items-center gap-2 rounded text-primary hover:underline text-xs"
                 >
                   <Pencil className="h-3 w-3" /> Edit
+                </button>
+              )}
+              {canManage && onDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  className="inline-flex items-center gap-2 rounded text-rose-500 hover:underline text-xs"
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
                 </button>
               )}
               <span className="font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">

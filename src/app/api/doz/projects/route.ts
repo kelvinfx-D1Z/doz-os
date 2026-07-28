@@ -489,3 +489,24 @@ export async function PATCH(req: Request) {
   const updated = await db.project.update({ where: { id: body.projectId }, data });
   return NextResponse.json({ ok: true, project: updated });
 }
+
+export async function DELETE(req: Request) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const projectId = searchParams.get("projectId");
+  if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+
+  const existing = await db.project.findUnique({ where: { id: projectId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const isFounder = user.role === "FOUNDER";
+  const isManager = existing.managerId === user.id;
+  if (!isFounder && !isManager) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  await db.project.delete({ where: { id: projectId } });
+  return NextResponse.json({ ok: true });
+}
