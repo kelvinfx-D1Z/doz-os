@@ -16,7 +16,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowImportingTsExtensions": true,
+    "allowImportingTsExtensions": true, // Required for Node test runner's type-stripping to work with .ts extension imports in test files
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
