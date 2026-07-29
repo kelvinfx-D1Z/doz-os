@@ -117,7 +117,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true, userId: body.userId, permissions: perms });
   }
 
-  // Regular update (name, title, phone, role, capacity, isActive)
+  // Regular update (name, email, title, phone, role, capacity, isActive)
   const data: any = {
     name: body.name || existing.name,
     title: body.title !== undefined ? body.title : existing.title,
@@ -130,6 +130,30 @@ export async function PATCH(req: Request) {
     capacity: body.capacity !== undefined ? Number(body.capacity) : existing.capacity,
     isActive: body.isActive !== undefined ? body.isActive : existing.isActive,
   };
+  // ------------------------------------------------------------------
+  // Email (= the sign-in username). Only touched when the founder
+  // actually sends a new one, so existing callers are unaffected.
+  // Normalised to lowercase, format-checked, and uniqueness-checked
+  // before it reaches the DB so we return 409 instead of a raw
+  // Prisma unique-constraint 500.
+  // ------------------------------------------------------------------
+  if (body.email !== undefined && body.email !== null) {
+    const nextEmail = String(body.email).toLowerCase().trim();
+    if (!nextEmail) {
+      return NextResponse.json({ error: "email cannot be empty" }, { status: 400 });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      return NextResponse.json({ error: "that is not a valid email address" }, { status: 400 });
+    }
+    if (nextEmail !== existing.email) {
+      const taken = await db.user.findUnique({ where: { email: nextEmail } });
+      if (taken) {
+        return NextResponse.json({ error: "email_taken" }, { status: 409 });
+      }
+      data.email = nextEmail;
+    }
+  }
+
   // If permissions are provided on a regular update, sanitize + persist them too
   if (body.permissions !== undefined) {
     const perms = sanitizePermissions(body.permissions);
@@ -140,6 +164,19 @@ export async function PATCH(req: Request) {
     where: { id: body.userId },
     data,
   });
+
+  // Log the sign-in-name change — it changes how that person logs in.
+  if (data.email) {
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: auth.user.id,
+          action: "UPDATED_EMAIL",
+          detail: `Changed ${existing.name}'s sign-in email from ${existing.email} to ${data.email}`,
+        },
+      });
+    } catch {}
+  }
 
   return NextResponse.json({
     ok: true,

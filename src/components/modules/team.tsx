@@ -1789,6 +1789,7 @@ function EditMemberDialog({
   onChangePassword: (m: Member) => void;
 }) {
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [title, setTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -1808,6 +1809,7 @@ function EditMemberDialog({
     setPrevMember(member);
     if (member) {
       setName(member.name);
+      setEmail(member.email ?? "");
       setTitle(member.title ?? "");
       setPhone(member.phone ?? "");
       setAddress(member.address ?? "");
@@ -1830,6 +1832,14 @@ function EditMemberDialog({
       toast.error("Name is required.");
       return;
     }
+    if (!email.trim()) {
+      toast.error("Email is required — it's how this person signs in.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/doz/team/manage", {
@@ -1839,6 +1849,7 @@ function EditMemberDialog({
           action: "update",
           userId: member.id,
           name: name.trim(),
+          email: email.trim().toLowerCase(),
           title: title.trim() || null,
           phone: phone.trim() || null,
           address: address.trim() || null,
@@ -1850,13 +1861,24 @@ function EditMemberDialog({
           isActive,
         }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        // The API replies with `error`, not `message`.
+        toast.error(
+          json?.error === "email_taken"
+            ? "Another team member already uses that email."
+            : json?.error || json?.message || `Failed (HTTP ${res.status})`,
+        );
         setSubmitting(false);
         return;
       }
-      toast.success(`${name.trim()}'s details updated.`);
+      const emailChanged =
+        email.trim().toLowerCase() !== (member.email ?? "").toLowerCase();
+      toast.success(`${name.trim()}'s details updated.`, {
+        description: emailChanged
+          ? `They now sign in with ${email.trim().toLowerCase()}. Their password is unchanged.`
+          : undefined,
+      });
       onOpenChange(false);
       onSaved();
     } catch (err) {
@@ -1887,6 +1909,22 @@ function EditMemberDialog({
                 required
                 autoFocus
               />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="edit-email">Email (username) *</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="off"
+                placeholder="name@digitonezero.com"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                This is what they sign in with. Changing it does not change their
+                password.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-role">Role</Label>
