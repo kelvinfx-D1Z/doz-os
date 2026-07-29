@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import {
+  contractedRevenuePct,
+  multiThreadedAccountsPct,
+  isSingleThreaded,
+  type AccountMetricInput,
+} from "@/lib/crm-metrics";
 
 // CRM & Sales Engine — pipeline, accounts, contacts, leads, proposals, follow-ups, referrals
 export async function GET(req: Request) {
@@ -13,7 +19,7 @@ export async function GET(req: Request) {
   const isFounder = user.role === "FOUNDER";
   const now = new Date();
 
-  const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals] =
+  const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals, invoiceTotals] =
     await Promise.all([
       db.opportunity.findMany({
         include: {
@@ -26,7 +32,11 @@ export async function GET(req: Request) {
       }),
       db.account.findMany({
         include: {
-          _count: { select: { opportunities: true, projects: true } },
+          _count: { select: { opportunities: true, projects: true, contacts: true } },
+          contracts: {
+            where: { isRecurring: true },
+            orderBy: { renewalDate: "asc" },
+          },
         },
         orderBy: { lifetimeValue: "desc" },
       }),
@@ -53,6 +63,13 @@ export async function GET(req: Request) {
       db.referral.findMany({
         include: { toAccount: true, fromAccount: true, referrer: true },
         orderBy: { createdAt: "desc" },
+      }),
+      // Money actually collected, grouped by account — the revenue basis for
+      // every metric on this page. Matches how "Received" is computed for
+      // projects in /api/doz/projects.
+      db.invoice.groupBy({
+        by: ["accountId"],
+        _sum: { amountPaid: true },
       }),
     ]);
 
@@ -114,20 +131,54 @@ export async function GET(req: Request) {
     })),
   }));
 
-  const shapedAccounts = accounts.map((a) => ({
+  // ---- growth metrics (see docs/superpowers/specs/2026-07-29-...) ----
+  const revenueByAccount = new Map<string, number>();
+  for (const row of invoiceTotals) {
+    if (row.accountId) revenueByAccount.set(row.accountId, row._sum.amountPaid ?? 0);
+  }
+
+  const metricInput: AccountMetricInput[] = accounts.map((a) => ({
     id: a.id,
-    name: a.name,
-    industry: a.industry,
-    isStrategic: a.isStrategic,
-    lifetimeValue: a.lifetimeValue,
-    // SECURITY: portalToken is the credential clients use to access the
-    // client portal. Only the FOUNDER sees it — never expose to staff/interns.
-    portalToken: isFounder ? a.portalToken : undefined,
-    portalActive: a.portalActive,
-    website: a.website,
-    isRealCustomer: a._count.projects > 0,
-    _count: { opportunities: a._count.opportunities, projects: a._count.projects },
+    revenue: revenueByAccount.get(a.id) ?? 0,
+    contactCount: a._count.contacts,
+    hasActiveRecurringContract: a.contracts.some(
+      (c) => c.isRecurring && c.status === "ACTIVE",
+    ),
   }));
+
+  const contractedPct = contractedRevenuePct(metricInput);
+  const multiThreadedPct = multiThreadedAccountsPct(metricInput);
+
+  const shapedAccounts = accounts.map((a) => {
+    const activeContract = a.contracts.find((c) => c.status === "ACTIVE") ?? a.contracts[0] ?? null;
+    return {
+      id: a.id,
+      name: a.name,
+      industry: a.industry,
+      isStrategic: a.isStrategic,
+      lifetimeValue: a.lifetimeValue,
+      // SECURITY: portalToken is the credential clients use to access the
+      // client portal. Only the FOUNDER sees it — never expose to staff/interns.
+      portalToken: isFounder ? a.portalToken : undefined,
+      portalActive: a.portalActive,
+      website: a.website,
+      isRealCustomer: a._count.projects > 0,
+      _count: { opportunities: a._count.opportunities, projects: a._count.projects },
+      revenue: revenueByAccount.get(a.id) ?? 0,
+      contactCount: a._count.contacts,
+      isSingleThreaded: isSingleThreaded({ contactCount: a._count.contacts }),
+      contract: activeContract
+        ? {
+            id: activeContract.id,
+            title: activeContract.title,
+            status: activeContract.status,
+            isRecurring: activeContract.isRecurring,
+            renewalDate: activeContract.renewalDate,
+            value: activeContract.value,
+          }
+        : null,
+    };
+  });
 
   // Split into real customers and potential customers
   const realCustomers = shapedAccounts.filter(a => a.isRealCustomer);
@@ -208,6 +259,8 @@ export async function GET(req: Request) {
       totalReferralValue,
       realCustomers: realCustomers.length,
       potentialCustomers: potentialCustomers.length,
+      contractedRevenuePct: contractedPct,
+      multiThreadedAccountsPct: multiThreadedPct,
     },
     opportunities: shapedOpps,
     accounts: shapedAccounts,
