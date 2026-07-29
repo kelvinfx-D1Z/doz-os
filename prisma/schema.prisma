@@ -138,6 +138,7 @@ model Account {
   paymentConfirmations PaymentConfirmation[]
   clientFeedback   ClientFeedback[]
   contracts      Contract[]
+  leads         Lead[]
 }
 
 model Contact {
@@ -167,9 +168,13 @@ model Lead {
   serviceInterest String?
   status      String   @default("NEW") // NEW, QUALIFIED, CONVERTED, LOST
   value       Float    @default(0)
+  direction   String   @default("INBOUND") // INBOUND (they asked) | OUTBOUND (we are going after them)
   contactId   String?
   contact     Contact? @relation(fields: [contactId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
   opportunityId String?
+  followUps   FollowUp[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -217,6 +222,8 @@ model FollowUp {
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
   contactId     String?
   contact       Contact? @relation(fields: [contactId], references: [id])
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
   type          String   @default("CALL") // CALL, EMAIL, MEETING, WHATSAPP
   subject       String
   notes         String?
@@ -226,6 +233,8 @@ model FollowUp {
   assigneeId    String?  // who should follow up
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([leadId])
 }
 
 model Referral {
@@ -1016,8 +1025,11 @@ model ProjectEquipment {
 
 model Contract {
   id          String   @id @default(cuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id])
+  // Optional: a retainer belongs to an Account, not a Project.
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  isRecurring Boolean  @default(false) // true = retainer, false = one-off project contract
+  renewalDate DateTime?
   accountId   String?
   account     Account? @relation(fields: [accountId], references: [id])
   title       String
