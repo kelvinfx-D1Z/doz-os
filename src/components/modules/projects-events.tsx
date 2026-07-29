@@ -105,6 +105,7 @@ interface Project {
   progress: number;
   startDate: string | null;
   endDate: string | null;
+  accountId: string | null;
   account: { name: string; isStrategic: boolean } | null;
   managerId: string | null;
   manager: { name: string } | null;
@@ -533,6 +534,173 @@ function NewProjectButton({ onClick }: { onClick: () => void }) {
 }
 
 // ---------- New Project Dialog ----------
+// ---------- Client / Account picker (shared by New + Edit dialogs) ----------
+// Loads accounts from the CRM endpoint and lets the founder create a client
+// inline when the one they need isn't in the list yet — the new client is
+// selected immediately, so they never have to leave the project form.
+function ClientSelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (accountId: string) => void;
+}) {
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newIndustry, setNewIndustry] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // NOTE: every setState here happens inside an async callback, never
+  // synchronously in the effect body — that keeps react-hooks/set-state-in-effect quiet.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/doz/crm")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setAccounts(
+          (d.accounts ?? []).map((a: { id: string; name: string; isStrategic?: boolean }) => ({
+            id: a.id,
+            name: a.name,
+            isStrategic: a.isStrategic,
+          })),
+        );
+      })
+      .catch(() => {
+        /* non-fatal — the picker just stays empty */
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleCreate() {
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      toast.error("Client name is required.");
+      return;
+    }
+    if (accounts.some((a) => a.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error("A client with that name already exists.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await fetch("/api/doz/crm/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_account",
+          name: trimmed,
+          industry: newIndustry.trim() || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.account) {
+        throw new Error(json?.error || `Failed (${res.status})`);
+      }
+      const created: AccountOption = {
+        id: json.account.id,
+        name: json.account.name,
+        isStrategic: json.account.isStrategic,
+      };
+      setAccounts((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      onChange(created.id);
+      setAdding(false);
+      setNewName("");
+      setNewIndustry("");
+      toast.success(`${created.name} added`, {
+        description: "Also available in CRM & Sales.",
+      });
+    } catch (err) {
+      toast.error("Couldn't add client", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Select
+        value={value}
+        onValueChange={(v) => {
+          if (v === "__add_new__") {
+            setAdding(true);
+            return;
+          }
+          onChange(v === "__clear__" ? "" : v);
+        }}
+      >
+        <SelectTrigger id={id}>
+          <SelectValue placeholder={loading ? "Loading…" : "Optional — select client"} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__add_new__" className="font-medium text-primary">
+            + Add new client…
+          </SelectItem>
+          {value ? <SelectItem value="__clear__">— No client —</SelectItem> : null}
+          {accounts.map((a) => (
+            <SelectItem key={a.id} value={a.id}>
+              {a.isStrategic ? "★ " : ""}
+              {a.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {adding && (
+        <div className="space-y-2 rounded-md border border-border bg-muted/30 p-2.5">
+          <Input
+            autoFocus
+            placeholder="Client name *"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter would otherwise submit the surrounding project form.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleCreate();
+              }
+            }}
+          />
+          <Input
+            placeholder="Industry (optional)"
+            value={newIndustry}
+            onChange={(e) => setNewIndustry(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={handleCreate} disabled={creating}>
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Add client
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setAdding(false);
+                setNewName("");
+                setNewIndustry("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewProjectDialog({
   open,
   onOpenChange,
@@ -551,38 +719,9 @@ function NewProjectDialog({
   const [venue, setVenue] = useState<string>("");
   const [budget, setBudget] = useState<string>("");
   const [revenue, setRevenue] = useState<string>("");
-  const [accounts, setAccounts] = useState<AccountOption[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Load accounts (from CRM endpoint) once when the dialog first opens.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setAccountsLoading(true);
-    fetch("/api/doz/crm")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (cancelled || !d) return;
-        const list: AccountOption[] = (d.accounts ?? []).map(
-          (a: { id: string; name: string; isStrategic?: boolean }) => ({
-            id: a.id,
-            name: a.name,
-            isStrategic: a.isStrategic,
-          })
-        );
-        setAccounts(list);
-      })
-      .catch(() => {
-        // Non-fatal — the field stays as an empty select.
-      })
-      .finally(() => {
-        if (!cancelled) setAccountsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  // Client list + inline "add new client" now live in <ClientSelect />.
 
   // Reset form fields whenever the dialog closes.
   useEffect(() => {
@@ -750,29 +889,7 @@ function NewProjectDialog({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="np-account">Client / Account</Label>
-                <Select value={accountId} onValueChange={setAccountId}>
-                  <SelectTrigger id="np-account">
-                    <SelectValue
-                      placeholder={
-                        accountsLoading ? "Loading…" : "Optional — select client"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.length === 0 && !accountsLoading ? (
-                      <SelectItem value="__none__" disabled>
-                        No accounts available
-                      </SelectItem>
-                    ) : (
-                      accounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.isStrategic ? "★ " : ""}
-                          {a.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <ClientSelect id="np-account" value={accountId} onChange={setAccountId} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="np-date">Event Date</Label>
@@ -906,7 +1023,16 @@ function EditableProjectItem({ project, isPM = false, onUpdated, viewMode = "lis
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete ${project.name}?`)) return;
+    if (
+      !window.confirm(
+        `Delete "${project.name}"?\n\n` +
+          `This also removes its milestones, deliverables, crew, budgets, ` +
+          `vendor costs, equipment, services and contracts.\n\n` +
+          `Invoices and expenses are kept — they stay in your financial records ` +
+          `with the project link cleared.\n\nThis cannot be undone.`,
+      )
+    )
+      return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/doz/projects?projectId=${encodeURIComponent(project.id)}`, { method: "DELETE" });
@@ -1660,7 +1786,30 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
   const [venue, setVenue] = useState<string>("");
   const [budget, setBudget] = useState<string>("");
   const [revenue, setRevenue] = useState<string>("");
+  const [received, setReceived] = useState<string>("");
+  const [accountId, setAccountId] = useState<string>("");
+  const [managerId, setManagerId] = useState<string>("");
+  const [progress, setProgress] = useState<string>("0");
   const [submitting, setSubmitting] = useState(false);
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
+
+  // Team list for the Production Manager picker (founder only).
+  useEffect(() => {
+    if (!isFounder) return;
+    let cancelled = false;
+    fetch("/api/doz/team")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setTeamMembers((d.members || []).filter((m: any) => m.isActive));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isFounder]);
 
   useEffect(() => {
     if (!project) return;
@@ -1677,6 +1826,10 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
     setVenue(project.venue || "");
     setBudget(String(project.budget ?? ""));
     setRevenue(String(project.revenue ?? ""));
+    setReceived(String(project.received ?? 0));
+    setAccountId(project.accountId ?? "");
+    setManagerId(project.managerId ?? "");
+    setProgress(String(project.progress ?? 0));
   }, [project]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -1693,19 +1846,34 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
         venue: venue.trim() || null,
         budget: budget.trim() !== "" ? Number(budget) : null,
         revenue: revenue.trim() !== "" ? Number(revenue) : null,
+        progress: progress.trim() !== "" ? Number(progress) : 0,
       };
+      // Founder-only fields — the API rejects these from anyone else.
+      if (isFounder) {
+        payload.accountId = accountId || null;
+        payload.managerId = managerId || null;
+        // Only send Received when it actually changed, so a plain rename
+        // never touches the invoice ledger.
+        const receivedNum = received.trim() !== "" ? Number(received) : 0;
+        if (Math.abs(receivedNum - (project.received ?? 0)) > 0.0001) {
+          payload.receivedTotal = receivedNum;
+        }
+      }
       const res = await fetch("/api/doz/projects", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.message || `Failed (${res.status})`);
+      // The API replies with `error`, not `message`.
+      if (!res.ok) throw new Error(json?.error || json?.message || `Failed (${res.status})`);
       toast.success("Project updated");
       onSaved();
       onOpenChange(false);
     } catch (err) {
-      toast.error("Failed to update project");
+      toast.error("Failed to update project", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1781,6 +1949,62 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
               <Label>Revenue</Label>
               <Input value={revenue} onChange={(e) => setRevenue(e.target.value)} />
             </div>
+            {isFounder && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ep-received">Received</Label>
+                <Input
+                  id="ep-received"
+                  inputMode="decimal"
+                  value={received}
+                  onChange={(e) => setReceived(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Total collected so far. Saving records the difference against this
+                  project&apos;s invoice and marks it Partial or Paid.
+                </p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="ep-progress">Progress %</Label>
+              <Input
+                id="ep-progress"
+                type="number"
+                min={0}
+                max={100}
+                value={progress}
+                onChange={(e) => setProgress(e.target.value)}
+              />
+            </div>
+            {isFounder && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ep-account">Client / Account</Label>
+                  <ClientSelect id="ep-account" value={accountId} onChange={setAccountId} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ep-manager">Production Manager</Label>
+                  <Select
+                    value={managerId}
+                    onValueChange={(v) => setManagerId(v === "__clear__" ? "" : v)}
+                  >
+                    <SelectTrigger id="ep-manager">
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {managerId ? <SelectItem value="__clear__">— Unassigned —</SelectItem> : null}
+                      {teamMembers.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name}
+                          <span className="ml-1.5 text-[10px] uppercase text-muted-foreground">
+                            {m.role}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
