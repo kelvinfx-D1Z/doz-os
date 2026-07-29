@@ -53,17 +53,17 @@ import { formatNGN, relativeTime, formatDate, avatarColor } from "@/lib/format";
 // ---------- types (mirroring API response shape) ----------
 type Stats = {
   totalPipeline: number;
-  weightedPipeline: number;
   openOpps: number;
   wonOpps: number;
   lostOpps: number;
   proposalsSent: number;
   proposalsAccepted: number;
-  conversionRate: number;
   openFollowUps: number;
   overdueFollowUps: number;
   strategicAccounts: number;
   totalReferralValue: number;
+  contractedRevenuePct: number;
+  multiThreadedAccountsPct: number;
 };
 
 type Opportunity = {
@@ -307,46 +307,19 @@ export function CrmSales() {
       <QuickCapture onCreated={load} />
 
       {/* ---------- TOP KPI ROW ---------- */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatCard
-          label="Pipeline Value"
-          value={formatNGN(stats.totalPipeline, true)}
-          sub={`${stats.openOpps} open opps`}
-          icon={<TrendingUp className="h-4 w-4" />}
-          accent="primary"
+          label="Contracted revenue"
+          value={`${stats.contractedRevenuePct.toFixed(0)}%`}
+          sub="Revenue under an active recurring agreement"
+          icon={<FileText className="h-4 w-4" />}
+          accent={stats.contractedRevenuePct > 0 ? "primary" : "warning"}
         />
         <StatCard
-          label="Weighted Pipeline"
-          value={formatNGN(stats.weightedPipeline, true)}
-          sub="Probability-adjusted"
-          icon={<TrendingUp className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Open Opportunities"
-          value={stats.openOpps}
-          sub={`${stats.wonOpps} won · ${stats.lostOpps} lost`}
-          icon={<Briefcase className="h-4 w-4" />}
-        />
-        <StatCard
-          label="Conversion Rate"
-          value={`${stats.conversionRate.toFixed(1)}%`}
-          sub={`${stats.proposalsAccepted} of ${stats.proposalsSent + stats.proposalsAccepted} proposals`}
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          accent={stats.conversionRate >= 25 ? "primary" : "warning"}
-        />
-        <StatCard
-          label="Open Follow-ups"
-          value={stats.openFollowUps}
-          sub={stats.overdueFollowUps > 0 ? `${stats.overdueFollowUps} overdue` : "On track"}
-          icon={<Clock className="h-4 w-4" />}
-          accent={stats.overdueFollowUps > 0 ? "danger" : "default"}
-        />
-        <StatCard
-          label="Strategic Accounts"
-          value={stats.strategicAccounts}
-          sub={`${accounts.length} total accounts`}
-          icon={<Star className="h-4 w-4" />}
-          accent="warning"
+          label="Accounts with 2+ contacts"
+          value={`${stats.multiThreadedAccountsPct.toFixed(0)}%`}
+          sub="Accounts that survive a contact changing job"
+          icon={<Users className="h-4 w-4" />}
         />
       </div>
 
