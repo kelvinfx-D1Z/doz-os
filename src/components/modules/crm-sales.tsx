@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Star,
   Phone,
@@ -20,6 +20,7 @@ import {
   Link2,
 } from "lucide-react";
 
+import { QuickCapture } from "@/components/modules/crm/quick-capture";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -196,6 +197,12 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+async function fetchCrmData(): Promise<CrmData> {
+  const res = await fetch("/api/doz/crm", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as CrmData;
+}
+
 // ---------- loading skeleton ----------
 function CrmSkeleton() {
   return (
@@ -218,14 +225,30 @@ export function CrmSales() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Reusable reload used after a QuickCapture write. Kept separate from the
+  // mount effect below (which uses an inline IIFE + cancellation guard) so
+  // that calling this from a manual trigger doesn't run afoul of
+  // react-hooks/set-state-in-effect, which flags setState reachable from a
+  // named function invoked directly in an effect body.
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const json = await fetchCrmData();
+      setData(json);
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load CRM data");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch("/api/doz/crm", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as CrmData;
+        const json = await fetchCrmData();
         if (!cancelled) {
           setData(json);
           setError(null);
@@ -258,6 +281,8 @@ export function CrmSales() {
 
   return (
     <div className="space-y-5">
+      <QuickCapture onCreated={load} />
+
       {/* ---------- TOP KPI ROW ---------- */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <StatCard
