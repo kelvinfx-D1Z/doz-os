@@ -49,6 +49,14 @@ export async function POST(req: Request) {
         return await createFollowUp(body);
       case "create_referral":
         return await createReferral(body);
+      case "create_lead":
+        return await createLead(body);
+      case "create_contact":
+        return await createContact(body);
+      case "create_contract":
+        return await createContract(body, sessionUser);
+      case "update_contract":
+        return await updateContract(body, sessionUser);
       case "delete_account":
         return await deleteAccount(body);
       case "delete_opportunity":
@@ -351,6 +359,145 @@ async function createReferral(body: any) {
   });
 
   return NextResponse.json({ ok: true, referral }, { status: 201 });
+}
+
+// ============================================================
+// create_lead
+// Body: { contactName, company?, source?, sourceDetail?, serviceInterest?, value?, direction?, accountId? }
+// ============================================================
+// A lead is the one-line capture: an inbound enquiry or an outbound target.
+// Only `contactName` is required — capture must take seconds, not minutes.
+async function createLead(body: any) {
+  const { contactName, company, source, sourceDetail, serviceInterest, value, direction, accountId } = body;
+
+  if (!contactName || typeof contactName !== "string" || !contactName.trim()) {
+    return NextResponse.json({ error: "contactName is required" }, { status: 400 });
+  }
+
+  const dir = direction === "OUTBOUND" ? "OUTBOUND" : "INBOUND";
+
+  const lead = await db.lead.create({
+    data: {
+      contactName: contactName.trim(),
+      company: company?.trim() || null,
+      source: typeof source === "string" && source.trim() ? source.trim() : "REFERRAL",
+      sourceDetail: sourceDetail?.trim() || null,
+      serviceInterest: serviceInterest?.trim() || null,
+      value: Number(value) || 0,
+      direction: dir,
+      accountId: accountId || null,
+      status: "NEW",
+    },
+  });
+
+  return NextResponse.json({ ok: true, lead }, { status: 201 });
+}
+
+// ============================================================
+// create_contact
+// Body: { name, accountId?, title?, email?, phone?, isDecisionMaker? }
+// ============================================================
+// Adding a second contact to an account is how single-threading gets fixed,
+// so this stays deliberately minimal: a name and an account.
+async function createContact(body: any) {
+  const { name, accountId, title, email, phone, isDecisionMaker } = body;
+
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+
+  if (accountId) {
+    const account = await db.account.findUnique({ where: { id: accountId } });
+    if (!account) {
+      return NextResponse.json({ error: "account not found" }, { status: 404 });
+    }
+  }
+
+  const contact = await db.contact.create({
+    data: {
+      name: name.trim(),
+      accountId: accountId || null,
+      title: title?.trim() || null,
+      email: email?.trim().toLowerCase() || null,
+      phone: phone?.trim() || null,
+      isDecisionMaker: Boolean(isDecisionMaker),
+    },
+  });
+
+  return NextResponse.json({ ok: true, contact }, { status: 201 });
+}
+
+// ============================================================
+// create_contract / update_contract
+// Body (create): { accountId, title, value?, status?, isRecurring?, startDate?, endDate?, renewalDate?, notes? }
+// Body (update): { contractId, title?, value?, status?, isRecurring?, startDate?, endDate?, renewalDate?, notes? }
+// ============================================================
+const CONTRACT_STATUSES = new Set(["DRAFT", "SENT", "SIGNED", "ACTIVE", "EXPIRED", "TERMINATED"]);
+
+// Contracts move money and define the company's recurring revenue, so they are
+// FOUNDER-only. A retainer has an accountId and no projectId.
+async function createContract(body: any, sessionUser: { role: string }) {
+  if (sessionUser.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+  }
+  const { accountId, title, value, status, isRecurring, startDate, endDate, renewalDate, notes } = body;
+
+  if (!accountId) {
+    return NextResponse.json({ error: "accountId is required" }, { status: 400 });
+  }
+  if (!title || !String(title).trim()) {
+    return NextResponse.json({ error: "title is required" }, { status: 400 });
+  }
+  const account = await db.account.findUnique({ where: { id: accountId } });
+  if (!account) {
+    return NextResponse.json({ error: "account not found" }, { status: 404 });
+  }
+  const nextStatus = CONTRACT_STATUSES.has(status) ? status : "DRAFT";
+
+  const contract = await db.contract.create({
+    data: {
+      accountId,
+      projectId: null,
+      title: String(title).trim(),
+      value: Number(value) || 0,
+      status: nextStatus,
+      isRecurring: isRecurring !== false,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
+      renewalDate: renewalDate ? new Date(renewalDate) : null,
+      notes: notes?.trim() || null,
+    },
+  });
+
+  return NextResponse.json({ ok: true, contract }, { status: 201 });
+}
+
+async function updateContract(body: any, sessionUser: { role: string }) {
+  if (sessionUser.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden — founder only" }, { status: 403 });
+  }
+  const { contractId, title, value, status, isRecurring, startDate, endDate, renewalDate, notes } = body;
+
+  if (!contractId) {
+    return NextResponse.json({ error: "contractId is required" }, { status: 400 });
+  }
+  const existing = await db.contract.findUnique({ where: { id: contractId } });
+  if (!existing) {
+    return NextResponse.json({ error: "contract not found" }, { status: 404 });
+  }
+
+  const data: any = {};
+  if (title !== undefined) data.title = String(title).trim();
+  if (value !== undefined) data.value = Number(value) || 0;
+  if (status !== undefined && CONTRACT_STATUSES.has(status)) data.status = status;
+  if (isRecurring !== undefined) data.isRecurring = Boolean(isRecurring);
+  if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
+  if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
+  if (renewalDate !== undefined) data.renewalDate = renewalDate ? new Date(renewalDate) : null;
+  if (notes !== undefined) data.notes = notes?.trim() || null;
+
+  const contract = await db.contract.update({ where: { id: contractId }, data });
+  return NextResponse.json({ ok: true, contract });
 }
 
 // ============================================================
