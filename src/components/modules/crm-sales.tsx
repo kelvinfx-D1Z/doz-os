@@ -230,16 +230,21 @@ export function CrmSales() {
   // that calling this from a manual trigger doesn't run afoul of
   // react-hooks/set-state-in-effect, which flags setState reachable from a
   // named function invoked directly in an effect body.
+  //
+  // Deliberately does NOT touch `loading` (or flip into the full-page error
+  // state on failure): this runs after every successful capture, and toggling
+  // `loading` here would unmount the whole page — KPIs, tabs, and
+  // QuickCapture itself — back to <CrmSkeleton /> and remount it once the
+  // refetch resolves, which both flashes and drops input focus on every
+  // single log. The first-mount skeleton (below) is unaffected by this.
   const load = useCallback(async () => {
     try {
-      setLoading(true);
       const json = await fetchCrmData();
       setData(json);
-      setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load CRM data");
-    } finally {
-      setLoading(false);
+      toast.error("Couldn't refresh CRM data", {
+        description: e instanceof Error ? e.message : undefined,
+      });
     }
   }, []);
 

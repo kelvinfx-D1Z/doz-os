@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, Plus } from "lucide-react";
@@ -13,10 +13,18 @@ export function QuickCapture({ onCreated }: { onCreated: () => void }) {
   const [text, setText] = useState("");
   const [direction, setDirection] = useState<"INBOUND" | "OUTBOUND">("INBOUND");
   const [saving, setSaving] = useState(false);
+  // Synchronous in-flight guard. `saving` state alone isn't enough: a fast
+  // double-Enter fires two keydown events before the first setSaving(true)
+  // has committed a re-render, so both calls would still see saving=false
+  // and both would POST, creating a duplicate lead. A ref is readable/writable
+  // synchronously within the same tick, closing that window.
+  const savingRef = useRef(false);
 
   async function save() {
+    if (savingRef.current) return;
     const value = text.trim();
     if (!value) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const res = await fetch("/api/doz/crm/create", {
@@ -39,6 +47,7 @@ export function QuickCapture({ onCreated }: { onCreated: () => void }) {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
