@@ -18,9 +18,14 @@ import {
   Briefcase,
   Building2,
   Link2,
+  AlertTriangle,
+  UserPlus,
+  FileSignature,
 } from "lucide-react";
 
 import { QuickCapture } from "@/components/modules/crm/quick-capture";
+import { ContactDialog } from "@/components/modules/crm/contact-dialog";
+import { ContractDialog } from "@/components/modules/crm/contract-dialog";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -90,6 +95,17 @@ type Account = {
   portalToken: string | null;
   portalActive: boolean;
   _count: { opportunities: number; projects: number };
+  revenue: number;
+  contactCount: number;
+  isSingleThreaded: boolean;
+  contract: {
+    id: string;
+    title: string;
+    status: string;
+    isRecurring: boolean;
+    renewalDate: string | null;
+    value: number;
+  } | null;
 };
 
 type Contact = {
@@ -224,6 +240,8 @@ export function CrmSales() {
   const [data, setData] = useState<CrmData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [contactFor, setContactFor] = useState<Account | null>(null);
+  const [contractFor, setContractFor] = useState<Account | null>(null);
 
   // Reusable reload used after a QuickCapture write. Kept separate from the
   // mount effect below (which uses an inline IIFE + cancellation guard) so
@@ -446,13 +464,16 @@ export function CrmSales() {
                     <TableHead className="text-right">Lifetime Value</TableHead>
                     <TableHead className="text-center">Opportunities</TableHead>
                     <TableHead className="text-center">Projects</TableHead>
+                    <TableHead>Contacts</TableHead>
+                    <TableHead>Retainer</TableHead>
                     <TableHead className="text-center">Client Portal</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {accounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={9}>
                         <EmptyState icon={<Building2 className="h-6 w-6" />} title="No accounts yet" />
                       </TableCell>
                     </TableRow>
@@ -482,6 +503,34 @@ export function CrmSales() {
                         </TableCell>
                         <TableCell className="text-center">{a._count.opportunities}</TableCell>
                         <TableCell className="text-center">{a._count.projects}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">{a.contactCount}</span>
+                            {a.isSingleThreaded && (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 border-amber-500/40 text-[10px] text-amber-400"
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Single contact
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {a.contract ? (
+                            <div className="flex flex-col gap-0.5">
+                              <StatusBadge status={a.contract.status} />
+                              {a.contract.renewalDate && (
+                                <span className="text-[10px] text-muted-foreground">
+                                  Renews {formatDate(a.contract.renewalDate)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">No retainer</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center">
                           {a.portalActive && a.portalToken ? (
                             <Button
@@ -500,6 +549,28 @@ export function CrmSales() {
                           ) : (
                             <span className="text-[10px] text-muted-foreground">Not enabled</span>
                           )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1.5 text-xs"
+                              onClick={() => setContactFor(a)}
+                            >
+                              <UserPlus className="h-3 w-3" />
+                              Add contact
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1.5 text-xs"
+                              onClick={() => setContractFor(a)}
+                            >
+                              <FileSignature className="h-3 w-3" />
+                              Retainer
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -599,6 +670,24 @@ export function CrmSales() {
           />
         </TabsContent>
       </Tabs>
+
+      <ContactDialog
+        accountId={contactFor?.id ?? null}
+        accountName={contactFor?.name ?? ""}
+        open={contactFor !== null}
+        onOpenChange={(v) => {
+          if (!v) setContactFor(null);
+        }}
+        onSaved={load}
+      />
+      <ContractDialog
+        account={contractFor}
+        open={contractFor !== null}
+        onOpenChange={(v) => {
+          if (!v) setContractFor(null);
+        }}
+        onSaved={load}
+      />
     </div>
   );
 }
