@@ -376,6 +376,13 @@ async function createLead(body: any) {
 
   const dir = direction === "OUTBOUND" ? "OUTBOUND" : "INBOUND";
 
+  if (accountId) {
+    const account = await db.account.findUnique({ where: { id: accountId } });
+    if (!account) {
+      return NextResponse.json({ error: "account not found" }, { status: 404 });
+    }
+  }
+
   const lead = await db.lead.create({
     data: {
       contactName: contactName.trim(),
@@ -487,7 +494,15 @@ async function updateContract(body: any, sessionUser: { role: string }) {
   }
 
   const data: any = {};
-  if (title !== undefined) data.title = String(title).trim();
+  if (title !== undefined) {
+    // title is a required, non-nullable column — an explicit null/empty is a
+    // client error, not a request to clear the field. Reject rather than
+    // silently writing the literal string "null" or silently ignoring it.
+    if (title === null || !String(title).trim()) {
+      return NextResponse.json({ error: "title cannot be null or empty" }, { status: 400 });
+    }
+    data.title = String(title).trim();
+  }
   if (value !== undefined) data.value = Number(value) || 0;
   if (status !== undefined && CONTRACT_STATUSES.has(status)) data.status = status;
   if (isRecurring !== undefined) data.isRecurring = Boolean(isRecurring);
