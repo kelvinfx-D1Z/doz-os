@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { requireFounder, requireStaff } from "@/lib/auth";
 
 // GET — list contracts (optionally filtered by project)
+//
+// FOUNDER + STAFF only, consistent with /api/doz/crm. This response carries
+// each contract's value, terms, signedBy and fileUrl — commercially sensitive
+// legal detail that interns and freelancers must not read.
 export async function GET(req: Request) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requireStaff();
+  if ("error" in auth) return auth.error;
 
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
@@ -46,10 +50,15 @@ export async function GET(req: Request) {
   });
 }
 
-// POST — create or update a contract
+// POST — create, update or delete a contract
+//
+// FOUNDER-only. Contracts are signed legal records: `status: "ACTIVE"` is what
+// makes a contract count toward the company's contracted-revenue metric, and
+// `delete` destroys the signed record outright. Mirrors the founder gate on
+// create_contract / update_contract in /api/doz/crm/create.
 export async function POST(req: Request) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await requireFounder();
+  if ("error" in auth) return auth.error;
 
   const body = await req.json().catch(() => null);
   if (!body?.action) return NextResponse.json({ error: "action required" }, { status: 400 });

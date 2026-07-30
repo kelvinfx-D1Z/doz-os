@@ -1779,11 +1779,14 @@ function AddMemberDialog({
 // ============================================================
 function EditMemberDialog({
   member,
+  isSelf = false,
   onOpenChange,
   onSaved,
   onChangePassword,
 }: {
   member: Member | null;
+  /** True when the founder is editing their OWN row — locks the email field. */
+  isSelf?: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
   onChangePassword: (m: Member) => void;
@@ -1832,13 +1835,18 @@ function EditMemberDialog({
       toast.error("Name is required.");
       return;
     }
-    if (!email.trim()) {
-      toast.error("Email is required — it's how this person signs in.");
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      toast.error("Enter a valid email address.");
-      return;
+    // Your own sign-in email is locked (see the dialog note): there is no
+    // password-reset or email-recovery route in this app, so a typo here
+    // would lock the only account that can manage users out for good.
+    if (!isSelf) {
+      if (!email.trim()) {
+        toast.error("Email is required — it's how this person signs in.");
+        return;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        toast.error("Enter a valid email address.");
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -1849,7 +1857,9 @@ function EditMemberDialog({
           action: "update",
           userId: member.id,
           name: name.trim(),
-          email: email.trim().toLowerCase(),
+          // Omit `email` entirely for your own row — the API only touches
+          // the column when a value is sent.
+          ...(isSelf ? {} : { email: email.trim().toLowerCase() }),
           title: title.trim() || null,
           phone: phone.trim() || null,
           address: address.trim() || null,
@@ -1873,7 +1883,7 @@ function EditMemberDialog({
         return;
       }
       const emailChanged =
-        email.trim().toLowerCase() !== (member.email ?? "").toLowerCase();
+        !isSelf && email.trim().toLowerCase() !== (member.email ?? "").toLowerCase();
       toast.success(`${name.trim()}'s details updated.`, {
         description: emailChanged
           ? `They now sign in with ${email.trim().toLowerCase()}. Their password is unchanged.`
@@ -1917,13 +1927,16 @@ function EditMemberDialog({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
+                required={!isSelf}
+                disabled={isSelf}
+                readOnly={isSelf}
                 autoComplete="off"
                 placeholder="name@digitonezero.com"
               />
               <p className="text-[11px] text-muted-foreground">
-                This is what they sign in with. Changing it does not change their
-                password.
+                {isSelf
+                  ? "This is your own sign-in email, so it's locked here. There is no password-reset link in DOZ OS — a typo would lock you out of the only account that can manage the team. To change it, have it updated directly in the database."
+                  : "This is what they sign in with. Changing it does not change their password."}
               </p>
             </div>
             <div className="space-y-1.5">
@@ -2704,6 +2717,7 @@ export function Team() {
           />
           <EditMemberDialog
             member={editingMember}
+            isSelf={!!editingMember && currentUser?.id === editingMember.id}
             onOpenChange={(open) => !open && setEditingMember(null)}
             onSaved={loadTeam}
             onChangePassword={(m) => {

@@ -1026,10 +1026,15 @@ function EditableProjectItem({ project, isPM = false, onUpdated, viewMode = "lis
     if (
       !window.confirm(
         `Delete "${project.name}"?\n\n` +
-          `This also removes its milestones, deliverables, crew, budgets, ` +
-          `vendor costs, equipment, services and contracts.\n\n` +
-          `Invoices and expenses are kept — they stay in your financial records ` +
-          `with the project link cleared.\n\nThis cannot be undone.`,
+          `PERMANENTLY ERASED: crew assignments and their day rates, vendor ` +
+          `cost records, budgets, milestones, deliverables, equipment, ` +
+          `services, event-day logs and client feedback. These are cost ` +
+          `records — once gone you cannot reconstruct what this project ` +
+          `cost you.\n\n` +
+          `KEPT: invoices, expenses and contracts. They stay in your ` +
+          `financial and legal records with the project link cleared — ` +
+          `contracts stay attached to the client.\n\n` +
+          `This cannot be undone.`,
       )
     )
       return;

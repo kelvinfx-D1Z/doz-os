@@ -64,12 +64,21 @@ export async function GET(req: Request) {
         include: { toAccount: true, fromAccount: true, referrer: true },
         orderBy: { createdAt: "desc" },
       }),
-      // Money actually collected, grouped by account — the revenue basis for
-      // every metric on this page. Matches how "Received" is computed for
-      // projects in /api/doz/projects.
-      db.invoice.groupBy({
-        by: ["accountId"],
-        _sum: { amountPaid: true },
+      // Money actually collected per account — the revenue basis for every
+      // metric on this page. Matches how "Received" is computed for projects
+      // in /api/doz/projects.
+      //
+      // An invoice reaches an account EITHER directly (invoice.accountId) OR
+      // through its project (invoice.project.accountId) — the client portal
+      // resolves it the same way with { OR: [{ accountId }, { project: {
+      // accountId } }] }, and real rows exist with only the project link set.
+      // A groupBy on accountId alone therefore undercounts, so we fold in JS.
+      db.invoice.findMany({
+        select: {
+          accountId: true,
+          amountPaid: true,
+          project: { select: { accountId: true } },
+        },
       }),
     ]);
 
@@ -132,9 +141,13 @@ export async function GET(req: Request) {
   }));
 
   // ---- growth metrics (see docs/superpowers/specs/2026-07-29-...) ----
+  // Each invoice is attributed to exactly ONE account — its own accountId if
+  // set, otherwise its project's — so nothing is double-counted.
   const revenueByAccount = new Map<string, number>();
-  for (const row of invoiceTotals) {
-    if (row.accountId) revenueByAccount.set(row.accountId, row._sum.amountPaid ?? 0);
+  for (const inv of invoiceTotals) {
+    const accountId = inv.accountId ?? inv.project?.accountId ?? null;
+    if (!accountId) continue;
+    revenueByAccount.set(accountId, (revenueByAccount.get(accountId) ?? 0) + (inv.amountPaid ?? 0));
   }
 
   const metricInput: AccountMetricInput[] = accounts.map((a) => ({

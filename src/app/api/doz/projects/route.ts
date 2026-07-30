@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { MONEY_EPSILON, allocateDelta } from "@/lib/received-allocation";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -470,107 +472,127 @@ export async function POST(req: Request) {
 /** An error whose message is safe to show the founder in a toast. */
 class ReceivedError extends Error {}
 
-/** Recompute an invoice's status from its amounts — mirrors verify_payment. */
-function invoiceStatusFor(amount: number, amountPaid: number, current: string) {
-  const balance = amount - amountPaid;
-  if (balance <= 0.0001 && amountPaid > 0) {
-    return { status: "PAID", paidDate: new Date() as Date | null };
-  }
-  if (amountPaid > 0) return { status: "PARTIAL", paidDate: null };
-  // Back to nothing paid — fall back to SENT unless it was still a draft.
-  return { status: current === "DRAFT" ? "DRAFT" : "SENT", paidDate: null };
-}
-
 /**
  * Reconcile a project's invoices so that sum(amountPaid) === newTotal.
  *
- * Applies the difference oldest-invoice-first (a client paying down their
- * bills settles the oldest one first). If the project has no invoice yet,
- * one is created from its revenue figure so the money has somewhere to land
- * — this is the common case for work invoiced outside the app.
+ * The arithmetic itself (delta-only allocation + status/paidDate rules) lives
+ * in @/lib/received-allocation so the rollback verification scripts exercise
+ * the exact code that ships here. This function is the DB half: it decides
+ * what ledger entries must exist, then writes the allocation and its audit
+ * trail.
+ *
+ * If the project has no invoice yet, one is created from its revenue figure
+ * so the money has somewhere to land — the common case for work invoiced
+ * outside the app. If the invoices on file cannot hold the new total, a
+ * supplementary invoice is raised for the shortfall (no screen in this app
+ * can edit an invoice amount, so refusing would leave the founder stuck).
+ *
+ * Runs inside a caller-supplied transaction so the project's own field
+ * update and this reconciliation succeed or fail together.
  */
-async function reconcileReceived(projectId: string, newTotal: number, userId: string) {
-  await db.$transaction(async (tx) => {
-    const project = await tx.project.findUnique({ where: { id: projectId } });
-    if (!project) throw new ReceivedError("Project not found.");
+async function reconcileReceived(
+  tx: Prisma.TransactionClient,
+  projectId: string,
+  newTotal: number,
+  userId: string,
+) {
+  const project = await tx.project.findUnique({ where: { id: projectId } });
+  if (!project) throw new ReceivedError("Project not found.");
 
-    let invoices = await tx.invoice.findMany({
-      where: { projectId },
-      orderBy: { issuedDate: "asc" },
+  const invoices = await tx.invoice.findMany({
+    where: { projectId },
+    orderBy: { issuedDate: "asc" },
+  });
+
+  async function createInvoice(amount: number) {
+    const year = new Date().getFullYear();
+    const count = await tx.invoice.count();
+    return tx.invoice.create({
+      data: {
+        code: `INV-${year}-${String(count + 1).padStart(3, "0")}`,
+        projectId,
+        accountId: project!.accountId,
+        amount,
+        status: "SENT",
+        amountPaid: 0,
+        issuedDate: new Date(),
+      },
     });
+  }
 
-    // No invoice yet → create one so there's a ledger entry to pay against.
-    if (invoices.length === 0) {
-      if (newTotal === 0) return; // nothing received, nothing to record
-      const invoiceAmount = Math.max(project.revenue ?? 0, newTotal);
-      const year = new Date().getFullYear();
-      const count = await tx.invoice.count();
-      const created = await tx.invoice.create({
-        data: {
-          code: `INV-${year}-${String(count + 1).padStart(3, "0")}`,
-          projectId,
-          accountId: project.accountId,
-          amount: invoiceAmount,
-          status: "SENT",
-          amountPaid: 0,
-          issuedDate: new Date(),
-        },
-      });
-      invoices = [created];
-    }
+  // No invoice yet → create one so there's a ledger entry to pay against.
+  if (invoices.length === 0) {
+    if (newTotal === 0) return; // nothing received, nothing to record
+    invoices.push(await createInvoice(Math.max(project.revenue ?? 0, newTotal)));
+  }
 
-    const invoiceCapacity = invoices.reduce((sum, i) => sum + i.amount, 0);
-    if (newTotal - invoiceCapacity > 0.0001) {
-      throw new ReceivedError(
-        `Received (₦${newTotal.toLocaleString("en-NG")}) is more than this project has been invoiced ` +
-          `(₦${invoiceCapacity.toLocaleString("en-NG")}). Raise the invoice or the project's revenue first.`,
-      );
-    }
+  // Not enough invoiced to hold this much money → raise a supplementary
+  // invoice for the shortfall. Appended last, so it is also last in the
+  // oldest-first allocation order below.
+  const invoiceCapacity = invoices.reduce((sum, i) => sum + i.amount, 0);
+  const shortfall = newTotal - invoiceCapacity;
+  if (shortfall > MONEY_EPSILON) {
+    invoices.push(await createInvoice(shortfall));
+  }
 
-    const currentTotal = invoices.reduce((sum, i) => sum + (i.amountPaid ?? 0), 0);
-    const delta = newTotal - currentTotal;
-    if (Math.abs(delta) < 0.0001) return; // no change
+  // Delta-only allocation — see @/lib/received-allocation.
+  const { delta, changes, unallocated } = allocateDelta(invoices, newTotal);
+  if (delta === 0) return; // no change
 
-    // Spread the new total across invoices, oldest first, capped at each amount.
-    let remaining = newTotal;
-    for (const inv of invoices) {
-      const paidHere = Math.min(inv.amount, Math.max(0, remaining));
-      remaining -= paidHere;
-      if (Math.abs(paidHere - (inv.amountPaid ?? 0)) < 0.0001) continue;
-      const { status, paidDate } = invoiceStatusFor(inv.amount, paidHere, inv.status);
-      await tx.invoice.update({
-        where: { id: inv.id },
-        data: { amountPaid: paidHere, status, paidDate: paidDate ?? inv.paidDate },
-      });
-    }
+  if (unallocated > MONEY_EPSILON) {
+    // Defensive: the capacity top-up above should make this unreachable.
+    throw new ReceivedError(
+      `Could not apply ₦${Math.abs(delta).toLocaleString("en-NG")} to this project's invoices.`,
+    );
+  }
 
-    // Audit trail — same shape as a client-confirmed, founder-verified payment.
+  for (const c of changes) {
+    await tx.invoice.update({
+      where: { id: c.id },
+      data: { amountPaid: c.to, status: c.status, paidDate: c.paidDate },
+    });
+  }
+
+  // Audit trail — one VERIFIED PaymentConfirmation per invoice that actually
+  // moved, attributed to THAT invoice, with a positive amount. The direction
+  // is NOT recorded here: `note` is rendered to the client in the portal
+  // (see /api/doz/portal + client-portal.tsx), so it stays neutral and
+  // client-safe. The signed direction lives in the ActivityLog below, which
+  // is internal-only.
+  for (const c of changes) {
     await tx.paymentConfirmation.create({
       data: {
-        invoiceId: invoices[0].id,
+        invoiceId: c.id,
         accountId: project.accountId,
-        amount: delta,
+        amount: Math.abs(c.to - c.from),
         method: null,
         note:
           delta > 0
-            ? "Payment recorded by founder from Projects & Events"
-            : "Received amount corrected down by founder from Projects & Events",
+            ? "Payment received — recorded by Digit One Zero."
+            : "Payment record updated by Digit One Zero.",
         status: "VERIFIED",
       },
     });
+  }
 
-    await tx.activityLog.create({
-      data: {
-        userId,
-        action: delta > 0 ? "Recorded payment received" : "Corrected payment received",
-        entityType: "PROJECT",
-        entityId: projectId,
-        detail:
-          `${project.name}: received set to ₦${newTotal.toLocaleString("en-NG")} ` +
-          `(${delta > 0 ? "+" : ""}₦${delta.toLocaleString("en-NG")})`,
-      },
-    });
-  }, { timeout: 20000 });
+  await tx.activityLog.create({
+    data: {
+      userId,
+      action: delta > 0 ? "Recorded payment received" : "Corrected payment received",
+      entityType: "PROJECT",
+      entityId: projectId,
+      detail:
+        `${project.name}: received set to ₦${newTotal.toLocaleString("en-NG")} ` +
+        `(${delta > 0 ? "+" : "-"}₦${Math.abs(delta).toLocaleString("en-NG")}) — ` +
+        changes
+          .map(
+            (c) =>
+              `${c.code ?? c.id}: ₦${c.from.toLocaleString("en-NG")} → ` +
+              `₦${c.to.toLocaleString("en-NG")}`,
+          )
+          .join(", "),
+    },
+  });
 }
 
 export async function PATCH(req: Request) {
@@ -607,7 +629,12 @@ export async function PATCH(req: Request) {
   // money has an audit trail, exactly like a client-confirmed payment.
   //
   // FOUNDER-only: this moves money in the books.
+  //
+  // Validated HERE, but applied AFTER the project's own fields are written
+  // (below) — a founder who raises revenue and sets received in the same
+  // save must have the reconciliation see the NEW revenue, not the old one.
   // ------------------------------------------------------------------
+  let receivedTotal: number | null = null;
   if (body.receivedTotal !== undefined && body.receivedTotal !== null) {
     if (!canEditFinancials) {
       return NextResponse.json(
@@ -615,26 +642,14 @@ export async function PATCH(req: Request) {
         { status: 403 },
       );
     }
-    const newTotal = Number(body.receivedTotal);
-    if (!Number.isFinite(newTotal) || newTotal < 0) {
+    const parsed = Number(body.receivedTotal);
+    if (!Number.isFinite(parsed) || parsed < 0) {
       return NextResponse.json(
         { error: "Received must be a positive amount." },
         { status: 400 },
       );
     }
-
-    try {
-      await reconcileReceived(body.projectId, newTotal, user.id);
-    } catch (err) {
-      const message =
-        err instanceof ReceivedError
-          ? err.message
-          : "Could not record the payment. Nothing was changed.";
-      if (!(err instanceof ReceivedError)) {
-        console.error("[projects] receivedTotal failed for", body.projectId, err);
-      }
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
+    receivedTotal = parsed;
   }
 
   const data: any = {};
@@ -651,8 +666,35 @@ export async function PATCH(req: Request) {
   if (isFounder && body.accountId !== undefined) data.accountId = body.accountId || null;
   if (body.progress !== undefined) data.progress = Number(body.progress);
 
-  const updated = await db.project.update({ where: { id: body.projectId }, data });
-  return NextResponse.json({ ok: true, project: updated });
+  if (receivedTotal === null) {
+    const updated = await db.project.update({ where: { id: body.projectId }, data });
+    return NextResponse.json({ ok: true, project: updated });
+  }
+
+  // Project fields first, then reconcile — both in ONE transaction, so a
+  // rejected payment leaves the project untouched too ("nothing was changed"
+  // stays true).
+  const totalToApply = receivedTotal;
+  try {
+    const updated = await db.$transaction(
+      async (tx) => {
+        const project = await tx.project.update({ where: { id: body.projectId }, data });
+        await reconcileReceived(tx, body.projectId, totalToApply, user.id);
+        return project;
+      },
+      { timeout: 20000 },
+    );
+    return NextResponse.json({ ok: true, project: updated });
+  } catch (err) {
+    const message =
+      err instanceof ReceivedError
+        ? err.message
+        : "Could not record the payment. Nothing was changed.";
+    if (!(err instanceof ReceivedError)) {
+      console.error("[projects] receivedTotal failed for", body.projectId, err);
+    }
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }
 
 export async function DELETE(req: Request) {
@@ -663,14 +705,19 @@ export async function DELETE(req: Request) {
   const projectId = searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
-  const existing = await db.project.findUnique({ where: { id: projectId } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const isFounder = user.role === "FOUNDER";
-  const isManager = existing.managerId === user.id;
-  if (!isFounder && !isManager) {
+  // ------------------------------------------------------------------
+  // FOUNDER-ONLY. Deleting a project permanently destroys crew day
+  // rates, vendor cost records, budgets and event-day logs. A project's
+  // `managerId` can be any role (STAFF, INTERN, FREELANCER), so gating
+  // on "is this project's manager" would let a non-founder wipe the
+  // company's cost history. Only the founder may delete.
+  // ------------------------------------------------------------------
+  if (user.role !== "FOUNDER") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  const existing = await db.project.findUnique({ where: { id: projectId } });
+  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   // ------------------------------------------------------------------
   // Delete project-owned child records FIRST, then the project itself.
@@ -687,6 +734,9 @@ export async function DELETE(req: Request) {
   // TimeEntry and VendorReview stay in the books as financial/audit
   // history with their project link cleared.
   //
+  // Contracts are DETACHED, not deleted (see below) — they are signed
+  // legal records with a fileUrl, signedBy and signedDate.
+  //
   // All the tables below are leaves (nothing references them), so a
   // single ordered pass inside one transaction is enough.
   // ------------------------------------------------------------------
@@ -695,7 +745,14 @@ export async function DELETE(req: Request) {
     await db.$transaction([
       db.budget.deleteMany({ where }),
       db.clientFeedback.deleteMany({ where }),
-      db.contract.deleteMany({ where }),
+      // Contracts survive a project deletion. Preserve the client link
+      // first (so a project-only contract stays reachable from the
+      // account it was signed with), then clear the project link.
+      db.contract.updateMany({
+        where: { projectId, accountId: null },
+        data: { accountId: existing.accountId },
+      }),
+      db.contract.updateMany({ where: { projectId }, data: { projectId: null } }),
       db.crewAssignment.deleteMany({ where }),
       db.deliverable.deleteMany({ where }),
       db.eventDayLog.deleteMany({ where }),
