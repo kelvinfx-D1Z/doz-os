@@ -47,6 +47,7 @@ import { toast as sonnerToast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FocusScoreCard } from "@/components/doz/focus-score-card";
 import { AiBriefingCard } from "@/components/doz/ai-briefing-card";
+import { DailyReportPrompt } from "@/components/doz/daily-report-prompt";
 import {
   Target,
   AlertTriangle,
@@ -656,6 +657,10 @@ export function CommandCenter() {
   if (role === "INTERN") {
     return (
       <div className="space-y-6">
+        <DailyReportPrompt
+          reportFiled={data.myDay.reportFiled}
+          firstName={displayName?.split(" ")[0]}
+        />
         <InternDashboard {...roleViewProps} />
         <QuickAddTaskDialog
           open={showQuickAdd}
@@ -685,6 +690,10 @@ export function CommandCenter() {
   if (role === "FREELANCER") {
     return (
       <div className="space-y-6">
+        <DailyReportPrompt
+          reportFiled={data.myDay.reportFiled}
+          firstName={displayName?.split(" ")[0]}
+        />
         <FreelancerDashboard {...roleViewProps} />
         <QuickAddTaskDialog
           open={showQuickAdd}
@@ -714,6 +723,10 @@ export function CommandCenter() {
   if (role === "STAFF") {
     return (
       <div className="space-y-6">
+        <DailyReportPrompt
+          reportFiled={data.myDay.reportFiled}
+          firstName={displayName?.split(" ")[0]}
+        />
         <StaffDashboard {...roleViewProps} />
         <QuickAddTaskDialog
           open={showQuickAdd}
