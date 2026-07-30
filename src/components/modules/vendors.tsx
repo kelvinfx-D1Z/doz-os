@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SectionHeader, EmptyState, StatCard } from "@/components/doz/ui-primitives";
@@ -27,35 +27,100 @@ import { toast } from "sonner";
 
 const CATEGORIES = ["EQUIPMENT","CATERING","DECOR","PRINTING","TRANSPORT","SOUND","LIGHTING","LED","STAGE","OTHER"];
 
-// What a vendor in each category typically supplies on an event or shoot.
-// Drives the "what they're providing" dropdown so entries stay consistent —
-// free-typing produced "LED wall", "led screen" and "LED Wall" as three
-// different things, which makes cost comparison across projects impossible.
-// "Other…" always available as an escape hatch.
-const SERVICES_BY_CATEGORY: Record<string, string[]> = {
-  EQUIPMENT: ["Camera package", "Lens kit", "Gimbal / stabiliser", "Drone", "Generator", "Power distribution", "Rigging", "Cabling"],
-  SOUND: ["PA system", "Microphones", "Audio mixer", "Sound engineer", "In-ear monitors", "Recording"],
-  LIGHTING: ["Stage lighting", "Uplighting", "Follow spot", "Lighting console", "Lighting operator", "Practical lighting"],
-  LED: ["LED wall", "LED screen", "Video wall", "Screen processor", "LED operator"],
-  STAGE: ["Stage construction", "Truss", "Backdrop", "Podium / lectern", "Platform / riser", "Carpeting"],
-  CATERING: ["Full catering", "Refreshments", "Packaged meals", "Water", "Service staff"],
-  DECOR: ["Event decor", "Floral arrangement", "Draping", "Furniture rental", "Signage"],
-  PRINTING: ["Banners", "Backdrop printing", "Roll-up stands", "Brochures", "Name tags", "Certificates"],
-  TRANSPORT: ["Vehicle hire", "Equipment haulage", "Crew transport", "Logistics coordination"],
-  OTHER: [],
-};
-
-const GENERAL_SERVICES = [
-  "Venue", "Security", "Photography", "Videography", "Livestream", "Internet / connectivity",
-  "Ushers / protocol", "Cleaning", "Permits", "Accommodation",
+// The corporate event production service catalogue, grouped by the department
+// that delivers it. Drives the "what they're providing" dropdown so entries
+// stay consistent — free text produced "LED wall", "led screen" and "LED Wall"
+// as three different things, which makes cost comparison across projects
+// impossible. "Other…" remains as an escape hatch.
+const SERVICE_DEPARTMENTS: { department: string; services: string[] }[] = [
+  {
+    department: "Audiovisual & Technical Production",
+    services: [
+      "LED video walls",
+      "Live streaming & broadcasting",
+      "Sound reinforcement",
+      "Stage & ambient lighting",
+      "Projection mapping",
+      "Technical direction",
+    ],
+  },
+  {
+    department: "Scenic Design & Stage Production",
+    services: [
+      "Custom stage production",
+      "Scenic backdrops",
+      "Podiums & lecterns",
+      "Green rooms & backstage",
+      "Comfort monitors",
+    ],
+  },
+  {
+    department: "Trade Show Exhibition & Booth Construction",
+    services: [
+      "Custom booth construction",
+      "Regular conference booths",
+      "Pop-up & modular displays",
+      "Exhibition furniture rental",
+      "Booth power & data",
+    ],
+  },
+  {
+    department: "Event Branding & Signage",
+    services: [
+      "Large format printing",
+      "Wayfinding & directional signage",
+      "Structural branding",
+      "Digital signage networks",
+      "Experiential photo ops",
+    ],
+  },
+  {
+    department: "Event Technology & Registration",
+    services: [
+      "Registration & ticketing",
+      "Custom event apps",
+      "Audience engagement tech",
+      "Lead retrieval systems",
+      "Event Wi-Fi infrastructure",
+    ],
+  },
+  {
+    department: "Operations, Logistics & Management",
+    services: [
+      "Venue sourcing",
+      "Catering & hospitality",
+      "Event staffing",
+      "Logistics & freight",
+      "Permitting & safety",
+    ],
+  },
 ];
+
+// Which department a vendor of each category most likely supplies. Used only
+// to float the most relevant group to the top — every service stays selectable
+// regardless, since vendors routinely cross over.
+const CATEGORY_TO_DEPARTMENT: Record<string, string> = {
+  LED: "Audiovisual & Technical Production",
+  SOUND: "Audiovisual & Technical Production",
+  LIGHTING: "Audiovisual & Technical Production",
+  EQUIPMENT: "Audiovisual & Technical Production",
+  STAGE: "Scenic Design & Stage Production",
+  DECOR: "Scenic Design & Stage Production",
+  PRINTING: "Event Branding & Signage",
+  CATERING: "Operations, Logistics & Management",
+  TRANSPORT: "Operations, Logistics & Management",
+};
 
 const OTHER_OPTION = "__other__";
 
-function servicesFor(category?: string): string[] {
-  const specific = category ? SERVICES_BY_CATEGORY[category] ?? [] : [];
-  // De-duplicate while keeping the category-specific options first.
-  return Array.from(new Set([...specific, ...GENERAL_SERVICES]));
+/** Departments, with the one matching this vendor's category first. */
+function departmentsFor(category?: string) {
+  const preferred = category ? CATEGORY_TO_DEPARTMENT[category] : undefined;
+  if (!preferred) return SERVICE_DEPARTMENTS;
+  return [
+    ...SERVICE_DEPARTMENTS.filter((d) => d.department === preferred),
+    ...SERVICE_DEPARTMENTS.filter((d) => d.department !== preferred),
+  ];
 }
 
 interface Vendor { id: string; name: string; category: string; contactName?: string | null; phone?: string | null; email?: string | null; rating?: number; isActive?: boolean }
@@ -375,7 +440,7 @@ function AddCostDialog({
   const [saving, setSaving] = useState(false);
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
-  const options = servicesFor(selectedVendor?.category);
+  const departments = departmentsFor(selectedVendor?.category);
   const item = service === OTHER_OPTION ? customItem : service;
 
   async function submit(e: React.FormEvent) {
@@ -439,11 +504,22 @@ function AddCostDialog({
             <Label htmlFor="nc-item">What they&apos;re providing *</Label>
             <Select value={service} onValueChange={setService}>
               <SelectTrigger id="nc-item">
-                <SelectValue placeholder={selectedVendor ? `Common for ${selectedVendor.category}…` : "Choose a service…"} />
+                <SelectValue placeholder="Choose a service…" />
               </SelectTrigger>
               <SelectContent>
-                {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                <SelectItem value={OTHER_OPTION} className="font-medium text-primary">Other…</SelectItem>
+                {departments.map((d) => (
+                  <SelectGroup key={d.department}>
+                    <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {d.department}
+                    </SelectLabel>
+                    {d.services.map((sv) => (
+                      <SelectItem key={sv} value={sv}>{sv}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+                <SelectGroup>
+                  <SelectItem value={OTHER_OPTION} className="font-medium text-primary">Other…</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
             {service === OTHER_OPTION && (
@@ -456,7 +532,9 @@ function AddCostDialog({
             )}
             {selectedVendor && (
               <p className="text-[11px] text-muted-foreground">
-                Showing services common for {selectedVendor.category.toLowerCase()} vendors first.
+                {CATEGORY_TO_DEPARTMENT[selectedVendor.category]
+                  ? `${CATEGORY_TO_DEPARTMENT[selectedVendor.category]} listed first.`
+                  : "All service departments listed."}
               </p>
             )}
           </div>
