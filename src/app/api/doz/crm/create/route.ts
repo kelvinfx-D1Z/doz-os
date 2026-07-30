@@ -37,6 +37,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "action is required" }, { status: 400 });
   }
 
+  // ------------------------------------------------------------------
+  // ROLE GATE. This route previously required only a session, so any
+  // authenticated user — including an INTERN — could create CRM records
+  // and delete accounts, opportunities, proposals and follow-ups. The
+  // matching GET at /api/doz/crm is FOUNDER+STAFF only, so reading the
+  // pipeline was restricted while writing it was not.
+  //
+  // Writes: FOUNDER + STAFF, consistent with the read side.
+  // Deletes: FOUNDER only — deleting a CRM record detaches real
+  //          financial history from the client it belongs to.
+  // ------------------------------------------------------------------
+  if (sessionUser.role !== "FOUNDER" && sessionUser.role !== "STAFF") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  if (action.startsWith("delete_") && sessionUser.role !== "FOUNDER") {
+    return NextResponse.json(
+      { error: "forbidden — only the founder can delete CRM records" },
+      { status: 403 },
+    );
+  }
+
   try {
     switch (action) {
       case "create_account":
@@ -519,11 +540,61 @@ async function updateContract(body: any, sessionUser: { role: string }) {
 // DELETE FUNCTIONS
 // ============================================================
 
+// Deleting a client is only safe when it has no business history.
+//
+// Every FK pointing at Account is nullable, so a bare `db.account.delete()`
+// SUCCEEDS and silently sets accountId to null on that client's projects,
+// invoices, opportunities and contracts — the records survive but lose the
+// client they belong to, with no error. That is worse than failing loudly.
+//
+// So: refuse when any real history exists and say exactly what is attached.
+// A client with nothing but contacts is safe to remove, and its contacts go
+// with it (they are meaningless without the account).
 async function deleteAccount(body: any) {
   const { accountId } = body;
   if (!accountId) return NextResponse.json({ error: "accountId required" }, { status: 400 });
-  await db.account.delete({ where: { id: accountId } });
-  return NextResponse.json({ ok: true });
+
+  const account = await db.account.findUnique({
+    where: { id: accountId },
+    select: { id: true, name: true },
+  });
+  if (!account) return NextResponse.json({ error: "account not found" }, { status: 404 });
+
+  const [projects, invoices, opportunities, contracts, leads, contacts] = await Promise.all([
+    db.project.count({ where: { accountId } }),
+    db.invoice.count({ where: { accountId } }),
+    db.opportunity.count({ where: { accountId } }),
+    db.contract.count({ where: { accountId } }),
+    db.lead.count({ where: { accountId } }),
+    db.contact.count({ where: { accountId } }),
+  ]);
+
+  const blockers: string[] = [];
+  if (projects) blockers.push(`${projects} project${projects > 1 ? "s" : ""}`);
+  if (invoices) blockers.push(`${invoices} invoice${invoices > 1 ? "s" : ""}`);
+  if (opportunities) blockers.push(`${opportunities} deal${opportunities > 1 ? "s" : ""}`);
+  if (contracts) blockers.push(`${contracts} contract${contracts > 1 ? "s" : ""}`);
+  if (leads) blockers.push(`${leads} enquir${leads > 1 ? "ies" : "y"}`);
+
+  if (blockers.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          `${account.name} has ${blockers.join(", ")} attached. ` +
+          `Deleting the client would leave those records with no client on them. ` +
+          `Remove or reassign them first.`,
+      },
+      { status: 409 },
+    );
+  }
+
+  // Safe: nothing but contacts. Remove them with the account.
+  await db.$transaction([
+    db.contact.deleteMany({ where: { accountId } }),
+    db.account.delete({ where: { id: accountId } }),
+  ]);
+
+  return NextResponse.json({ ok: true, deletedContacts: contacts });
 }
 
 async function deleteOpportunity(body: any) {

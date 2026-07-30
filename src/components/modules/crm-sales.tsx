@@ -21,11 +21,15 @@ import {
   AlertTriangle,
   UserPlus,
   FileSignature,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 import { QuickCapture } from "@/components/modules/crm/quick-capture";
 import { ContactDialog } from "@/components/modules/crm/contact-dialog";
 import { ContractDialog } from "@/components/modules/crm/contract-dialog";
+import { ClientDialog } from "@/components/modules/crm/client-dialog";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -242,6 +246,10 @@ export function CrmSales() {
   const [error, setError] = useState<string | null>(null);
   const [contactFor, setContactFor] = useState<Account | null>(null);
   const [contractFor, setContractFor] = useState<Account | null>(null);
+  const [addClientOpen, setAddClientOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
 
   // Reusable reload used after a QuickCapture write. Kept separate from the
   // mount effect below (which uses an inline IIFE + cancellation guard) so
@@ -265,6 +273,43 @@ export function CrmSales() {
       });
     }
   }, []);
+
+  // Delete a client. The API refuses (409) when the client has projects,
+  // invoices, deals, contracts or enquiries attached, and returns a message
+  // naming what is in the way — surface that verbatim rather than a generic
+  // failure, because it tells the founder exactly what to clear first.
+  const handleDeleteClient = useCallback(
+    async (account: Account) => {
+      if (
+        !window.confirm(
+          `Delete "${account.name}"?\n\n` +
+            `Only possible if this client has no projects, invoices, deals, ` +
+            `contracts or enquiries. Any contacts stored against them are removed too.\n\n` +
+            `This cannot be undone.`,
+        )
+      )
+        return;
+      setDeletingId(account.id);
+      try {
+        const res = await fetch("/api/doz/crm/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete_account", accountId: account.id }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error || `Failed (${res.status})`);
+        toast.success(`${account.name} deleted`);
+        await load();
+      } catch (err) {
+        toast.error("Couldn't delete client", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [load],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -423,11 +468,17 @@ export function CrmSales() {
         {/* ---------- ACCOUNTS TAB ---------- */}
         <TabsContent value="accounts">
           <Card className="p-5">
-            <SectionHeader
-              icon={<Building2 className="h-4 w-4" />}
-              title="Accounts"
-              description={`${accounts.length} accounts · ${stats.strategicAccounts} strategic`}
-            />
+            <div className="flex items-start justify-between gap-3">
+              <SectionHeader
+                icon={<Building2 className="h-4 w-4" />}
+                title="Accounts"
+                description={`${accounts.length} accounts · ${stats.strategicAccounts} strategic`}
+              />
+              <Button size="sm" className="shrink-0 gap-1.5" onClick={() => setAddClientOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                Add client
+              </Button>
+            </div>
             <div className="mt-4 max-h-96 overflow-y-auto scroll-thin">
               <Table>
                 <TableHeader className="sticky top-0 bg-card z-10">
@@ -543,6 +594,19 @@ export function CrmSales() {
                               <FileSignature className="h-3 w-3" />
                               Retainer
                             </Button>
+                            {isFounder && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive"
+                                disabled={deletingId === a.id}
+                                onClick={() => handleDeleteClient(a)}
+                                aria-label={`Delete ${a.name}`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Delete
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -644,6 +708,11 @@ export function CrmSales() {
         </TabsContent>
       </Tabs>
 
+      <ClientDialog
+        open={addClientOpen}
+        onOpenChange={setAddClientOpen}
+        onSaved={load}
+      />
       <ContactDialog
         accountId={contactFor?.id ?? null}
         accountName={contactFor?.name ?? ""}
