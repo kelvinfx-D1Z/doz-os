@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials } from "@/lib/auth";
 
 // CEO Command Center aggregate — company-wide data + per-user `myDay` block.
 // The company-wide payload is what the founder sees. Staff/Interns/Freelancers
@@ -281,6 +281,10 @@ export async function GET() {
   //    (b) the approver is unassigned AND they are NOT the requester.
   //    Founder sees all pending (since founder signs off on everything).
   const isFounder = sessionUser.role === "FOUNDER";
+  // Company money is FOUNDER-only, enforced here rather than in the UI: this
+  // endpoint is reachable by any signed-in user, so returning the figures and
+  // merely not rendering them protects nothing.
+  const money = canSeeFinancials(sessionUser.role);
   const myActionableApprovals = pendingApprovals.filter((p) => {
     if (isFounder) return true;
     if (p.requesterId === sessionUser.id) return false; // can't approve own request
@@ -467,23 +471,23 @@ export async function GET() {
         teamActivity,
       },
       stats: {
-        pipelineValue,
-        weightedPipeline,
+        pipelineValue: money ? pipelineValue : undefined,
+        weightedPipeline: money ? weightedPipeline : undefined,
         openOpps: openOpps.length,
         wonOpps: wonOpps.length,
         proposalsSent: proposalsSent.length,
         proposalsAccepted: proposalsAccepted.length,
         conversionRate,
-        totalRevenue,
-        totalExpenses,
-        grossProfit: totalRevenue - totalExpenses,
-        marginPct: totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0,
-        outstandingAmount,
-        overdueAmount,
+        totalRevenue: money ? totalRevenue : undefined,
+        totalExpenses: money ? totalExpenses : undefined,
+        grossProfit: money ? totalRevenue - totalExpenses : undefined,
+        marginPct: money ? (totalRevenue > 0 ? ((totalRevenue - totalExpenses) / totalRevenue) * 100 : 0) : undefined,
+        outstandingAmount: money ? outstandingAmount : undefined,
+        overdueAmount: money ? overdueAmount : undefined,
         overdueCount: overdueInvoices.length,
-        cashPosition,
+        cashPosition: money ? cashPosition : undefined,
         pendingApprovals: pendingApprovals.length,
-        pendingPaymentsValue: pendingApprovals.reduce((s, p) => s + p.amount, 0),
+        pendingPaymentsValue: money ? pendingApprovals.reduce((s, p) => s + p.amount, 0) : undefined,
         openTasks: tasks.filter((t) => t.status !== "DONE").length,
         overdueTasks: tasks.filter((t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) < now).length,
         activeProjects: projects.filter((p) => ["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)).length,

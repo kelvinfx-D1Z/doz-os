@@ -850,7 +850,7 @@ export function CommandCenter() {
       </header>
 
       {/* ---------- AI Morning Briefing (founder & staff only) ---------- */}
-      {(user?.role === "FOUNDER" || user?.role === "STAFF") && <AiBriefingCard />}
+      {user?.role === "FOUNDER" && <AiBriefingCard />}
 
       {/* ---------- KPI row ---------- */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">

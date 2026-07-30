@@ -155,6 +155,11 @@ export async function GET(req: Request) {
   if (!sessionUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // The briefing embeds cash position and burn-rate risk text in prose.
+  // FOUNDER only — the figures are company money regardless of format.
+  if (sessionUser.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const forceRefresh = url.searchParams.get("refresh") === "1";

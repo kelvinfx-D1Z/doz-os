@@ -15,6 +15,10 @@ const LOWER_IS_BETTER = new Set(["referral dependency","outstanding receivables 
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Growth dashboard reports company revenue and health scores. FOUNDER only.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const kpis = await db.growthKPI.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }] });
   const actuals = await computeAllKPIActuals();

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials } from "@/lib/auth";
 
 // GET — list vendor costs for a project + financial summary
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const canSeeClientMoney = user.role === "FOUNDER" || user.role === "STAFF";
+  const canSeeClientMoney = canSeeFinancials(user.role);
 
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");

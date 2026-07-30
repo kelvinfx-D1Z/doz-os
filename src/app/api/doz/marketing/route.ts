@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials } from "@/lib/auth";
 
 // ============================================================
 // Marketing & Growth API (DOZ OS — Task G3)
@@ -34,6 +34,10 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // Campaign spend, budget, revenue and ROI are company money — FOUNDER only.
+  // The content calendar and channel activity remain visible so whoever runs
+  // marketing can do the job without seeing what it cost or earned.
+  const money = canSeeFinancials(user.role);
 
   try {
     const now = new Date();
@@ -91,7 +95,7 @@ export async function GET() {
       totalLeadsGenerated > 0
         ? Math.round((totalConversions / totalLeadsGenerated) * 1000) / 10
         : 0;
-    const totalCampaignRevenue = campaigns.reduce((sum, c) => sum + (c.revenue ?? 0), 0);
+    const totalCampaignRevenue = campaigns.reduce((sum, c) => sum + (c.revenue ?? 0), 0); // gated below
     const totalCampaignSpent = campaigns.reduce((sum, c) => sum + (c.spent ?? 0), 0);
     const totalCampaignROI =
       totalCampaignSpent > 0
@@ -173,12 +177,12 @@ export async function GET() {
         name: c.name,
         channel: c.channel,
         status: c.status,
-        budget: c.budget,
-        spent: c.spent,
+        budget: money ? c.budget : undefined,
+        spent: money ? c.spent : undefined,
         leadsGenerated: c.leadsGenerated,
         conversions: c.conversions,
-        revenue: c.revenue,
-        roi,
+        revenue: money ? c.revenue : undefined,
+        roi: money ? roi : undefined,
         convRate,
         startDate: c.startDate?.toISOString() ?? null,
         endDate: c.endDate?.toISOString() ?? null,

@@ -12,6 +12,10 @@ function weekStart(): Date {
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // The founder's own freedom/delegation score. FOUNDER only.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const founder = await db.user.findFirst({ where: { role: "FOUNDER" } });
   if (!founder) return NextResponse.json({ error: "no founder" }, { status: 404 });
@@ -68,6 +72,10 @@ export async function GET() {
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // The founder's own freedom/delegation score. FOUNDER only.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   if (body?.action !== "log_time") return NextResponse.json({ error: "invalid action" }, { status: 400 });

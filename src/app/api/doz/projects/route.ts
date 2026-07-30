@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials } from "@/lib/auth";
 import { MONEY_EPSILON, allocateDelta } from "@/lib/received-allocation";
 
 // ============================================================
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
   // reusing `isFreelancer` here: that flag also restricts WHICH projects are
   // visible (managerId only), and an intern manages none, so reusing it would
   // show them an empty list instead of hiding a few fields.
-  const canSeeCompanyFinancials = user.role === "FOUNDER" || user.role === "STAFF";
+  const canSeeCompanyFinancials = canSeeFinancials(user.role);
   const hideMoney = !canSeeCompanyFinancials;
 
   // FREELANCERs (PMs) only see projects they manage. Founders and staff

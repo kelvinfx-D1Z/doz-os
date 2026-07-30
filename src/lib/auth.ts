@@ -241,6 +241,26 @@ export async function requireStaff(): Promise<{ user: SessionUser } | { error: N
 }
 
 // ============================================================
+// FINANCIAL VISIBILITY — one rule, used everywhere
+//
+// ONLY the founder may see company money: revenue, budget, cost, profit,
+// margin, cash position, outstanding balances, vendor bank details and
+// lifetime spend. Not staff, not interns, not freelancers.
+//
+// This must be enforced in the API, not the UI. Module permissions only
+// decide which nav items appear — every API route is reachable by any
+// signed-in user who knows the URL, so hiding a figure on screen while the
+// endpoint still returns it protects nothing.
+//
+// Operational cost a coordinator needs to do their job — what a specific
+// vendor is owed on a job they are running — is handled case by case and is
+// deliberately NOT covered by this flag.
+// ============================================================
+export function canSeeFinancials(role: string | undefined | null): boolean {
+  return role === "FOUNDER";
+}
+
+// ============================================================
 // PERMISSIONS PARSER
 // ============================================================
 export function parsePermissions(raw: string | null | undefined): string[] | null {
