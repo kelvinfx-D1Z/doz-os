@@ -11,9 +11,13 @@ async function requireFounder() {
   return { user };
 }
 
+// Must stay in sync with ModuleId in src/lib/store.ts and the NAV list in
+// app-shell.tsx. Anything missing here is silently stripped when the founder
+// saves a custom permission set, which then removes that module from the user.
 const VALID_MODULES: ModuleId[] = [
   "command", "planning", "routines", "ai", "field", "crm", "marketing",
   "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates",
+  "profile", "messages",
 ];
 
 function sanitizePermissions(input: any): string[] | null {
