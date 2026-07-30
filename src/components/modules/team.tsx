@@ -46,6 +46,7 @@ import {
 import { formatDate, relativeTime, avatarColor, initials } from "@/lib/format";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { toast } from "sonner";
+import { ProfileViewDialog } from "@/components/doz/profile-view-dialog";
 import { cn } from "@/lib/utils";
 import type { ModuleId } from "@/lib/store";
 import {
@@ -78,6 +79,7 @@ import {
   Pencil,
   UserX,
   Trash2,
+  IdCard,
   UserCheck,
   Key,
   ShieldCheck,
@@ -324,6 +326,7 @@ function MemberCard({
   onDeactivate,
   onReactivate,
   onPermissions,
+  onViewProfile,
 }: {
   m: Member;
   isFounder: boolean;
@@ -332,6 +335,7 @@ function MemberCard({
   onDeactivate: () => void;
   onReactivate: () => void;
   onPermissions: () => void;
+  onViewProfile: () => void;
 }) {
   const today = new Date();
   const reportedToday =
@@ -511,6 +515,16 @@ function MemberCard({
             size="sm"
             variant="outline"
             className="h-7 gap-1 px-2 text-[11px]"
+            onClick={onViewProfile}
+            title="View full employment record"
+          >
+            <IdCard className="h-3 w-3" />
+            Profile
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 text-xs"
             onClick={onEdit}
           >
             <Pencil className="h-3 w-3" />
@@ -2357,6 +2371,7 @@ export function Team() {
   // Dialog state
   const [addOpen, setAddOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [profileMember, setProfileMember] = useState<Member | null>(null);
   const [passwordMember, setPasswordMember] = useState<Member | null>(null);
   const [deactivateMember, setDeactivateMember] = useState<Member | null>(null);
   const [reactivatingMember, setReactivatingMember] = useState<Member | null>(null);
@@ -2629,6 +2644,7 @@ export function Team() {
                   isFounder={isFounder}
                   isSelf={currentUser?.id === m.id}
                   onEdit={() => setEditingMember(m)}
+                  onViewProfile={() => setProfileMember(m)}
                   onDeactivate={() => setDeactivateMember(m)}
                   onReactivate={() => handleReactivate(m)}
                   onPermissions={() => setPermissionsMember(m)}
@@ -2752,6 +2768,11 @@ export function Team() {
             open={addOpen}
             onOpenChange={setAddOpen}
             onCreated={loadTeam}
+          />
+          <ProfileViewDialog
+            userId={profileMember?.id ?? null}
+            userName={profileMember?.name ?? ""}
+            onOpenChange={(o) => { if (!o) setProfileMember(null); }}
           />
           <EditMemberDialog
             member={editingMember}
