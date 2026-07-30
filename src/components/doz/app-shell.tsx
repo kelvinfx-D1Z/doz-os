@@ -430,7 +430,10 @@ export function AppShell() {
       </footer>
 
       {/* DIDI floating support bubble — on every page */}
-      <DidiBubble />
+      {/* DIDI is FOUNDER-only: it answers from company-wide financials, so it
+          must not appear for staff, interns or freelancers. The API behind it
+          enforces the same rule — this just hides the entry point. */}
+      {role === "FOUNDER" && <DidiBubble />}
 
       {/* Command palette */}
       <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>

@@ -8,6 +8,14 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  // FOUNDER-only. These insights are built from company-wide financials —
+  // cash position, overdue invoices, profit per project — so any signed-in
+  // user could otherwise read the company's books through DIDI, even without
+  // access to the Financial module itself.
+  if (user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   try {
     const [insights, recommendations] = await Promise.all([
       generateProactiveInsights(user.id),
