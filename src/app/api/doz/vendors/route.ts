@@ -142,6 +142,40 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Phone number is required" }, { status: 400 });
       }
 
+      // ---- Non-founders submit for approval, they do not create directly ----
+      // Reuses the existing VendorApplication queue rather than inventing a
+      // second approval mechanism: the founder approves it from the same
+      // onboarding tab, and that flow already creates the Vendor row in a
+      // transaction and links it back via vendorId.
+      if (user.role !== "FOUNDER") {
+        const application = await db.vendorApplication.create({
+          data: {
+            companyName: name,
+            category,
+            contactName,
+            phone,
+            email,
+            bankAccount,
+            notes: notes
+              ? `${notes}\n\nSubmitted by ${user.name}.`
+              : `Submitted by ${user.name}.`,
+            status: "PENDING",
+          },
+        });
+        return NextResponse.json(
+          {
+            pendingApproval: true,
+            application: {
+              id: application.id,
+              companyName: application.companyName,
+              category: application.category,
+              status: application.status,
+            },
+          },
+          { status: 201 },
+        );
+      }
+
       const created = await db.vendor.create({
         data: {
           name,

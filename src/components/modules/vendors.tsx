@@ -27,6 +27,37 @@ import { toast } from "sonner";
 
 const CATEGORIES = ["EQUIPMENT","CATERING","DECOR","PRINTING","TRANSPORT","SOUND","LIGHTING","LED","STAGE","OTHER"];
 
+// What a vendor in each category typically supplies on an event or shoot.
+// Drives the "what they're providing" dropdown so entries stay consistent —
+// free-typing produced "LED wall", "led screen" and "LED Wall" as three
+// different things, which makes cost comparison across projects impossible.
+// "Other…" always available as an escape hatch.
+const SERVICES_BY_CATEGORY: Record<string, string[]> = {
+  EQUIPMENT: ["Camera package", "Lens kit", "Gimbal / stabiliser", "Drone", "Generator", "Power distribution", "Rigging", "Cabling"],
+  SOUND: ["PA system", "Microphones", "Audio mixer", "Sound engineer", "In-ear monitors", "Recording"],
+  LIGHTING: ["Stage lighting", "Uplighting", "Follow spot", "Lighting console", "Lighting operator", "Practical lighting"],
+  LED: ["LED wall", "LED screen", "Video wall", "Screen processor", "LED operator"],
+  STAGE: ["Stage construction", "Truss", "Backdrop", "Podium / lectern", "Platform / riser", "Carpeting"],
+  CATERING: ["Full catering", "Refreshments", "Packaged meals", "Water", "Service staff"],
+  DECOR: ["Event decor", "Floral arrangement", "Draping", "Furniture rental", "Signage"],
+  PRINTING: ["Banners", "Backdrop printing", "Roll-up stands", "Brochures", "Name tags", "Certificates"],
+  TRANSPORT: ["Vehicle hire", "Equipment haulage", "Crew transport", "Logistics coordination"],
+  OTHER: [],
+};
+
+const GENERAL_SERVICES = [
+  "Venue", "Security", "Photography", "Videography", "Livestream", "Internet / connectivity",
+  "Ushers / protocol", "Cleaning", "Permits", "Accommodation",
+];
+
+const OTHER_OPTION = "__other__";
+
+function servicesFor(category?: string): string[] {
+  const specific = category ? SERVICES_BY_CATEGORY[category] ?? [] : [];
+  // De-duplicate while keeping the category-specific options first.
+  return Array.from(new Set([...specific, ...GENERAL_SERVICES]));
+}
+
 interface Vendor { id: string; name: string; category: string; contactName?: string | null; phone?: string | null; email?: string | null; rating?: number; isActive?: boolean }
 interface Project { id: string; name: string; code: string | null; status: string }
 interface Cost {
@@ -38,6 +69,7 @@ interface Cost {
 export function Vendors() {
   const { user } = useCurrentUser();
   const isFounder = user?.role === "FOUNDER";
+  const myId = user?.id;
 
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -113,7 +145,9 @@ export function Vendors() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard label="Vendors" value={vendors.length} icon={<Truck className="h-4 w-4" />} />
         <StatCard label="Awaiting approval" value={pending.length} icon={<Clock className="h-4 w-4" />} accent={pending.length ? "warning" : "default"} />
-        <StatCard label="Approved cost on this project" value={formatNGN(totalFee, true)} icon={<Package className="h-4 w-4" />} />
+        {isFounder && (
+          <StatCard label="Approved cost on this project" value={formatNGN(totalFee, true)} icon={<Package className="h-4 w-4" />} />
+        )}
       </div>
 
       <Tabs defaultValue="costs">
@@ -164,7 +198,13 @@ export function Vendors() {
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">{c.vendorName}</TableCell>
                         <TableCell className="text-muted-foreground">{c.item}</TableCell>
-                        <TableCell className="text-right">{formatNGN(c.fee)}</TableCell>
+                        <TableCell className="text-right">
+                          {isFounder || c.submittedById === myId ? (
+                            formatNGN(c.fee)
+                          ) : (
+                            <span className="text-muted-foreground/50">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {c.approvalStatus === "PENDING" ? (
                             <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-400">
@@ -238,7 +278,7 @@ export function Vendors() {
         </TabsContent>
       </Tabs>
 
-      <AddVendorDialog open={addVendorOpen} onOpenChange={setAddVendorOpen} onSaved={() => loadVendors().catch(() => {})} />
+      <AddVendorDialog open={addVendorOpen} onOpenChange={setAddVendorOpen} isFounder={!!isFounder} onSaved={() => loadVendors().catch(() => {})} />
       <AddCostDialog
         open={addCostOpen}
         onOpenChange={setAddCostOpen}
@@ -251,7 +291,7 @@ export function Vendors() {
   );
 }
 
-function AddVendorDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (v: boolean) => void; onSaved: () => void }) {
+function AddVendorDialog({ open, onOpenChange, onSaved, isFounder }: { open: boolean; onOpenChange: (v: boolean) => void; onSaved: () => void; isFounder: boolean }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("EQUIPMENT");
   const [contactName, setContactName] = useState("");
@@ -270,7 +310,7 @@ function AddVendorDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpe
       });
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
-      toast.success(`${name.trim()} added`);
+      toast.success(j?.pendingApproval ? `${name.trim()} sent to the founder for approval` : `${name.trim()} added`);
       setName(""); setContactName(""); setPhone("");
       onOpenChange(false); onSaved();
     } catch (e) {
@@ -283,7 +323,10 @@ function AddVendorDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpe
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle>Add a vendor</DialogTitle>
-          <DialogDescription>A supplier you hire — sound, LED, catering, transport and so on.</DialogDescription>
+          <DialogDescription>
+            A supplier you hire — sound, LED, catering, transport and so on.
+            {!isFounder && " This goes to the founder for approval before it joins the directory."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">
@@ -310,7 +353,7 @@ function AddVendorDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpe
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={saving || !name.trim()} className="gap-1.5">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Add vendor
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {isFounder ? "Add vendor" : "Submit for approval"}
             </Button>
           </DialogFooter>
         </form>
@@ -326,9 +369,14 @@ function AddCostDialog({
   vendors: Vendor[]; isFounder: boolean; onSaved: () => void;
 }) {
   const [vendorId, setVendorId] = useState("");
-  const [item, setItem] = useState("");
+  const [service, setService] = useState("");      // dropdown selection
+  const [customItem, setCustomItem] = useState(""); // used when "Other…" chosen
   const [fee, setFee] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const selectedVendor = vendors.find((v) => v.id === vendorId);
+  const options = servicesFor(selectedVendor?.category);
+  const item = service === OTHER_OPTION ? customItem : service;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -351,7 +399,7 @@ function AddCostDialog({
       toast.success(
         j?.pendingApproval ? "Sent to the founder for approval" : "Vendor added to project",
       );
-      setItem(""); setFee(""); setVendorId("");
+      setService(""); setCustomItem(""); setFee(""); setVendorId("");
       onOpenChange(false); onSaved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't add", { duration: 8000 });
@@ -372,14 +420,45 @@ function AddCostDialog({
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="nc-vendor">Vendor</Label>
-            <Select value={vendorId} onValueChange={setVendorId}>
+            <Select
+              value={vendorId}
+              onValueChange={(v) => {
+                setVendorId(v);
+                // The service list is category-driven, so a previous pick may
+                // no longer be offered — clear it rather than submit something
+                // that isn't in the new list.
+                setService("");
+                setCustomItem("");
+              }}
+            >
               <SelectTrigger id="nc-vendor"><SelectValue placeholder="Choose a vendor" /></SelectTrigger>
               <SelectContent>{vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="nc-item">What they&apos;re providing *</Label>
-            <Input id="nc-item" value={item} onChange={(e) => setItem(e.target.value)} placeholder="LED wall, audio, staging…" required />
+            <Select value={service} onValueChange={setService}>
+              <SelectTrigger id="nc-item">
+                <SelectValue placeholder={selectedVendor ? `Common for ${selectedVendor.category}…` : "Choose a service…"} />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                <SelectItem value={OTHER_OPTION} className="font-medium text-primary">Other…</SelectItem>
+              </SelectContent>
+            </Select>
+            {service === OTHER_OPTION && (
+              <Input
+                autoFocus
+                value={customItem}
+                onChange={(e) => setCustomItem(e.target.value)}
+                placeholder="Describe what they're providing"
+              />
+            )}
+            {selectedVendor && (
+              <p className="text-[11px] text-muted-foreground">
+                Showing services common for {selectedVendor.category.toLowerCase()} vendors first.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="nc-fee">Fee (NGN)</Label>
