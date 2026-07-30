@@ -25,6 +25,8 @@ import {
   Users,
   HelpCircle,
   Package,
+  IdCard,
+  MessageSquare,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -41,6 +43,8 @@ import { MarketingGrowth } from "@/components/modules/marketing-growth";
 import { StaffHub } from "@/components/modules/staff-hub";
 import { HelpPage } from "@/components/modules/help-page";
 import { UpdatesPage } from "@/components/modules/updates-page";
+import { MyProfile } from "@/components/modules/my-profile";
+import { Messages } from "@/components/modules/messages";
 import { DidiBubble } from "@/components/doz/didi-bubble";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +94,8 @@ const NAV: NavItem[] = [
   { id: "team", label: "Team Management", icon: <UserCog className="h-4 w-4" />, group: "Control" },
   { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-4 w-4" />, group: "Control" },
   { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, group: "Scale" },
+  { id: "messages", label: "Messages", icon: <MessageSquare className="h-4 w-4" />, group: "Operate" },
+  { id: "profile", label: "My Profile", icon: <IdCard className="h-4 w-4" />, group: "Scale" },
   { id: "help", label: "Help & Guide", icon: <HelpCircle className="h-4 w-4" />, group: "Scale" },
   { id: "updates", label: "Updates & Backups", icon: <Package className="h-4 w-4" />, group: "Scale" },
 ];
@@ -105,10 +111,10 @@ const NAV: NavItem[] = [
 //       OVERRIDES these role-based defaults. The founder can grant any
 //       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates"],
-  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help"],
-  INTERN: ["command", "field", "sop", "help"],
-  FREELANCER: ["command", "field", "projects", "help"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages"],
+  INTERN: ["command", "field", "sop", "help", "profile", "messages"],
+  FREELANCER: ["command", "field", "projects", "help", "profile", "messages"],
 };
 
 // Resolve a user's effective module list.
@@ -143,6 +149,8 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   field: <FieldMode />,
   routines: <Routines />,
   marketing: <MarketingGrowth />,
+  profile: <MyProfile />,
+  messages: <Messages />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -160,6 +168,8 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   ai: { title: "AI Chief of Staff", subtitle: "Your digital Operations Director" },
   field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
   routines: { title: "Routines", subtitle: "Your business rhythm — run the same playbook every time" },
+  profile: { title: "My Profile", subtitle: "Your details — keep them up to date" },
+  messages: { title: "Messages", subtitle: "Direct messages with your team" },
   marketing: { title: "Marketing & Growth", subtitle: "Turn referrals into a predictable lead engine" },
 };
 

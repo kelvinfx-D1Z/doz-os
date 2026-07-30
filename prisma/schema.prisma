@@ -27,6 +27,23 @@ model User {
   bankName  String?
   bankAccount String?
   bankAccountName String?
+  // ---- employment record (entered by the person themselves) ----
+  dateOfBirth DateTime?
+  startDate   DateTime?
+  idNumber    String?  // national ID / NIN
+  emergencyName         String?
+  emergencyPhone        String?
+  emergencyRelationship String?
+  nextOfKinName         String?
+  nextOfKinPhone        String?
+  nextOfKinRelationship String?
+  guarantorName    String?
+  guarantorPhone   String?
+  guarantorAddress String?
+  // Per-person grant, set by the founder. Bank details are otherwise visible
+  // only to the founder and to their own owner — this is how a future
+  // accountant gets payment access without being handed a STAFF role.
+  canViewBankDetails Boolean @default(false)
   avatar    String?
   capacity  Int      @default(40) // available hours/week
   isActive  Boolean  @default(true)
@@ -56,6 +73,29 @@ model User {
   routineLogs      RoutineLog[]
   crewAvailability CrewAvailability[]
   timeEntries      TimeEntry[]
+  messagesSent     Message[] @relation("MessageSender")
+  messagesReceived Message[] @relation("MessageRecipient")
+}
+
+// ============================================================
+// INTERNAL MESSAGING
+// Two-way direct messages between the founder and team members.
+// A thread is simply every message exchanged between two users —
+// there is no separate Thread row to keep in sync.
+// ============================================================
+model Message {
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("MessageSender", fields: [senderId], references: [id])
+  recipientId String
+  recipient   User     @relation("MessageRecipient", fields: [recipientId], references: [id])
+  body        String
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, readAt])
+  @@index([senderId])
+  @@index([createdAt])
 }
 
 // ============================================================

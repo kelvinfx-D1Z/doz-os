@@ -249,6 +249,12 @@ export async function DELETE(req: Request) {
       db.project.count({ where: { managerId: uid } }),
     ]);
 
+    // Message FKs are ON DELETE RESTRICT, so anyone who has sent or received
+    // a message cannot be hard-deleted by Postgres regardless of the rest.
+    const messages = await db.message.count({
+      where: { OR: [{ senderId: uid }, { recipientId: uid }] },
+    });
+
     const blockers: string[] = [];
     const add = (n: number, one: string, many: string) => {
       if (n > 0) blockers.push(`${n} ${n === 1 ? one : many}`);
@@ -265,6 +271,7 @@ export async function DELETE(req: Request) {
     add(routineLogs, "routine log", "routine logs");
     add(timeEntries, "time entry", "time entries");
     add(availability, "availability record", "availability records");
+    add(messages, "message", "messages");
 
     if (blockers.length > 0) {
       return NextResponse.json(
