@@ -215,6 +215,82 @@ export async function DELETE(req: Request) {
   const existing = await db.user.findUnique({ where: { id: body.userId } });
   if (!existing) return NextResponse.json({ error: "user not found" }, { status: 404 });
 
+  // ------------------------------------------------------------------
+  // `permanent: true` hard-deletes the person instead of deactivating.
+  //
+  // Ten columns reference User with a REQUIRED foreign key (Goal.ownerId,
+  // CrewAssignment.userId, PaymentRequest.requesterId, Approval.approverId,
+  // DailyReport.userId, WeeklyReport.userId, RoutineLog.userId,
+  // FounderTimeLog.userId, TimeEntry.userId, CrewAvailability.userId), so a
+  // bare delete would either be blocked by Postgres or, for the nullable
+  // ones, silently strip the person's name off records of work they did.
+  //
+  // So: only delete someone with no history. Anyone who has actually worked
+  // gets deactivated — that is what preserves who filed a report, who was on
+  // a crew, and who approved a payment.
+  // ------------------------------------------------------------------
+  if (body.permanent === true) {
+    const uid = body.userId;
+    const [
+      goals, crew, paymentsRequested, approvals, dailyReports, weeklyReports,
+      routineLogs, timeEntries, availability, tasksAssigned, tasksCreated, projectsManaged,
+    ] = await Promise.all([
+      db.goal.count({ where: { ownerId: uid } }),
+      db.crewAssignment.count({ where: { userId: uid } }),
+      db.paymentRequest.count({ where: { requesterId: uid } }),
+      db.approval.count({ where: { approverId: uid } }),
+      db.dailyReport.count({ where: { userId: uid } }),
+      db.weeklyReport.count({ where: { userId: uid } }),
+      db.routineLog.count({ where: { userId: uid } }),
+      db.timeEntry.count({ where: { userId: uid } }),
+      db.crewAvailability.count({ where: { userId: uid } }),
+      db.task.count({ where: { assigneeId: uid } }),
+      db.task.count({ where: { creatorId: uid } }),
+      db.project.count({ where: { managerId: uid } }),
+    ]);
+
+    const blockers: string[] = [];
+    const add = (n: number, one: string, many: string) => {
+      if (n > 0) blockers.push(`${n} ${n === 1 ? one : many}`);
+    };
+    add(dailyReports, "daily report", "daily reports");
+    add(weeklyReports, "weekly report", "weekly reports");
+    add(crew, "crew assignment", "crew assignments");
+    add(tasksAssigned, "assigned task", "assigned tasks");
+    add(tasksCreated, "created task", "created tasks");
+    add(projectsManaged, "managed project", "managed projects");
+    add(goals, "owned goal", "owned goals");
+    add(paymentsRequested, "payment request", "payment requests");
+    add(approvals, "approval", "approvals");
+    add(routineLogs, "routine log", "routine logs");
+    add(timeEntries, "time entry", "time entries");
+    add(availability, "availability record", "availability records");
+
+    if (blockers.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `${existing.name} has ${blockers.join(", ")} on record. ` +
+            `Deleting them would erase who did that work. Deactivate them instead — ` +
+            `they lose access immediately but the history stays intact.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    await db.user.delete({ where: { id: uid } });
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: auth.user.id,
+          action: "DELETED_TEAM_MEMBER",
+          detail: `Permanently deleted ${existing.name} <${existing.email}> — no work history on record`,
+        },
+      });
+    } catch {}
+    return NextResponse.json({ ok: true, deleted: true });
+  }
+
   await db.user.update({
     where: { id: body.userId },
     data: { isActive: false },

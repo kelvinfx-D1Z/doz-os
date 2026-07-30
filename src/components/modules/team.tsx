@@ -77,6 +77,7 @@ import {
   Loader2,
   Pencil,
   UserX,
+  Trash2,
   UserCheck,
   Key,
   ShieldCheck,
@@ -2224,22 +2225,45 @@ function DeactivateConfirmDialog({
     setSubmitting(false);
   }
 
-  async function handleConfirm() {
+  // permanent=false -> deactivate (keeps all history)
+  // permanent=true  -> hard delete, which the API refuses with a 409 if the
+  //                    person has any work on record.
+  async function handleConfirm(permanent = false) {
     if (!member || submitting) return;
+    if (permanent) {
+      if (
+        !window.confirm(
+          `Permanently delete ${member.name}?\n\n` +
+            `This only works if they have no reports, tasks, crew assignments, ` +
+            `approvals or time entries on record. If they do, you'll be told what ` +
+            `is in the way and should deactivate them instead.\n\n` +
+            `This cannot be undone.`,
+        )
+      )
+        return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/doz/team/manage", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: member.id }),
+        body: JSON.stringify({ userId: member.id, permanent }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        toast.error(json?.message || `Failed (HTTP ${res.status})`);
+        // The API replies with `error`, and on a 409 that text names exactly
+        // what blocks the delete — show it as the headline, not a sub-line.
+        toast.error(json?.error || json?.message || `Failed (HTTP ${res.status})`, {
+          duration: 9000,
+        });
         setSubmitting(false);
         return;
       }
-      toast.success(`${member.name} deactivated. Their data is preserved.`);
+      toast.success(
+        permanent
+          ? `${member.name} permanently deleted.`
+          : `${member.name} deactivated. Their data is preserved.`,
+      );
       onOpenChange(false);
       onConfirmed();
     } catch (err) {
@@ -2272,7 +2296,7 @@ function DeactivateConfirmDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button
             type="button"
             variant="outline"
@@ -2281,10 +2305,24 @@ function DeactivateConfirmDialog({
           >
             Cancel
           </Button>
+          {/* Permanent delete. Only succeeds for someone with no work history —
+              the API returns 409 naming what blocks it otherwise. */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleConfirm(true)}
+            disabled={submitting}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete permanently
+          </Button>
           <Button
             type="button"
             variant="destructive"
-            onClick={handleConfirm}
+            /* NOTE: must be an arrow fn — passing handleConfirm directly hands
+               React's click event in as `permanent`, which is truthy. */
+            onClick={() => handleConfirm(false)}
             disabled={submitting}
             className="bg-rose-600 hover:bg-rose-700"
           >
