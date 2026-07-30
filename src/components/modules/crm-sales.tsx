@@ -301,9 +301,14 @@ export function CrmSales() {
         toast.success(`${account.name} deleted`);
         await load();
       } catch (err) {
-        toast.error("Couldn't delete client", {
-          description: err instanceof Error ? err.message : undefined,
-        });
+        // Show the reason as the headline, not a sub-line. The API's 409 names
+        // exactly what is blocking the delete, which is the actionable part —
+        // burying it under a generic "Couldn't delete" reads as nothing
+        // happening at all.
+        toast.error(
+          err instanceof Error ? err.message : `Couldn't delete ${account.name}`,
+          { duration: 9000 },
+        );
       } finally {
         setDeletingId(null);
       }
