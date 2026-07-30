@@ -70,6 +70,14 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const isFounder = user.role === "FOUNDER";
   const isFreelancer = user.role === "FREELANCER";
+  // Who may see client-side money (budget, revenue, profit, margin, received).
+  // INTERNs coordinate vendors and logistics, so they must still SEE projects —
+  // but not what the client pays or what the company makes. Deliberately NOT
+  // reusing `isFreelancer` here: that flag also restricts WHICH projects are
+  // visible (managerId only), and an intern manages none, so reusing it would
+  // show them an empty list instead of hiding a few fields.
+  const canSeeCompanyFinancials = user.role === "FOUNDER" || user.role === "STAFF";
+  const hideMoney = !canSeeCompanyFinancials;
 
   // FREELANCERs (PMs) only see projects they manage. Founders and staff
   // see all projects. This prevents a PM from reading other PMs' financials.
@@ -160,8 +168,8 @@ export async function GET(req: Request) {
       // FREELANCERs (PMs) do NOT see company financials (revenue, budget,
       // profit, margin, received, balance). They only see their project's
       // expenses (their budget) — not what the client paid.
-      budget: isFreelancer ? undefined : p.budget,
-      revenue: isFreelancer ? undefined : p.revenue,
+      budget: hideMoney ? undefined : p.budget,
+      revenue: hideMoney ? undefined : p.revenue,
       progress: p.progress,
       startDate: p.startDate,
       endDate: p.endDate,
@@ -198,11 +206,11 @@ export async function GET(req: Request) {
       })),
       _count: p._count,
       // computed financial fields — hidden from FREELANCERs
-      expensesTotal: isFreelancer ? undefined : expensesTotal,
-      received: isFreelancer ? undefined : received,
-      balance: isFreelancer ? undefined : balance,
-      profit: isFreelancer ? undefined : profit,
-      margin: isFreelancer ? undefined : margin,
+      expensesTotal: hideMoney ? undefined : expensesTotal,
+      received: hideMoney ? undefined : received,
+      balance: hideMoney ? undefined : balance,
+      profit: hideMoney ? undefined : profit,
+      margin: hideMoney ? undefined : margin,
     };
   });
 

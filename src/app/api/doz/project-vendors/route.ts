@@ -7,6 +7,8 @@ export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  const canSeeClientMoney = user.role === "FOUNDER" || user.role === "STAFF";
+
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
@@ -36,15 +38,20 @@ export async function GET(req: Request) {
       amountPaid: v.amountPaid,
       balance: v.balance,
       status: v.status,
+      approvalStatus: v.approvalStatus,
+      submittedById: v.submittedById,
       notes: v.notes,
       vendor: v.vendor ? { name: v.vendor.name, category: v.vendor.category, phone: v.vendor.phone } : null,
     })),
+    // What we owe vendors is operational and safe for an operations coordinator.
+    // What the CLIENT paid us, and the profit that implies, is not — those are
+    // withheld from anyone who is not FOUNDER or STAFF.
     summary: {
       totalFee,
       totalPaid,
       totalBalance,
-      receivedFromClient,
-      projectProfit: receivedFromClient - totalPaid,
+      receivedFromClient: canSeeClientMoney ? receivedFromClient : undefined,
+      projectProfit: canSeeClientMoney ? receivedFromClient - totalPaid : undefined,
     },
   });
 }
@@ -68,6 +75,10 @@ export async function POST(req: Request) {
     if (vendor) vendorName = vendor.name;
   }
 
+  // Anyone below FOUNDER may attach a vendor to a project, but it lands PENDING
+  // and does not count anywhere until the founder approves it.
+  const isFounder = user.role === "FOUNDER";
+
   const created = await db.projectVendorCost.create({
     data: {
       projectId: body.projectId,
@@ -75,14 +86,21 @@ export async function POST(req: Request) {
       vendorName,
       item: body.item || "Service",
       fee,
-      amountPaid,
-      balance,
-      status,
+      amountPaid: isFounder ? amountPaid : 0, // only the founder records payments
+      balance: isFounder ? balance : fee,
+      status: isFounder ? status : "UNPAID",
+      approvalStatus: isFounder ? "APPROVED" : "PENDING",
+      submittedById: user.id,
+      approvedById: isFounder ? user.id : null,
+      approvedAt: isFounder ? new Date() : null,
       notes: body.notes || null,
     },
   });
 
-  return NextResponse.json({ ok: true, vendorCost: created }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, vendorCost: created, pendingApproval: !isFounder },
+    { status: 201 },
+  );
 }
 
 // PATCH — update a vendor cost
@@ -95,6 +113,35 @@ export async function PATCH(req: Request) {
 
   const existing = await db.projectVendorCost.findUnique({ where: { id: body.costId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  // Approve / reject — FOUNDER only.
+  if (body.action === "approve" || body.action === "reject") {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden \u2014 founder only" }, { status: 403 });
+    }
+    const updated = await db.projectVendorCost.update({
+      where: { id: body.costId },
+      data: {
+        approvalStatus: body.action === "approve" ? "APPROVED" : "REJECTED",
+        approvedById: user.id,
+        approvedAt: new Date(),
+      },
+    });
+    return NextResponse.json({ ok: true, vendorCost: updated });
+  }
+
+  // Editing an already-approved cost, or recording payments, is FOUNDER-only.
+  if (user.role !== "FOUNDER") {
+    if (existing.approvalStatus !== "PENDING" || existing.submittedById !== user.id) {
+      return NextResponse.json(
+        { error: "You can only edit your own vendor entries while they are awaiting approval." },
+        { status: 403 },
+      );
+    }
+    if (body.amountPaid !== undefined) {
+      return NextResponse.json({ error: "Only the founder can record payments." }, { status: 403 });
+    }
+  }
 
   const fee = body.fee !== undefined ? Number(body.fee) : existing.fee;
   const amountPaid = body.amountPaid !== undefined ? Number(body.amountPaid) : existing.amountPaid;
@@ -125,6 +172,17 @@ export async function DELETE(req: Request) {
 
   const body = await req.json().catch(() => null);
   if (!body?.costId) return NextResponse.json({ error: "costId required" }, { status: 400 });
+
+  const target = await db.projectVendorCost.findUnique({ where: { id: body.costId } });
+  if (!target) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (user.role !== "FOUNDER") {
+    if (target.approvalStatus !== "PENDING" || target.submittedById !== user.id) {
+      return NextResponse.json(
+        { error: "You can only remove your own entries while they are awaiting approval." },
+        { status: 403 },
+      );
+    }
+  }
 
   await db.projectVendorCost.delete({ where: { id: body.costId } });
   return NextResponse.json({ ok: true });

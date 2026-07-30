@@ -27,6 +27,7 @@ import {
   Package,
   IdCard,
   MessageSquare,
+  Boxes,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -45,6 +46,7 @@ import { HelpPage } from "@/components/modules/help-page";
 import { UpdatesPage } from "@/components/modules/updates-page";
 import { MyProfile } from "@/components/modules/my-profile";
 import { Messages } from "@/components/modules/messages";
+import { Vendors } from "@/components/modules/vendors";
 import { DidiBubble } from "@/components/doz/didi-bubble";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +91,7 @@ const NAV: NavItem[] = [
   { id: "crm", label: "CRM & Sales", icon: <Users2 className="h-4 w-4" />, group: "Grow" },
   { id: "marketing", label: "Marketing & Growth", icon: <Megaphone className="h-4 w-4" />, group: "Grow" },
   { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-4 w-4" />, group: "Deliver" },
+  { id: "vendors", label: "Vendors", icon: <Boxes className="h-4 w-4" />, group: "Deliver" },
   { id: "procurement", label: "Procurement", icon: <Truck className="h-4 w-4" />, group: "Deliver" },
   { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, group: "Control" },
   { id: "team", label: "Team Management", icon: <UserCog className="h-4 w-4" />, group: "Control" },
@@ -111,8 +114,8 @@ const NAV: NavItem[] = [
 //       OVERRIDES these role-based defaults. The founder can grant any
 //       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages"],
-  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors"],
+  STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
   INTERN: ["command", "field", "sop", "help", "profile", "messages"],
   FREELANCER: ["command", "field", "projects", "help", "profile", "messages"],
 };
@@ -151,6 +154,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   marketing: <MarketingGrowth />,
   profile: <MyProfile />,
   messages: <Messages />,
+  vendors: <Vendors />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -169,6 +173,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   field: { title: "Field Mode", subtitle: "On-site report filing & offline event run-sheet" },
   routines: { title: "Routines", subtitle: "Your business rhythm — run the same playbook every time" },
   profile: { title: "My Profile", subtitle: "Your details — keep them up to date" },
+  vendors: { title: "Vendors", subtitle: "Suppliers and what they are owed per project" },
   messages: { title: "Messages", subtitle: "Direct messages with your team" },
   marketing: { title: "Marketing & Growth", subtitle: "Turn referrals into a predictable lead engine" },
 };

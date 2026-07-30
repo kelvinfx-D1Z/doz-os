@@ -34,6 +34,10 @@ function isValidCategory(c: string): c is Category {
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Vendor bank details and lifetime spend are payment information — FOUNDER
+  // only. Everyone else gets the operational record: who they are, what they
+  // supply, how to reach them.
+  const canSeeVendorMoney = user.role === "FOUNDER";
   try {
     const [applications, vendors] = await Promise.all([
       db.vendorApplication.findMany({
@@ -61,7 +65,7 @@ export async function GET(req: Request) {
         email: a.email,
         cacNumber: a.cacNumber,
         bankName: a.bankName,
-        bankAccount: a.bankAccount,
+        bankAccount: canSeeVendorMoney ? a.bankAccount : undefined,
         references: a.references,
         notes: a.notes,
         status: a.status,
@@ -76,7 +80,7 @@ export async function GET(req: Request) {
         phone: v.phone,
         email: v.email,
         rating: v.rating,
-        totalSpent: v.totalSpent,
+        totalSpent: canSeeVendorMoney ? v.totalSpent : undefined,
         isActive: v.isActive,
         createdAt: v.createdAt,
       })),
@@ -98,12 +102,13 @@ export async function GET(req: Request) {
 // ------------------------------------------------------------
 export async function POST(req: Request) {
   try {
-    // Auth: vendor creation requires at least STAFF role.
+    // Auth: any signed-in team member may add a vendor to the directory —
+    // including an operations INTERN, for whom vendor coordination is the job.
+    // Adding a vendor is a low-risk operational record; attaching one to a
+    // project with a fee is what requires founder approval (see
+    // /api/doz/project-vendors), and vendor bank details stay founder-only.
     const user = await getSessionUser();
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (user.role !== "FOUNDER" && user.role !== "STAFF" && user.role !== "FREELANCER") {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {

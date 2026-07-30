@@ -17,7 +17,7 @@ async function requireFounder() {
 const VALID_MODULES: ModuleId[] = [
   "command", "planning", "routines", "ai", "field", "crm", "marketing",
   "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates",
-  "profile", "messages",
+  "profile", "messages", "vendors",
 ];
 
 function sanitizePermissions(input: any): string[] | null {

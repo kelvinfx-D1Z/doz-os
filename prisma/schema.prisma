@@ -814,10 +814,20 @@ model ProjectVendorCost {
   fee         Float    // total fee the vendor is charging
   amountPaid  Float    @default(0) // advance + payments made so far
   balance     Float    @default(0) // fee - amountPaid (computed)
-  status      String   @default("UNPAID") // UNPAID, PARTIAL, PAID
+  status      String   @default("UNPAID") // UNPAID, PARTIAL, PAID — PAYMENT status
+  // ---- APPROVAL status, separate from payment status above ----
+  // Non-founders (e.g. an operations intern) can attach a vendor to a project,
+  // but it stays PENDING until the founder approves it. Defaults to APPROVED so
+  // existing rows and founder-created rows are unaffected.
+  approvalStatus String @default("APPROVED") // PENDING, APPROVED, REJECTED
+  submittedById  String?
+  approvedById   String?
+  approvedAt     DateTime?
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([approvalStatus])
 }
 
 // ============================================================
