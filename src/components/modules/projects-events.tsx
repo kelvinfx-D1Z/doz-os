@@ -216,6 +216,9 @@ function deliverableSummary(deliverables: Deliverable[]): string {
 // ---------- Main ----------
 export function ProjectsEvents() {
   const { user } = useCurrentUser();
+  // Company money is FOUNDER-only. Separate from isPM, which also scopes
+  // WHICH projects are listed — an intern must still see the list.
+  const showMoney = user?.role === "FOUNDER";
   const isPM = user?.role === "FREELANCER";
   const [data, setData] = useState<ProjectsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -326,7 +329,7 @@ export function ProjectsEvents() {
       />
 
       {/* KPI ROW — hidden for PMs (they don't see company financials) */}
-      {!isPM && (
+      {showMoney && (
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <StatCard
           label="Total Projects"
@@ -1083,6 +1086,9 @@ function EditableProjectItem({ project, isPM = false, onUpdated, viewMode = "lis
 // ---------- List Row ----------
 function ProjectListRow({ project: p, isPM = false, onEdit, onDelete }: { project: Project; isPM?: boolean; onEdit?: () => void; onDelete?: () => void }) {
   const { user } = useCurrentUser();
+  // Company money is FOUNDER-only. Separate from isPM, which also scopes
+  // WHICH projects are listed — an intern must still see the list.
+  const showMoney = user?.role === "FOUNDER";
   const isFounder = user?.role === "FOUNDER";
   const canManage = isFounder || (!isPM && !!user);
   const nextMilestone = [...p.milestones]
@@ -1190,6 +1196,9 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
   const positiveProfit = p.profit >= 0;
 
   const { user } = useCurrentUser();
+  // Company money is FOUNDER-only. Separate from isPM, which also scopes
+  // WHICH projects are listed — an intern must still see the list.
+  const showMoney = user?.role === "FOUNDER";
   const isFounder = user?.role === "FOUNDER";
   const canManage = isFounder || (!isPM && !!user);
 
@@ -1247,7 +1256,7 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
           )}
 
           {/* Financial summary strip — hidden for PMs */}
-          {!isPM && (
+          {showMoney && (
           <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
             <div className="min-w-0">
               <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -1300,7 +1309,7 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
           )}
 
           {/* Budget burn bar — hidden for PMs */}
-          {!isPM && (
+          {showMoney && (
           <div className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2.5">
             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
               <span>Budget burn</span>
@@ -1342,7 +1351,7 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
           )}
 
           {/* Profit + margin — hidden for PMs */}
-          {!isPM && (
+          {showMoney && (
           <div className="mt-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Profit</span>
@@ -1438,7 +1447,7 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
 
           {/* Footer hint */}
           <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
-            <span>{p._count.tasks} tasks{!isPM && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
+            <span>{p._count.tasks} tasks{showMoney && ` · ${p._count.invoices} invoices · ${p._count.expenses} expenses`}</span>
             <div className="flex items-center gap-3">
               {canManage && onEdit && (
                 <button
@@ -1478,6 +1487,9 @@ function ProjectCard({ project: p, isPM = false, onEdit, onDelete }: { project: 
 // ---------- Project Detail Dialog ----------
 function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: boolean }) {
   const { user } = useCurrentUser();
+  // Company money is FOUNDER-only. Separate from isPM, which also scopes
+  // WHICH projects are listed — an intern must still see the list.
+  const showMoney = user?.role === "FOUNDER";
   const isFounder = user?.role === "FOUNDER";
   const [teamMembers, setTeamMembers] = useState<{id:string;name:string;role:string}[]>([]);
   const [assigningPM, setAssigningPM] = useState(false);
@@ -1566,7 +1578,7 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
 
       <div className="scroll-thin max-h-[calc(88vh-9rem)] overflow-y-auto px-5 py-4">
         {/* Quick facts — FOUNDER/STAFF see company financials; PM sees only their budget */}
-        {!isPM ? (
+        {showMoney ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border/60 p-2.5">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Earned (Contract)</p>
@@ -1603,7 +1615,7 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
         )}
 
         {/* Vendor Costs & Financials — hidden for PMs */}
-        {!isPM && <VendorCostsSection projectId={p.id} revenue={p.revenue} />}
+        {showMoney && <VendorCostsSection projectId={p.id} revenue={p.revenue} />}
 
         {/* Equipment List — production equipment with vendor attachment */}
         <EquipmentSection projectId={p.id} isPM={isPM} />
@@ -1768,7 +1780,7 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
         {/* Footer counts — invoices/expenses hidden for PMs */}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
           <span>{p._count.tasks} tasks</span>
-          {!isPM && (<>
+          {showMoney && (<>
             <span>·</span>
             <span>{p._count.invoices} invoices</span>
             <span>·</span>
@@ -1797,6 +1809,9 @@ function EditProjectDialog({ project, onOpenChange, onSaved }: { project: Projec
   const [progress, setProgress] = useState<string>("0");
   const [submitting, setSubmitting] = useState(false);
   const { user } = useCurrentUser();
+  // Company money is FOUNDER-only. Separate from isPM, which also scopes
+  // WHICH projects are listed — an intern must still see the list.
+  const showMoney = user?.role === "FOUNDER";
   const isFounder = user?.role === "FOUNDER";
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([]);
 
@@ -3142,6 +3157,10 @@ interface ProjectSvc {
 interface SvcPayload { categories: SvcCategory[]; projectServices: ProjectSvc[]; totals: { items: number; totalValue: number; priced: number; approved: number }; canManage: boolean; canApprove: boolean; }
 
 function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean }) {
+  const { user } = useCurrentUser();
+  // Company money is FOUNDER-only, separate from isPM (which scopes what a
+  // production manager sees of their own budget).
+  const showMoney = user?.role === "FOUNDER";
   const [data, setData] = useState<SvcPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -3206,7 +3225,7 @@ function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean
       )}
 
       {/* Founder summary — shows budget status */}
-      {!isPM && (
+      {showMoney && (
         <div className="mb-3 grid grid-cols-4 gap-2 text-center">
           <div className="rounded-lg bg-muted/30 p-2"><p className="text-[9px] uppercase tracking-wider text-muted-foreground">Items</p><p className="text-sm font-bold">{totals.items}</p></div>
           <div className="rounded-lg bg-muted/30 p-2"><p className="text-[9px] uppercase tracking-wider text-muted-foreground">Total Cost</p><p className="text-sm font-bold text-primary">₦{(totals.totalValue / 1000000).toFixed(2)}M</p></div>

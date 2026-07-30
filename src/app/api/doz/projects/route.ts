@@ -217,8 +217,10 @@ export async function GET(req: Request) {
   const totalProfit = totalRevenue - totalExpenses;
   const avgMargin = marginSamples > 0 ? marginSum / marginSamples : 0;
 
-  // FREELANCERs get a scoped summary (no company financials)
-  const stats = isFreelancer
+  // Anyone who may not see company money gets a scoped summary.
+  // (Was gated on isFreelancer alone, so INTERNs received the full company
+  // revenue/profit/margin aggregate.)
+  const stats = hideMoney
     ? {
         total: projects.length,
         active: activeCount,
