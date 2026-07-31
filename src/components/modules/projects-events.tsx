@@ -219,7 +219,7 @@ export function ProjectsEvents() {
   // Company money is FOUNDER-only. Separate from isPM, which also scopes
   // WHICH projects are listed — an intern must still see the list.
   const showMoney = user?.role === "FOUNDER";
-  const isPM = user?.role === "FREELANCER";
+  const isPM = user?.role === "FREELANCER" || user?.role === "PRODUCTION_MANAGER";
   const [data, setData] = useState<ProjectsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

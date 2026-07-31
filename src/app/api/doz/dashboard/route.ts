@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser, canSeeFinancials } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 
 // CEO Command Center aggregate — company-wide data + per-user `myDay` block.
 // The company-wide payload is what the founder sees. Staff/Interns/Freelancers
@@ -357,7 +357,7 @@ export async function GET() {
     deliveredAt: string | null;
     project: { id: string; name: string };
   }> = [];
-  if (sessionUser.role === "FREELANCER" && myProjectIds.size > 0) {
+  if (isProjectManagerRole(sessionUser.role) && myProjectIds.size > 0) {
     const deliverables = await db.deliverable.findMany({
       where: { projectId: { in: Array.from(myProjectIds) } },
       include: { project: { select: { id: true, name: true } } },

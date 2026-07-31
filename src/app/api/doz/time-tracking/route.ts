@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     }),
     db.project.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     db.user.findMany({
-      where: { isActive: true, role: { in: ["FOUNDER", "STAFF", "INTERN", "FREELANCER"] } },
+      where: { isActive: true, role: { in: ["FOUNDER", "STAFF", "INTERN", "FREELANCER", "PRODUCTION_MANAGER"] } },
       select: { id: true, name: true, role: true, title: true },
     }),
   ]);

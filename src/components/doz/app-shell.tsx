@@ -118,6 +118,9 @@ const ROLE_MODULES: Record<string, ModuleId[]> = {
   STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
   INTERN: ["command", "field", "sop", "help", "profile", "messages"],
   FREELANCER: ["command", "field", "projects", "help", "profile", "messages"],
+  // A Production Manager runs the job on the ground: their projects, the cost
+  // sheet, and the vendors on it. No CRM, no finance, no company figures.
+  PRODUCTION_MANAGER: ["command", "field", "projects", "vendors", "sop", "help", "profile", "messages"],
 };
 
 // Resolve a user's effective module list.
@@ -183,6 +186,7 @@ const ROLE_LABELS: Record<string, string> = {
   STAFF: "Staff",
   INTERN: "Intern",
   FREELANCER: "Freelancer",
+  PRODUCTION_MANAGER: "Production Manager",
 };
 
 const ROLE_BADGE_COLOR: Record<string, string> = {
@@ -190,6 +194,7 @@ const ROLE_BADGE_COLOR: Record<string, string> = {
   STAFF: "bg-teal-500/15 text-teal-300",
   INTERN: "bg-violet-500/15 text-violet-300",
   FREELANCER: "bg-fuchsia-500/15 text-fuchsia-300",
+  PRODUCTION_MANAGER: "bg-sky-500/15 text-sky-300",
 };
 
 export function AppShell() {

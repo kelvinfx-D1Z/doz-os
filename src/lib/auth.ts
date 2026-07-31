@@ -261,6 +261,25 @@ export function canSeeFinancials(role: string | undefined | null): boolean {
 }
 
 // ============================================================
+// PROJECT-RUNNING ROLES
+//
+// FREELANCER and PRODUCTION_MANAGER both run jobs on the ground: they see
+// only the projects they manage, and they build the cost sheet. A
+// PRODUCTION_MANAGER has more authority than a freelance crew member — they
+// own a project's budget, add and remove lines, and bring in vendors — but
+// neither ever sees company revenue, profit or margin. What they see is what
+// the job COSTS, because that is the thing they are responsible for.
+// ============================================================
+export function isProjectManagerRole(role: string | undefined | null): boolean {
+  return role === "FREELANCER" || role === "PRODUCTION_MANAGER";
+}
+
+/** Can this role build and submit a project cost sheet? */
+export function canBuildBudget(role: string | undefined | null): boolean {
+  return role === "FOUNDER" || role === "STAFF" || role === "PRODUCTION_MANAGER";
+}
+
+// ============================================================
 // PERMISSIONS PARSER
 // ============================================================
 export function parsePermissions(raw: string | null | undefined): string[] | null {

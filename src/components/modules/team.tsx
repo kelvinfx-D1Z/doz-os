@@ -99,7 +99,7 @@ import {
 // ============================================================
 // Types
 // ============================================================
-type Role = "FOUNDER" | "STAFF" | "INTERN" | "FREELANCER";
+type Role = "FOUNDER" | "STAFF" | "INTERN" | "FREELANCER" | "PRODUCTION_MANAGER";
 type Mood = "GREAT" | "OK" | "STRESSED" | null | undefined;
 
 interface MemberCount {
@@ -205,6 +205,7 @@ const ROLE_BADGE_CLASS: Record<Role, string> = {
   STAFF: "bg-teal-500/15 text-teal-300 border border-teal-500/30",
   INTERN: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
   FREELANCER: "bg-violet-500/15 text-violet-300 border border-violet-500/30",
+  PRODUCTION_MANAGER: "bg-sky-500/15 text-sky-300 border border-sky-500/30",
 };
 
 const ROLE_ICON: Record<Role, React.ReactNode> = {
@@ -212,6 +213,7 @@ const ROLE_ICON: Record<Role, React.ReactNode> = {
   STAFF: <Users className="h-3 w-3" />,
   INTERN: <GraduationCap className="h-3 w-3" />,
   FREELANCER: <Briefcase className="h-3 w-3" />,
+  PRODUCTION_MANAGER: <Clapperboard className="h-3 w-3" />,
 };
 
 function moodEmoji(mood: Mood): string {
@@ -1495,6 +1497,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "STAFF", label: "Staff" },
   { value: "INTERN", label: "Intern" },
   { value: "FREELANCER", label: "Freelancer / Production Manager" },
+  { value: "PRODUCTION_MANAGER", label: "Production Manager" },
 ];
 
 // ============================================================

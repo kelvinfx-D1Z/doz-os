@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getSessionUser, canSeeFinancials } from "@/lib/auth";
+import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 import { MONEY_EPSILON, allocateDelta, collectableAmount } from "@/lib/received-allocation";
 
 // ============================================================
@@ -69,7 +69,8 @@ export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const isFounder = user.role === "FOUNDER";
-  const isFreelancer = user.role === "FREELANCER";
+  // Both FREELANCER and PRODUCTION_MANAGER see only projects they manage.
+  const isFreelancer = isProjectManagerRole(user.role);
   // Who may see client-side money (budget, revenue, profit, margin, received).
   // INTERNs coordinate vendors and logistics, so they must still SEE projects —
   // but not what the client pays or what the company makes. Deliberately NOT

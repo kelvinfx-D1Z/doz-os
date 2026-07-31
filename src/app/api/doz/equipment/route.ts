@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, isProjectManagerRole } from "@/lib/auth";
 
 // ============================================================
 // Equipment API — Full PM Workflow
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   let effectiveProjectId = projectId;
   let assignedProjects: string[] = [];
 
-  if (user.role === "FREELANCER") {
+  if (isProjectManagerRole(user.role)) {
     // Find projects where this user is assigned as PRODUCTION_MANAGER
     const assignments = await db.crewAssignment.findMany({
       where: { userId: user.id, role: "PRODUCTION_MANAGER", status: { in: ["ASSIGNED", "CONFIRMED"] } },
@@ -116,9 +116,9 @@ export async function GET(req: Request) {
     })),
     totals,
     budgetStatus,
-    canManage: user.role === "FOUNDER" || user.role === "STAFF" || user.role === "FREELANCER",
+    canManage: user.role === "FOUNDER" || user.role === "STAFF" || isProjectManagerRole(user.role),
     canApprove: user.role === "FOUNDER" || user.role === "STAFF",
-    isPM: user.role === "FREELANCER",
+    isPM: isProjectManagerRole(user.role),
   });
 }
 
@@ -137,7 +137,7 @@ export async function POST(req: Request) {
     }
 
     // If PM, verify assignment
-    if (user.role === "FREELANCER") {
+    if (isProjectManagerRole(user.role)) {
       const assigned = await db.crewAssignment.findFirst({
         where: { userId: user.id, projectId: body.projectId, role: "PRODUCTION_MANAGER" },
       });
@@ -234,7 +234,7 @@ export async function POST(req: Request) {
     if (!body.projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
     // Verify PM is assigned
-    if (user.role === "FREELANCER") {
+    if (isProjectManagerRole(user.role)) {
       const assigned = await db.crewAssignment.findFirst({
         where: { userId: user.id, projectId: body.projectId, role: "PRODUCTION_MANAGER" },
       });

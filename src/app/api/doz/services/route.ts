@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, isProjectManagerRole, canBuildBudget } from "@/lib/auth";
 
 // GET — service library + project services
 export async function GET(req: Request) {
@@ -48,6 +48,14 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body?.action) return NextResponse.json({ error: "action required" }, { status: 400 });
 
+  // Building the cost sheet is FOUNDER, STAFF or PRODUCTION_MANAGER. An INTERN
+  // coordinates vendors but does not own a project budget. Approval stays
+  // separate and remains FOUNDER/STAFF (see approve_budget below).
+  const BUDGET_ACTIONS = ["add_service", "update_service", "delete_service", "submit_budget", "add_custom_item"];
+  if (BUDGET_ACTIONS.includes(body.action) && !canBuildBudget(user.role)) {
+    return NextResponse.json({ error: "forbidden — you cannot edit this project budget" }, { status: 403 });
+  }
+
   if (body.action === "add_service") {
     if (!body.projectId || !body.serviceName) return NextResponse.json({ error: "projectId and serviceName required" }, { status: 400 });
     let vendorName = body.vendorName || null, vendorContact = body.vendorContact || null, vendorPhone = body.vendorPhone || null, vendorEmail = body.vendorEmail || null, vendorBankDetails = body.vendorBankDetails || null;
@@ -66,7 +74,7 @@ export async function POST(req: Request) {
     if (!body.serviceId) return NextResponse.json({ error: "serviceId required" }, { status: 400 });
     const existing = await db.projectService.findUnique({ where: { id: body.serviceId } });
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-    if (user.role === "FREELANCER" && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_edit_submitted" }, { status: 403 });
+    if (isProjectManagerRole(user.role) && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_edit_submitted" }, { status: 403 });
     const data: any = {};
     if (body.quantity !== undefined) { data.quantity = Number(body.quantity); data.totalPrice = (Number(body.unitPrice) || existing.unitPrice) * data.quantity; }
     if (body.unitPrice !== undefined) { data.unitPrice = Number(body.unitPrice); data.totalPrice = data.unitPrice * (existing.quantity || 1); }
@@ -86,7 +94,7 @@ export async function POST(req: Request) {
     if (!body.serviceId) return NextResponse.json({ error: "serviceId required" }, { status: 400 });
     const existing = await db.projectService.findUnique({ where: { id: body.serviceId } });
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-    if (user.role === "FREELANCER" && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_delete_submitted" }, { status: 403 });
+    if (isProjectManagerRole(user.role) && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_delete_submitted" }, { status: 403 });
     await db.projectService.delete({ where: { id: body.serviceId } });
     return NextResponse.json({ ok: true });
   }
