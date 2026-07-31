@@ -30,10 +30,25 @@ export type AllocatableInvoice = {
   id: string;
   code?: string | null;
   amount: number;
+  /** amount - withholding tax. 0/undefined means WHT does not apply. */
+  expectedCash?: number | null;
   amountPaid: number;
   status: string;
   paidDate: Date | null;
 };
+
+/**
+ * What an invoice should actually collect in cash.
+ *
+ * Government clients withhold 5% at source on the pre-VAT value, so what
+ * arrives is the invoice total minus WHT. Reconciling against `amount` would
+ * leave every government invoice permanently short by exactly the withheld
+ * figure — and that is a tax credit reclaimed from FIRS, not a debt the client
+ * owes. An invoice settled in full would never reach PAID.
+ */
+export function collectableAmount(inv: { amount: number; expectedCash?: number | null }): number {
+  return inv.expectedCash && inv.expectedCash > 0 ? inv.expectedCash : inv.amount;
+}
 
 /** One invoice's resulting state. `from`/`to` are amountPaid before/after. */
 export type AllocationChange = {
@@ -106,13 +121,16 @@ export function allocateDelta(
   for (const inv of order) {
     if (remaining <= MONEY_EPSILON) break;
     const paid = inv.amountPaid ?? 0;
+    // Capacity is what will actually be COLLECTED, not the invoice face value:
+    // on a government job that is the total less withholding tax.
+    const collectable = collectableAmount(inv);
     // What this invoice can absorb (increase) or give back (decrease).
-    const headroom = increasing ? inv.amount - paid : paid;
+    const headroom = increasing ? collectable - paid : paid;
     if (headroom <= MONEY_EPSILON) continue; // settled already / nothing to undo
     const move = Math.min(headroom, remaining);
     remaining -= move;
     const to = increasing ? paid + move : paid - move;
-    const { status, paidDate } = invoiceStatusFor(inv.amount, to, inv.status, inv.paidDate, now);
+    const { status, paidDate } = invoiceStatusFor(collectable, to, inv.status, inv.paidDate, now);
     changes.push({ id: inv.id, code: inv.code, from: paid, to, status, paidDate });
   }
 

@@ -307,6 +307,9 @@ model Project {
   manager     User?    @relation("ProjectManager", fields: [managerId], references: [id])
   eventDate   DateTime?
   venue       String?
+  // Government clients withhold 5% at source, so the cash received is less
+  // than the invoice total. Drives WHT on invoices for this project.
+  isGovernment Boolean @default(false)
   budget      Float    @default(0)
   revenue     Float    @default(0)
   progress    Int      @default(0)
@@ -539,8 +542,21 @@ model Invoice {
   project     Project? @relation(fields: [projectId], references: [id])
   accountId   String?
   account     Account? @relation(fields: [accountId], references: [id])
+  // `amount` is the invoice TOTAL the client sees: subtotal - discount + tax.
   amount      Float
-  tax         Float    @default(0)
+  tax         Float    @default(0) // VAT amount
+  subtotal    Float    @default(0) // sum of lines, before discount and VAT
+  discount    Float    @default(0)
+  vatRate     Float    @default(7.5)
+  // Withholding tax is DEDUCTED AT SOURCE by government clients on the pre-VAT
+  // value. It is not a discount and not a debt — it is remitted to FIRS on our
+  // behalf and reclaimed as a credit. So the cash that actually arrives is
+  // `amount - whtAmount`, and that is what payment must be reconciled against.
+  // Without expectedCash, every government invoice reads as permanently
+  // underpaid by exactly the withheld amount.
+  whtRate     Float    @default(0)  // 5 for government contracts, else 0
+  whtAmount   Float    @default(0)
+  expectedCash Float   @default(0) // amount - whtAmount; 0 means "use amount"
   status      String   @default("DRAFT") // DRAFT, SENT, PARTIAL, PAID, OVERDUE
   amountPaid  Float    @default(0)
   issuedDate  DateTime @default(now())
@@ -552,11 +568,67 @@ model Invoice {
   updatedAt   DateTime @updatedAt
 
   paymentConfirmations PaymentConfirmation[]
+  lines       InvoiceLine[]
 
   @@index([projectId])
   @@index([accountId])
   @@index([status])
   @@index([dueDate])
+}
+
+// A client-facing invoice line. Deliberately NOT one-per-cost-line: the founder
+// bundles several ProjectService cost rows into a single sellable line (e.g.
+// MATERIALS + WORKMANSHIP + LIGHT STRIP -> "Stage Design & Fabrication"), and
+// adds lines with no cost basis at all (professional fees).
+// amount = days * quantity * unitPrice. unitPrice 0 marks a complimentary item.
+model InvoiceLine {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  section     String?  // "AUDIO VISUAL", "Branding Indoor and Outdoor"
+  description String
+  days        Int      @default(1)
+  quantity    Int      @default(1)
+  unitPrice   Float    @default(0)
+  amount      Float    @default(0)
+  // Which cost lines this was priced from — for the margin panel.
+  sourceServiceIds String? // JSON array of ProjectService ids
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+// The reusable "typical event" list. The PM hits Create Event, picks a
+// template, and enables or disables lines rather than typing from scratch —
+// which is how the spreadsheets were actually used: a master list reused per
+// event with irrelevant rows left at zero.
+model EventTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique // "Conference", "Exhibition", "Shoot"
+  description String?
+  isActive    Boolean  @default(true)
+  items       EventTemplateItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EventTemplateItem {
+  id          String   @id @default(cuid())
+  templateId  String
+  template    EventTemplate @relation(fields: [templateId], references: [id])
+  section     String   // EQUIPMENT RENTAL, PERSONNEL, BRANDING...
+  name        String
+  defaultQuantity Int  @default(1)
+  defaultDays Int      @default(1)
+  // Typical unit cost, as a starting point. Null where it always varies.
+  defaultUnitCost Float?
+  // Off by default = the line appears in the picker unticked (drone,
+  // post-production, executive director — present but usually unused).
+  enabledByDefault Boolean @default(true)
+  sortOrder   Int      @default(0)
+
+  @@index([templateId])
 }
 
 model Expense {
@@ -1312,8 +1384,14 @@ model ProjectService {
   serviceName String
   category    String
   quantity    Int      @default(1)
-  unitPrice   Float    @default(0)
-  totalPrice  Float    @default(0)
+  // Whether a line multiplies by event days is decided PER LINE: on a 2-day
+  // job the LED and crew double, sound and photography do not.
+  days        Int      @default(1)
+  unitPrice   Float    @default(0) // COST per unit per day — what we pay out
+  totalPrice  Float    @default(0) // days * quantity * unitPrice
+  // What the CLIENT is charged per unit. Set by the founder during markup;
+  // never shown to a PM or intern.
+  clientPrice Float?
   vendorId    String?
   vendor      Vendor?  @relation(fields: [vendorId], references: [id])
   vendorName  String?

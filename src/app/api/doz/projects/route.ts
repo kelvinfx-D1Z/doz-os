@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials } from "@/lib/auth";
-import { MONEY_EPSILON, allocateDelta } from "@/lib/received-allocation";
+import { MONEY_EPSILON, allocateDelta, collectableAmount } from "@/lib/received-allocation";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -517,12 +517,19 @@ async function reconcileReceived(
   async function createInvoice(amount: number) {
     const year = new Date().getFullYear();
     const count = await tx.invoice.count();
+    // Government clients withhold 5% at source, so an auto-created invoice for
+    // such a project should only ever expect the net figure in cash.
+    const whtRate = project!.isGovernment ? 5 : 0;
+    const whtAmount = whtRate > 0 ? (amount * whtRate) / 100 : 0;
     return tx.invoice.create({
       data: {
         code: `INV-${year}-${String(count + 1).padStart(3, "0")}`,
         projectId,
         accountId: project!.accountId,
         amount,
+        whtRate,
+        whtAmount,
+        expectedCash: amount - whtAmount,
         status: "SENT",
         amountPaid: 0,
         issuedDate: new Date(),
@@ -539,7 +546,7 @@ async function reconcileReceived(
   // Not enough invoiced to hold this much money → raise a supplementary
   // invoice for the shortfall. Appended last, so it is also last in the
   // oldest-first allocation order below.
-  const invoiceCapacity = invoices.reduce((sum, i) => sum + i.amount, 0);
+  const invoiceCapacity = invoices.reduce((sum, i) => sum + collectableAmount(i), 0);
   const shortfall = newTotal - invoiceCapacity;
   if (shortfall > MONEY_EPSILON) {
     invoices.push(await createInvoice(shortfall));
