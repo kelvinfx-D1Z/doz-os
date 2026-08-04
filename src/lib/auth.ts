@@ -204,6 +204,8 @@ export type SessionUser = {
 //    founder can look but cannot act as someone else
 // ============================================================
 export const VIEW_AS_COOKIE = "doz-view-as";
+/** Readable companion to VIEW_AS_COOKIE, carrying only UI display data. */
+export const VIEW_AS_INFO_COOKIE = "doz-view-as-info";
 
 /** The genuinely signed-in user, ignoring any impersonation. */
 export async function getRealSessionUser(): Promise<SessionUser | null> {

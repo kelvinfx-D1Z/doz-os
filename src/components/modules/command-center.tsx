@@ -688,7 +688,11 @@ export function CommandCenter() {
     );
   }
 
-  if (role === "FREELANCER") {
+  // PRODUCTION_MANAGER shares the freelancer dashboard: both run jobs on the
+  // ground, see only projects they manage, and get no company financials.
+  // Without this it falls through to the FOUNDER layout, which reads
+  // stats.marginPct — stripped for every non-founder — and crashes.
+  if (role === "FREELANCER" || role === "PRODUCTION_MANAGER") {
     return (
       <div className="space-y-6">
         <DailyReportPrompt
@@ -874,7 +878,7 @@ export function CommandCenter() {
         <StatCard
           label="Gross Profit"
           value={formatNGN(stats.grossProfit, true)}
-          sub={`${stats.marginPct.toFixed(1)}% margin`}
+          sub={`${(stats.marginPct ?? 0).toFixed(1)}% margin`}
           accent="primary"
           icon={<CircleDollarSign className="h-4 w-4" />}
         />

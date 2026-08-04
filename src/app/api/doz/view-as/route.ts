@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
-import { getRealSessionUser, VIEW_AS_COOKIE } from "@/lib/auth";
+import { getRealSessionUser, VIEW_AS_COOKIE, VIEW_AS_INFO_COOKIE } from "@/lib/auth";
 
 // Founder-only impersonation.
 //
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 
   const target = await db.user.findUnique({
     where: { id: userId },
-    select: { id: true, name: true, role: true, isActive: true },
+    select: { id: true, name: true, role: true, isActive: true, permissions: true, title: true, email: true },
   });
   if (!target) return NextResponse.json({ error: "user not found" }, { status: 404 });
   if (!target.isActive) {
@@ -81,6 +81,29 @@ export async function POST(req: Request) {
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60, // an hour is plenty; it should never be left on by accident
+  });
+
+  // A second, deliberately READABLE cookie carrying only what the UI needs to
+  // render as this person. Without it the client keeps rendering the founder
+  // layout — which expects revenue and margin the server has already stripped
+  // — and crashes on undefined.
+  //
+  // Not a security boundary: the httpOnly cookie above is the authority, and
+  // the server shapes every response from it. Tampering with this one only
+  // gives the tamperer a wrong-looking UI in their own browser.
+  jar.set(VIEW_AS_INFO_COOKIE, encodeURIComponent(JSON.stringify({
+    id: target.id,
+    name: target.name,
+    email: target.email,
+    role: target.role,
+    title: target.title ?? undefined,
+    permissions: target.permissions ? JSON.parse(target.permissions) : null,
+  })), {
+    httpOnly: false,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60,
   });
 
   // Logged against the FOUNDER, so the trail shows who looked, not a phantom
@@ -103,5 +126,6 @@ export async function DELETE() {
   if ("error" in auth) return auth.error;
   const jar = await cookies();
   jar.delete(VIEW_AS_COOKIE);
+  jar.delete(VIEW_AS_INFO_COOKIE);
   return NextResponse.json({ ok: true });
 }
