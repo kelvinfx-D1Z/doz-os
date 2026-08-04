@@ -182,13 +182,68 @@ export type SessionUser = {
   role: string;
   title?: string;
   permissions?: string[] | null;
+  /** Set when the founder is viewing the app as this person. */
+  impersonated?: boolean;
 };
 
-/** Returns the authenticated user, or null. */
-export async function getSessionUser(): Promise<SessionUser | null> {
+// ============================================================
+// "VIEW AS" — founder-only impersonation
+//
+// The founder needs to answer "what does Arome actually see?" without knowing
+// his password. Passwords are salted scrypt hashes and cannot be read back, so
+// signing in as someone is not an option — and should not be.
+//
+// This hooks the single chokepoint every API route already uses,
+// getSessionUser(), so financial gating, project scoping and module
+// permissions all shape themselves correctly with no per-route changes.
+//
+// Guards:
+//  - only a FOUNDER can impersonate; for anyone else the cookie is ignored
+//  - the target must exist and be active
+//  - middleware.ts rejects every non-GET request while it is active, so the
+//    founder can look but cannot act as someone else
+// ============================================================
+export const VIEW_AS_COOKIE = "doz-view-as";
+
+/** The genuinely signed-in user, ignoring any impersonation. */
+export async function getRealSessionUser(): Promise<SessionUser | null> {
   const { getServerSession } = await import("next-auth");
   const session = await getServerSession(authOptions);
   return (session?.user as SessionUser) ?? null;
+}
+
+/** Returns the authenticated user, or null. */
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const real = await getRealSessionUser();
+  if (!real) return null;
+  // Only a founder may view as someone else. Anyone else carrying the cookie
+  // (copied, crafted, left over from a demotion) is simply themselves.
+  if (real.role !== "FOUNDER") return real;
+
+  let targetId: string | undefined;
+  try {
+    const { cookies } = await import("next/headers");
+    targetId = (await cookies()).get(VIEW_AS_COOKIE)?.value;
+  } catch {
+    return real; // no request context (e.g. a script) — never impersonate
+  }
+  if (!targetId || targetId === real.id) return real;
+
+  const target = await db.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, name: true, email: true, role: true, title: true, isActive: true, permissions: true },
+  });
+  if (!target || !target.isActive) return real;
+
+  return {
+    id: target.id,
+    name: target.name,
+    email: target.email,
+    role: target.role,
+    title: target.title ?? undefined,
+    permissions: parsePermissions(target.permissions),
+    impersonated: true,
+  };
 }
 
 /**

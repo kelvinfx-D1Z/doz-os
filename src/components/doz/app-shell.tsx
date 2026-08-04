@@ -29,6 +29,7 @@ import {
   MessageSquare,
   Boxes,
   KeyRound,
+  Eye,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -50,6 +51,7 @@ import { Messages } from "@/components/modules/messages";
 import { Vendors } from "@/components/modules/vendors";
 import { DidiBubble } from "@/components/doz/didi-bubble";
 import { ChangeOwnPasswordDialog } from "@/components/doz/change-own-password-dialog";
+import { ViewAsBanner, ViewAsDialog } from "@/components/doz/view-as";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -203,6 +205,7 @@ export function AppShell() {
   const { activeModule, setModule, commandOpen, setCommandOpen } = useAppStore();
   const { user, status } = useCurrentUser();
   const [pwOpen, setPwOpen] = useState(false);
+  const [viewAsOpen, setViewAsOpen] = useState(false);
 
   // keyboard shortcut cmd+k
   useEffect(() => {
@@ -266,6 +269,7 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      <ViewAsBanner />
       <div className="flex flex-1">
         {/* Sidebar */}
         <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
@@ -352,6 +356,12 @@ export function AppShell() {
                   {user.title && <p className="mt-1 text-xs text-muted-foreground">{user.title}</p>}
                 </div>
                 <DropdownMenuSeparator />
+                {role === "FOUNDER" && (
+                  <DropdownMenuItem onClick={() => setViewAsOpen(true)}>
+                    <Eye className="mr-2 h-3.5 w-3.5" />
+                    View as someone else
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setPwOpen(true)}>
                   <KeyRound className="mr-2 h-3.5 w-3.5" />
                   Change password
@@ -449,6 +459,7 @@ export function AppShell() {
 
       {/* DIDI floating support bubble — on every page */}
       <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      <ViewAsDialog open={viewAsOpen} onOpenChange={setViewAsOpen} />
 
       {/* DIDI is FOUNDER-only: it answers from company-wide financials, so it
           must not appear for staff, interns or freelancers. The API behind it
