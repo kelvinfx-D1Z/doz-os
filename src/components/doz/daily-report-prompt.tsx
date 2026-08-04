@@ -2,9 +2,10 @@
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAppStore } from "@/lib/store";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, ClipboardList, ArrowRight } from "lucide-react";
+import { DailyReportDialog } from "@/components/doz/daily-report-dialog";
 
 // Filing a daily report already worked — the form lives in Field Mode and
 // /api/doz/field handles it. Nobody found it, because "Field Mode" reads as
@@ -15,11 +16,23 @@ import { CheckCircle2, ClipboardList, ArrowRight } from "lucide-react";
 export function DailyReportPrompt({
   reportFiled,
   firstName,
+  onFiled,
 }: {
   reportFiled: boolean;
   firstName?: string;
+  onFiled?: () => void;
 }) {
-  const setModule = useAppStore((s) => s.setModule);
+  // Submits in place. Sending people to Field Mode to find the form is why
+  // zero reports were ever filed.
+  const [open, setOpen] = useState(false);
+
+  const dialog = (
+    <DailyReportDialog
+      open={open}
+      onOpenChange={setOpen}
+      onSubmitted={() => onFiled?.()}
+    />
+  );
 
   if (reportFiled) {
     return (
@@ -32,10 +45,11 @@ export function DailyReportPrompt({
           variant="ghost"
           size="sm"
           className="ml-auto h-7 text-xs"
-          onClick={() => setModule("field")}
+          onClick={() => setOpen(true)}
         >
           Edit it
         </Button>
+        {dialog}
       </Card>
     );
   }
@@ -51,10 +65,11 @@ export function DailyReportPrompt({
           Takes about 30 seconds — what you did, what&apos;s next, anything blocking you.
         </p>
       </div>
-      <Button size="sm" className="gap-1.5" onClick={() => setModule("field")}>
+      <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
         File report
         <ArrowRight className="h-3.5 w-3.5" />
       </Button>
+      {dialog}
     </Card>
   );
 }

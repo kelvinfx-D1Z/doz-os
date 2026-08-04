@@ -28,6 +28,7 @@ import {
   IdCard,
   MessageSquare,
   Boxes,
+  KeyRound,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -48,6 +49,7 @@ import { MyProfile } from "@/components/modules/my-profile";
 import { Messages } from "@/components/modules/messages";
 import { Vendors } from "@/components/modules/vendors";
 import { DidiBubble } from "@/components/doz/didi-bubble";
+import { ChangeOwnPasswordDialog } from "@/components/doz/change-own-password-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +69,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { signOut } from "next-auth/react";
 import { SignIn } from "@/components/doz/sign-in";
@@ -200,6 +202,7 @@ const ROLE_BADGE_COLOR: Record<string, string> = {
 export function AppShell() {
   const { activeModule, setModule, commandOpen, setCommandOpen } = useAppStore();
   const { user, status } = useCurrentUser();
+  const [pwOpen, setPwOpen] = useState(false);
 
   // keyboard shortcut cmd+k
   useEffect(() => {
@@ -349,6 +352,11 @@ export function AppShell() {
                   {user.title && <p className="mt-1 text-xs text-muted-foreground">{user.title}</p>}
                 </div>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setPwOpen(true)}>
+                  <KeyRound className="mr-2 h-3.5 w-3.5" />
+                  Change password
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-3.5 w-3.5" />
                   Sign out
@@ -428,7 +436,7 @@ export function AppShell() {
           <div className="flex items-center gap-3">
             <span className="font-mono font-semibold text-primary">DOZ OS</span>
             <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">Founder Operating System v2.0</span>
+            <span className="hidden sm:inline">Company Operating System v2.0</span>
           </div>
           <div className="flex items-center gap-3">
             <Badge variant="outline" className="gap-1 border-primary/30 text-[10px] text-primary">
@@ -440,6 +448,8 @@ export function AppShell() {
       </footer>
 
       {/* DIDI floating support bubble — on every page */}
+      <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+
       {/* DIDI is FOUNDER-only: it answers from company-wide financials, so it
           must not appear for staff, interns or freelancers. The API behind it
           enforces the same rule — this just hides the entry point. */}

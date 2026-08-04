@@ -5,8 +5,8 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/components/doz/auth-provider";
 
 export const metadata: Metadata = {
-  title: "DOZ OS — Founder Operating System",
-  description: "Digit One Zero Operating System — run the company from one dashboard.",
+  title: "DOZ OS — Company Operating System",
+  description: "Digit One Zero Company OS — run the company from one dashboard.",
 };
 
 export default function RootLayout({

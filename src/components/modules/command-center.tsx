@@ -660,6 +660,7 @@ export function CommandCenter() {
         <DailyReportPrompt
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
+          onFiled={loadData}
         />
         <InternDashboard {...roleViewProps} />
         <QuickAddTaskDialog
@@ -693,6 +694,7 @@ export function CommandCenter() {
         <DailyReportPrompt
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
+          onFiled={loadData}
         />
         <FreelancerDashboard {...roleViewProps} />
         <QuickAddTaskDialog
@@ -726,6 +728,7 @@ export function CommandCenter() {
         <DailyReportPrompt
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
+          onFiled={loadData}
         />
         <StaffDashboard {...roleViewProps} />
         <QuickAddTaskDialog

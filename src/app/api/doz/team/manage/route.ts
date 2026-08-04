@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser, hashPassword, parsePermissions } from "@/lib/auth";
+import { getSessionUser, hashPassword, verifyPassword, parsePermissions } from "@/lib/auth";
 import type { ModuleId } from "@/lib/store";
 
 // All routes require FOUNDER role
@@ -81,6 +81,47 @@ export async function POST(req: Request) {
 
 // PATCH — update a team member, change password, or update permissions
 export async function PATCH(req: Request) {
+  // ------------------------------------------------------------------
+  // Self-service password change — handled BEFORE the founder gate, since
+  // every role must be able to change their own password. Operates only on
+  // the SESSION user's id; a userId in the body is ignored entirely, so this
+  // cannot be pointed at someone else's account.
+  //
+  // Requires the current password. The founder-changes-someone-else flow
+  // below does not, but self-service must: otherwise a hijacked session can
+  // lock the real owner out of their own account.
+  // ------------------------------------------------------------------
+  const selfBody = await req.clone().json().catch(() => null);
+  if (selfBody?.action === "change_own_password") {
+    const me = await getSessionUser();
+    if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+    const current = String(selfBody.currentPassword ?? "");
+    const next = String(selfBody.newPassword ?? "");
+    if (!current || !next) {
+      return NextResponse.json({ error: "current and new password are required" }, { status: 400 });
+    }
+    if (next.length < 8) {
+      return NextResponse.json({ error: "new password must be at least 8 characters" }, { status: 400 });
+    }
+    if (next === current) {
+      return NextResponse.json({ error: "new password must be different from the current one" }, { status: 400 });
+    }
+
+    const row = await db.user.findUnique({ where: { id: me.id }, select: { id: true, password: true, name: true } });
+    if (!row?.password || !verifyPassword(current, row.password)) {
+      return NextResponse.json({ error: "current password is incorrect" }, { status: 403 });
+    }
+
+    await db.user.update({ where: { id: row.id }, data: { password: hashPassword(next) } });
+    try {
+      await db.activityLog.create({
+        data: { userId: row.id, action: "CHANGED_OWN_PASSWORD", detail: `${row.name} changed their own password` },
+      });
+    } catch {}
+    return NextResponse.json({ ok: true });
+  }
+
   const auth = await requireFounder();
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if ("error" in auth) return auth.error;
