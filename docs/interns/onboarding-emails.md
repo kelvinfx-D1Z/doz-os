@@ -249,3 +249,107 @@ Welcome aboard.
 
 Kelvin
 Founder & Creative Director, Digit One Zero
+
+---
+---
+
+## EMAIL 3 — Production Manager (sample)
+
+Use this for any PM you bring onto a job. Replace the name, email and project.
+
+**Subject:** DOZ OS access for [PROJECT NAME]
+
+Hi [NAME],
+
+You're managing **[PROJECT NAME]** for us, so I've set you up on **DOZ OS**,
+our company operating system. Everything for the job — the budget, the vendors,
+the schedule — goes through here rather than WhatsApp and spreadsheets.
+
+**Sign in:** https://doz-os.vercel.app
+**Your username is your email address:** [EMAIL]
+I'll send your password separately.
+
+---
+
+### First two minutes
+
+**1. Change your password.** Click your name at the bottom-left →
+**Change password**.
+
+**2. Fill in your profile.** Left menu → **My Profile** — your bank details for
+payment, and your emergency contact. You'll be on site; I need to be able to
+reach someone.
+
+---
+
+### What you do here
+
+**Build the cost sheet.** Open **Projects & Events** → your project → the
+services section. Add every line the job needs: what it is, which vendor, the
+unit cost, the quantity, and how many days it runs.
+
+Two things worth knowing:
+
+- **Days are per line.** On a two-day event the LED wall and the crew are
+  charged twice; sound and photography usually aren't. Set the days on each
+  line to match what you actually agreed, not what the event length is.
+- **Pick services from the dropdown**, not free text. If everyone types
+  "LED wall", "led screen" and "LED Wall", we can never compare what anything
+  costs us across jobs.
+
+**Add vendors.** Under **Vendors** you can add a supplier who isn't in our
+directory yet — name, category, contact, phone, bank account. New vendors come
+to me for approval before they're usable, so add them early rather than on
+load-in day.
+
+**Submit the budget.** When the sheet is complete, submit it. I'll review and
+approve it, and approved vendor costs then queue for payment. Nothing gets paid
+against an unapproved line, so submitting promptly is what keeps vendors paid
+on time.
+
+**File a daily report** on working days — what you did, what's next, anything
+blocking you. Command Center → **File report**. Thirty seconds. The blockers box
+is the one I read first.
+
+---
+
+### What you'll see, and what you won't
+
+You'll see **your project only** — not the rest of our work.
+
+You'll see **costs**: what each vendor charges, what the job costs to deliver.
+You need that to do the job.
+
+You won't see what the client is paying us, the project revenue, or the margin.
+That's the same for everyone except me, and it isn't personal.
+
+You also can't approve your own budget. That's deliberate — the person who
+builds a cost sheet shouldn't be the person who signs it off.
+
+---
+
+### The two SOPs to read first
+
+Under **SOP & Knowledge**:
+
+- **Vendor Engagement SOP** — what we need from a vendor before we use them,
+  how terms are agreed, and when not to use someone
+- **Standard Event Checklist** — the run from four weeks out to post-event
+
+They'll answer most questions before you need to ask me.
+
+---
+
+### One thing about payment timing
+
+Most of our clients are government agencies and pay on roughly 30-day terms.
+When you agree terms with a vendor, factor that in — don't commit us to paying
+in seven days for a job we're paid for in thirty. If a vendor won't move, tell
+me before you agree it, not after.
+
+---
+
+Message me in the app for anything that isn't urgent. Call for anything that is.
+
+Kelvin
+Founder & Creative Director, Digit One Zero
