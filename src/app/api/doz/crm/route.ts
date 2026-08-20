@@ -216,6 +216,8 @@ export async function GET(req: Request) {
     status: l.status,
     value: l.value,
     serviceInterest: l.serviceInterest,
+    direction: l.direction,
+    accountId: l.accountId,
     createdAt: l.createdAt,
   }));
 

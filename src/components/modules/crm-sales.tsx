@@ -29,6 +29,7 @@ import { QuickCapture } from "@/components/modules/crm/quick-capture";
 import { ContactDialog } from "@/components/modules/crm/contact-dialog";
 import { ContractDialog } from "@/components/modules/crm/contract-dialog";
 import { ClientDialog } from "@/components/modules/crm/client-dialog";
+import { EnquiriesPanel } from "@/components/modules/crm/enquiries-panel";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -131,6 +132,8 @@ type Lead = {
   status: string;
   value: number;
   serviceInterest: string | null;
+  direction?: string;
+  accountId?: string | null;
   createdAt: string;
 };
 
@@ -347,7 +350,7 @@ export function CrmSales() {
       />
     );
 
-  const { stats, opportunities, accounts, proposals, followUps, referrals, pipelineByStage } = data;
+  const { stats, opportunities, accounts, leads, proposals, followUps, referrals, pipelineByStage } = data;
   const openOpps = opportunities.filter((o) => !["WON", "LOST"].includes(o.stage));
   const referralPctOfPipeline =
     stats.totalPipeline > 0 ? (stats.totalReferralValue / stats.totalPipeline) * 100 : 0;
@@ -374,14 +377,24 @@ export function CrmSales() {
       </div>
 
       {/* ---------- TABS ---------- */}
-      <Tabs defaultValue="pipeline" className="w-full">
+      <Tabs defaultValue="enquiries" className="w-full">
         <TabsList className="h-9">
-          <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
-          <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
+          <TabsTrigger value="accounts">Clients</TabsTrigger>
+          <TabsTrigger value="referrals">Referrals</TabsTrigger>
+          <TabsTrigger value="pipeline">Deals</TabsTrigger>
           <TabsTrigger value="proposals">Proposals</TabsTrigger>
           <TabsTrigger value="followups">Follow-ups</TabsTrigger>
-          <TabsTrigger value="referrals">Referrals</TabsTrigger>
         </TabsList>
+
+        {/* ---------- ENQUIRIES TAB ---------- */}
+        <TabsContent value="enquiries">
+          <EnquiriesPanel
+            enquiries={leads}
+            onChanged={load}
+            canEdit={isFounder || user?.role === "STAFF"}
+          />
+        </TabsContent>
 
         {/* ---------- PIPELINE TAB ---------- */}
         <TabsContent value="pipeline" className="space-y-5">

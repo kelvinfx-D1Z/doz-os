@@ -70,6 +70,10 @@ export async function POST(req: Request) {
         return await createFollowUp(body);
       case "create_referral":
         return await createReferral(body);
+      case "update_lead":
+        return await updateLead(body);
+      case "delete_lead":
+        return await deleteLead(body);
       case "create_lead":
         return await createLead(body);
       case "create_contact":
@@ -427,6 +431,75 @@ async function createLead(body: any) {
 // ============================================================
 // Adding a second contact to an account is how single-threading gets fixed,
 // so this stays deliberately minimal: a name and an account.
+const LEAD_STATUSES = new Set(["NEW", "QUALIFIED", "CONVERTED", "LOST"]);
+const LEAD_DIRECTIONS = new Set(["INBOUND", "OUTBOUND"]);
+
+// Move an enquiry along, or correct it. Without this, anything captured was
+// permanently frozen at NEW — which is why the capture box felt like a black
+// hole: things went in and nothing could ever happen to them.
+async function updateLead(body: any) {
+  const leadId = String(body?.leadId ?? "").trim();
+  if (!leadId) return NextResponse.json({ error: "leadId required" }, { status: 400 });
+
+  const existing = await db.lead.findUnique({ where: { id: leadId } });
+  if (!existing) return NextResponse.json({ error: "enquiry not found" }, { status: 404 });
+
+  const data: any = {};
+  if (body.contactName !== undefined) {
+    const n = String(body.contactName).trim();
+    if (!n) return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
+    data.contactName = n;
+  }
+  if (body.company !== undefined) data.company = body.company ? String(body.company).trim() : null;
+  if (body.serviceInterest !== undefined) data.serviceInterest = body.serviceInterest ? String(body.serviceInterest).trim() : null;
+  if (body.sourceDetail !== undefined) data.sourceDetail = body.sourceDetail ? String(body.sourceDetail).trim() : null;
+  if (body.source !== undefined) data.source = String(body.source);
+  if (body.value !== undefined) {
+    const v = Number(body.value);
+    if (!Number.isFinite(v) || v < 0) return NextResponse.json({ error: "value must be a positive number" }, { status: 400 });
+    data.value = v;
+  }
+  if (body.status !== undefined) {
+    if (!LEAD_STATUSES.has(body.status)) {
+      return NextResponse.json({ error: `status must be one of: ${[...LEAD_STATUSES].join(", ")}` }, { status: 400 });
+    }
+    data.status = body.status;
+  }
+  if (body.direction !== undefined) {
+    if (!LEAD_DIRECTIONS.has(body.direction)) {
+      return NextResponse.json({ error: "direction must be INBOUND or OUTBOUND" }, { status: 400 });
+    }
+    data.direction = body.direction;
+  }
+  if (body.accountId !== undefined) {
+    if (body.accountId) {
+      const acct = await db.account.findUnique({ where: { id: String(body.accountId) } });
+      if (!acct) return NextResponse.json({ error: "client not found" }, { status: 404 });
+      data.accountId = acct.id;
+    } else {
+      data.accountId = null;
+    }
+  }
+
+  const lead = await db.lead.update({ where: { id: leadId }, data });
+  return NextResponse.json({ ok: true, lead });
+}
+
+// An enquiry is a note, not a financial record — safe to remove outright.
+// Any follow-ups hanging off it go with it.
+async function deleteLead(body: any) {
+  const leadId = String(body?.leadId ?? "").trim();
+  if (!leadId) return NextResponse.json({ error: "leadId required" }, { status: 400 });
+  const existing = await db.lead.findUnique({ where: { id: leadId }, select: { id: true, contactName: true } });
+  if (!existing) return NextResponse.json({ error: "enquiry not found" }, { status: 404 });
+
+  await db.$transaction([
+    db.followUp.deleteMany({ where: { leadId } }),
+    db.lead.delete({ where: { id: leadId } }),
+  ]);
+  return NextResponse.json({ ok: true, deleted: existing.contactName });
+}
+
 async function createContact(body: any) {
   const { name, accountId, title, email, phone, isDecisionMaker } = body;
 
