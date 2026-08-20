@@ -513,7 +513,7 @@ export function CrmSales() {
                   <TableRow>
                     <TableHead>Account</TableHead>
                     <TableHead>Industry</TableHead>
-                    <TableHead className="text-right">Lifetime Value</TableHead>
+                    <TableHead className="text-right">Collected</TableHead>
                     <TableHead className="text-center">Opportunities</TableHead>
                     <TableHead className="text-center">Projects</TableHead>
                     <TableHead>Contacts</TableHead>
@@ -550,8 +550,16 @@ export function CrmSales() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{a.industry ?? "—"}</TableCell>
+                        {/* Money actually collected — sum(Invoice.amountPaid), the
+                            same basis as everywhere else in the app. The stored
+                            Account.lifetimeValue column is never written by any
+                            code path, so it read 0 for every client forever. */}
                         <TableCell className="text-right font-semibold">
-                          {formatNGN(a.lifetimeValue)}
+                          {a.revenue > 0 ? (
+                            formatNGN(a.revenue)
+                          ) : (
+                            <span className="font-normal text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-center">{a._count.opportunities}</TableCell>
                         <TableCell className="text-center">{a._count.projects}</TableCell>

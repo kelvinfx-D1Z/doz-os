@@ -199,6 +199,11 @@ export async function GET(req: Request) {
   });
 
   // Split into real customers and potential customers
+  // Order by money actually collected. The DB query orders by
+  // Account.lifetimeValue, which nothing ever writes — so it was effectively
+  // unordered.
+  shapedAccounts.sort((a, b) => b.revenue - a.revenue);
+
   const realCustomers = shapedAccounts.filter(a => a.isRealCustomer);
   const potentialCustomers = shapedAccounts.filter(a => !a.isRealCustomer);
 
