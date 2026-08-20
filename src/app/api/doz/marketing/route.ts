@@ -45,10 +45,14 @@ export async function GET() {
     const weekStart = startOfWeek(now);
     const weekEnd = addDays(weekStart, 7);
 
-    const [campaigns, contentItems, referralSources, opportunities] = await Promise.all([
+    const [campaigns, contentItems, referralSources, enquiries, opportunities] = await Promise.all([
       db.marketingCampaign.findMany({ orderBy: { createdAt: "desc" } }),
       db.contentCalendarItem.findMany({ orderBy: { scheduledDate: "asc" } }),
       db.referralSource.findMany({ orderBy: { nextNurtureDate: "asc" } }),
+      // Actual enquiries — the only honest read on whether any of this works.
+      // The existing leadSourceBreakdown is built from OPPORTUNITIES, so it
+      // measures deals, not where work comes from.
+      db.lead.findMany({ select: { id: true, source: true, status: true, createdAt: true } }),
       db.opportunity.findMany({ select: { stage: true, value: true, source: true, createdAt: true } }),
     ]);
 
@@ -111,6 +115,29 @@ export async function GET() {
 
     // Posts this month = published content items this month
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // ---- The three measures this page is now built on ----
+    // Published work, case studies (the asset a buyer actually reads), and
+    // enquiries by where they came from. Everything else was a vanity number.
+    const enquiriesThisMonth = enquiries.filter((l) => l.createdAt >= monthStart);
+    const enquirySourceCounts = new Map<string, number>();
+    for (const l of enquiriesThisMonth) {
+      enquirySourceCounts.set(l.source, (enquirySourceCounts.get(l.source) ?? 0) + 1);
+    }
+    const enquiriesBySource = [...enquirySourceCounts.entries()]
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const isCaseStudy = (c: { type: string | null; topic: string | null; title: string }) =>
+      c.type === "ARTICLE" ||
+      (c.topic ?? "").toLowerCase().includes("proof") ||
+      c.title.toLowerCase().includes("case study");
+    const caseStudiesPublished = contentItems.filter(
+      (c) => c.publishedDate && isCaseStudy(c),
+    ).length;
+    const caseStudiesThisMonth = contentItems.filter(
+      (c) => c.publishedDate && c.publishedDate >= monthStart && isCaseStudy(c),
+    ).length;
+
     const postsThisMonth = contentItems.filter((c) => {
       if (!c.publishedDate) return false;
       return c.publishedDate >= monthStart;
@@ -234,8 +261,12 @@ export async function GET() {
         referralSourcesActive: referralSources.length,
         overdueNurtures,
         postsThisMonth,
-        contentGoalMonthly: 12,
+        contentGoalMonthly: 8,
+        caseStudiesPublished,
+        caseStudiesThisMonth,
+        enquiriesThisMonth: enquiriesThisMonth.length,
       },
+      enquiriesBySource,
       leadSourceBreakdown,
       campaigns: campaignsShaped,
       contentCalendar: contentShaped,

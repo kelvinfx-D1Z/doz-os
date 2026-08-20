@@ -168,8 +168,17 @@ type Referral = {
   createdAt: string;
 };
 
+type ReferralSource = {
+  id: string;
+  name: string;
+  relationship: string | null;
+  totalValue: number;
+  referralCount: number;
+};
+
 type CrmData = {
   stats: Stats;
+  referralSources?: ReferralSource[];
   opportunities: Opportunity[];
   accounts: Account[];
   contacts: Contact[];
@@ -351,6 +360,7 @@ export function CrmSales() {
     );
 
   const { stats, opportunities, accounts, leads, proposals, followUps, referrals, pipelineByStage } = data;
+  const referralSources = data.referralSources ?? [];
   const openOpps = opportunities.filter((o) => !["WON", "LOST"].includes(o.stage));
   const referralPctOfPipeline =
     stats.totalPipeline > 0 ? (stats.totalReferralValue / stats.totalPipeline) * 100 : 0;
@@ -719,6 +729,7 @@ export function CrmSales() {
         {/* ---------- REFERRALS TAB ---------- */}
         <TabsContent value="referrals">
           <ReferralsPanel
+            sources={referralSources}
             referrals={referrals}
             totalValue={stats.totalReferralValue}
             pctOfPipeline={referralPctOfPipeline}
@@ -1034,15 +1045,54 @@ function FollowUpItem({ f }: { f: FollowUp }) {
 // ============================================================
 function ReferralsPanel({
   referrals,
+  sources,
   totalValue,
   pctOfPipeline,
 }: {
   referrals: Referral[];
+  sources: ReferralSource[];
   totalValue: number;
   pctOfPipeline: number;
 }) {
   return (
     <div className="space-y-5">
+      {/* Who refers us — moved here from Marketing so referrals have ONE home.
+          For a business that is ~99% referral, having this split across two
+          pages and two tables was the app's biggest source of confusion. */}
+      {sources.length > 0 && (
+        <Card className="p-5">
+          <SectionHeader
+            icon={<Handshake className="h-4 w-4" />}
+            title="Who refers us"
+            description={`${sources.length} people and organisations have sent us work`}
+          />
+          <div className="scroll-thin mt-4 max-h-72 overflow-y-auto">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-card">
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Relationship</TableHead>
+                  <TableHead className="text-center">Referrals</TableHead>
+                  <TableHead className="text-right">Value sent our way</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sources.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="text-[11px] text-muted-foreground">
+                      {r.relationship?.toLowerCase().replace("_", " ") ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-center">{r.referralCount}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatNGN(r.totalValue)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
       {/* referral stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard

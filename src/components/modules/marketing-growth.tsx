@@ -87,6 +87,13 @@ interface Stats {
   contentThisWeek: number;
   referralSourcesActive: number;
   overdueNurtures: number;
+  // The measures this page is built on now. The rest of Stats is retained so
+  // nothing else that reads it breaks, but none of it is displayed.
+  postsThisMonth: number;
+  contentGoalMonthly: number;
+  caseStudiesPublished?: number;
+  caseStudiesThisMonth?: number;
+  enquiriesThisMonth?: number;
 }
 
 interface LeadSourceRow {
@@ -153,6 +160,7 @@ interface GrowthMetrics {
 
 interface MarketingPayload {
   stats: Stats;
+  enquiriesBySource?: { source: string; count: number }[];
   leadSourceBreakdown: LeadSourceRow[];
   campaigns: Campaign[];
   contentCalendar: ContentItem[];
@@ -199,7 +207,7 @@ export function MarketingGrowth() {
   const [data, setData] = useState<MarketingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelled, setCancelled] = useState(false);
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("content");
 
   // Dialog state
   const [campaignDialog, setCampaignDialog] = useState(false);
@@ -268,50 +276,33 @@ export function MarketingGrowth() {
       {loading || !data ? (
         <KpiSkeleton />
       ) : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <StatCard
-            label="Active Campaigns"
-            value={data.stats.activeCampaigns}
-            sub={`${data.campaigns.length} total`}
-            icon={<Megaphone className="h-4 w-4" />}
-            accent="primary"
-          />
-          <StatCard
-            label="Leads Generated"
-            value={data.stats.totalLeadsGenerated}
-            sub={`${data.stats.totalConversions} converted`}
-            icon={<TrendingUp className="h-4 w-4" />}
-          />
-          <StatCard
-            label="Conversion Rate"
-            value={`${data.stats.avgConversionRate}%`}
-            sub="across all campaigns"
-            icon={<Target className="h-4 w-4" />}
-          />
-          <StatCard
-            label="Campaign Revenue"
-            value={formatNGN(data.stats.totalCampaignRevenue, true)}
-            sub={`ROI ${data.stats.totalCampaignROI}%`}
-            icon={<TrendingUp className="h-4 w-4" />}
-            accent={data.stats.totalCampaignROI >= 0 ? "primary" : "danger"}
-          />
-          <StatCard
-            label="Content This Week"
-            value={data.stats.contentThisWeek}
-            sub={`${data.contentCalendar.length} scheduled`}
+            label="Published this month"
+            value={data.stats.postsThisMonth}
+            sub={`target ${data.stats.contentGoalMonthly}`}
             icon={<Calendar className="h-4 w-4" />}
+            accent={data.stats.postsThisMonth >= data.stats.contentGoalMonthly ? "primary" : "default"}
           />
           <StatCard
-            label="Referral Sources"
-            value={data.stats.referralSourcesActive}
+            label="Case studies published"
+            value={data.stats.caseStudiesPublished ?? 0}
+            sub={`${data.stats.caseStudiesThisMonth ?? 0} this month · target 1`}
+            icon={<FileText className="h-4 w-4" />}
+            accent={(data.stats.caseStudiesThisMonth ?? 0) >= 1 ? "primary" : "warning"}
+          />
+          <StatCard
+            label="Enquiries this month"
+            value={data.stats.enquiriesThisMonth ?? 0}
             sub={
-              data.stats.overdueNurtures > 0
-                ? `${data.stats.overdueNurtures} need nurturing`
-                : "all nurtured"
+              (data.enquiriesBySource ?? []).length > 0
+                ? (data.enquiriesBySource ?? [])
+                    .slice(0, 3)
+                    .map((s) => `${s.count} ${s.source.toLowerCase().replace("_", " ")}`)
+                    .join(" · ")
+                : "none logged yet"
             }
-            icon={<Gift className="h-4 w-4" />}
-            accent={data.stats.overdueNurtures > 0 ? "warning" : "primary"}
-            onClick={() => setTab("referrals")}
+            icon={<TrendingUp className="h-4 w-4" />}
           />
         </div>
       )}
@@ -319,10 +310,8 @@ export function MarketingGrowth() {
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:grid-cols-4">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
           <TabsTrigger value="content">Content Calendar</TabsTrigger>
-          <TabsTrigger value="referrals">Referral Sources</TabsTrigger>
+          <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
         </TabsList>
 
         {/* ============================== Overview ============================== */}

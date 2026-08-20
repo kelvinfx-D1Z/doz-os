@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const isFounder = user.role === "FOUNDER";
   const now = new Date();
 
-  const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals, invoiceTotals] =
+  const [opportunities, accounts, contacts, leads, proposals, followUps, teamMembers, referrals, referralSources, invoiceTotals] =
     await Promise.all([
       db.opportunity.findMany({
         include: {
@@ -73,6 +73,11 @@ export async function GET(req: Request) {
       // resolves it the same way with { OR: [{ accountId }, { project: {
       // accountId } }] }, and real rows exist with only the project link set.
       // A groupBy on accountId alone therefore undercounts, so we fold in JS.
+      // Who refers us. Previously only the Marketing page showed these, so
+      // referrals were split across two pages and two tables with neither
+      // authoritative — for a business that is ~99% referral, that was the
+      // single most confusing thing in the app.
+      db.referralSource.findMany({ orderBy: { totalValue: "desc" } }),
       db.invoice.findMany({
         select: {
           accountId: true,
@@ -283,6 +288,13 @@ export async function GET(req: Request) {
     potentialCustomers,
     contacts: shapedContacts,
     leads: shapedLeads,
+    referralSources: referralSources.map((r) => ({
+      id: r.id,
+      name: r.name,
+      relationship: r.relationship,
+      totalValue: r.totalValue,
+      referralCount: r.referralCount,
+    })),
     proposals: shapedProposals,
     followUps: shapedFollowUps,
     teamMembers: teamMembers.map(u => ({ id: u.id, name: u.name, role: u.role, title: u.title })),
