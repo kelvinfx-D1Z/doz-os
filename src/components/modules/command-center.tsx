@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { FocusScoreCard } from "@/components/doz/focus-score-card";
 import { AiBriefingCard } from "@/components/doz/ai-briefing-card";
 import { DailyReportPrompt } from "@/components/doz/daily-report-prompt";
+import { DailyReportDialog } from "@/components/doz/daily-report-dialog";
 import {
   Target,
   AlertTriangle,
@@ -451,6 +452,7 @@ export function CommandCenter() {
   // Task interaction state
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const [showMyDay, setShowMyDay] = useState(false);
   const [myDayTasks, setMyDayTasks] = useState<TaskApi[]>([]);
   const [myDayLoading, setMyDayLoading] = useState(false);
@@ -646,6 +648,7 @@ export function CommandCenter() {
     defaultAssigneeId: user?.id ?? apiUser?.id,
     setShowQuickAdd,
     setShowMyDay,
+    onFileReport: () => setShowReport(true),
     myDayTasks,
     myDayLoading,
     handleApproval,
@@ -657,14 +660,6 @@ export function CommandCenter() {
   if (role === "INTERN") {
     return (
       <div className="space-y-6">
-        <DailyReportPrompt
-          reportFiled={data.myDay.reportFiled}
-          firstName={displayName?.split(" ")[0]}
-          onFiled={loadData}
-          tasks={(data.myDay.tasks ?? [])
-            .filter((t) => t.status !== "DONE")
-            .map((t) => ({ id: t.id, title: t.title, project: t.project }))}
-        />
         <InternDashboard {...roleViewProps} />
         <QuickAddTaskDialog
           open={showQuickAdd}
@@ -675,6 +670,13 @@ export function CommandCenter() {
             setShowQuickAdd(false);
             loadData();
           }}
+        />
+        <DailyReportDialog
+          open={showReport}
+          onOpenChange={setShowReport}
+          onSubmitted={loadData}
+          tasks={data.myDay.tasks}
+          existing={data.myDay.reportFiled ? data.myDay.recentReports?.[0] : null}
         />
         <MyDayDialog
           open={showMyDay}
@@ -698,14 +700,6 @@ export function CommandCenter() {
   if (role === "FREELANCER" || role === "PRODUCTION_MANAGER") {
     return (
       <div className="space-y-6">
-        <DailyReportPrompt
-          reportFiled={data.myDay.reportFiled}
-          firstName={displayName?.split(" ")[0]}
-          onFiled={loadData}
-          tasks={(data.myDay.tasks ?? [])
-            .filter((t) => t.status !== "DONE")
-            .map((t) => ({ id: t.id, title: t.title, project: t.project }))}
-        />
         <FreelancerDashboard {...roleViewProps} />
         <QuickAddTaskDialog
           open={showQuickAdd}
@@ -716,6 +710,13 @@ export function CommandCenter() {
             setShowQuickAdd(false);
             loadData();
           }}
+        />
+        <DailyReportDialog
+          open={showReport}
+          onOpenChange={setShowReport}
+          onSubmitted={loadData}
+          tasks={data.myDay.tasks}
+          existing={data.myDay.reportFiled ? data.myDay.recentReports?.[0] : null}
         />
         <MyDayDialog
           open={showMyDay}
@@ -753,6 +754,13 @@ export function CommandCenter() {
             setShowQuickAdd(false);
             loadData();
           }}
+        />
+        <DailyReportDialog
+          open={showReport}
+          onOpenChange={setShowReport}
+          onSubmitted={loadData}
+          tasks={data.myDay.tasks}
+          existing={data.myDay.reportFiled ? data.myDay.recentReports?.[0] : null}
         />
         <MyDayDialog
           open={showMyDay}
@@ -1916,6 +1924,9 @@ function MyDayDialog({
 interface RoleViewProps {
   data: DashboardData;
   user: { id: string; name: string; role: string; title?: string | null };
+  /** Opens the report dialog. Filing must never navigate away — sending people
+   *  to Field Mode to find the form is why no reports were ever filed. */
+  onFileReport: () => void;
   handleToggleTask: (taskId: string, currentlyDone: boolean) => void;
   togglingId: string | null;
   openMyDay: () => void;
@@ -2165,6 +2176,7 @@ function InternDashboard({
   togglingId,
   setShowQuickAdd,
   setShowMyDay,
+  onFileReport,
 }: RoleViewProps) {
   const setModule = useAppStore((s) => s.setModule);
   const { myDay } = data;
@@ -2190,7 +2202,7 @@ function InternDashboard({
       <DailyReportBanner
         filed={myDay.reportFiled}
         userName={user.name}
-        onFile={() => setModule("field" as ModuleId)}
+        onFile={onFileReport}
       />
 
       {/* KPI row */}
@@ -2359,7 +2371,7 @@ function InternDashboard({
                 variant="outline"
                 size="sm"
                 className="w-full justify-start gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
-                onClick={() => setModule("field" as ModuleId)}
+                onClick={onFileReport}
               >
                 <Send className="h-3.5 w-3.5" /> File daily report
               </Button>
@@ -2837,6 +2849,7 @@ function FreelancerDashboard({
   togglingId,
   setShowQuickAdd,
   setShowMyDay,
+  onFileReport,
 }: RoleViewProps) {
   const setModule = useAppStore((s) => s.setModule);
   const { myDay } = data;
@@ -2868,7 +2881,7 @@ function FreelancerDashboard({
       <DailyReportBanner
         filed={myDay.reportFiled}
         userName={user.name}
-        onFile={() => setModule("field" as ModuleId)}
+        onFile={onFileReport}
       />
 
       {/* KPI row */}
@@ -3106,7 +3119,7 @@ function FreelancerDashboard({
                 variant="outline"
                 size="sm"
                 className="w-full justify-start gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
-                onClick={() => setModule("field" as ModuleId)}
+                onClick={onFileReport}
               >
                 <Send className="h-3.5 w-3.5" /> File daily report
               </Button>
