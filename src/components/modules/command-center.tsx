@@ -661,6 +661,9 @@ export function CommandCenter() {
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
           onFiled={loadData}
+          tasks={(data.myDay.tasks ?? [])
+            .filter((t) => t.status !== "DONE")
+            .map((t) => ({ id: t.id, title: t.title, project: t.project }))}
         />
         <InternDashboard {...roleViewProps} />
         <QuickAddTaskDialog
@@ -699,6 +702,9 @@ export function CommandCenter() {
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
           onFiled={loadData}
+          tasks={(data.myDay.tasks ?? [])
+            .filter((t) => t.status !== "DONE")
+            .map((t) => ({ id: t.id, title: t.title, project: t.project }))}
         />
         <FreelancerDashboard {...roleViewProps} />
         <QuickAddTaskDialog
@@ -733,6 +739,9 @@ export function CommandCenter() {
           reportFiled={data.myDay.reportFiled}
           firstName={displayName?.split(" ")[0]}
           onFiled={loadData}
+          tasks={(data.myDay.tasks ?? [])
+            .filter((t) => t.status !== "DONE")
+            .map((t) => ({ id: t.id, title: t.title, project: t.project }))}
         />
         <StaffDashboard {...roleViewProps} />
         <QuickAddTaskDialog

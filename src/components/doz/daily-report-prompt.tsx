@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, ClipboardList, ArrowRight } from "lucide-react";
-import { DailyReportDialog } from "@/components/doz/daily-report-dialog";
+import { DailyReportDialog, type ReportTask } from "@/components/doz/daily-report-dialog";
 
 // Filing a daily report already worked — the form lives in Field Mode and
 // /api/doz/field handles it. Nobody found it, because "Field Mode" reads as
@@ -17,10 +17,13 @@ export function DailyReportPrompt({
   reportFiled,
   firstName,
   onFiled,
+  tasks = [],
 }: {
   reportFiled: boolean;
   firstName?: string;
   onFiled?: () => void;
+  /** The person's own open tasks, so filing is ticking rather than typing. */
+  tasks?: ReportTask[];
 }) {
   // Submits in place. Sending people to Field Mode to find the form is why
   // zero reports were ever filed.
@@ -31,6 +34,7 @@ export function DailyReportPrompt({
       open={open}
       onOpenChange={setOpen}
       onSubmitted={() => onFiled?.()}
+      tasks={tasks}
     />
   );
 
