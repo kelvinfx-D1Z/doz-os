@@ -65,7 +65,13 @@ export async function GET() {
     db.expense.findMany({ include: { project: true, vendor: true } }),
     db.paymentRequest.findMany({ include: { requester: true, approver: true, payer: true, purchaseOrder: true, project: true }, orderBy: { createdAt: "desc" } }),
     db.rfq.findMany({ include: { project: true, quotes: { include: { vendor: true } } } }),
-    db.project.findMany({ include: { account: true, manager: true, crew: { include: { user: true } } } }),
+    // Proposed-but-unapproved projects are not live work and must not appear
+    // in headline counts or the schedule. They live in the approval queue on
+    // Projects & Events until the founder decides.
+    db.project.findMany({
+      where: { approvalStatus: { not: "PENDING" } },
+      include: { account: true, manager: true, crew: { include: { user: true } } },
+    }),
     db.dailyReport.findMany({ include: { user: true }, orderBy: { reportDate: "desc" }, take: 30 }),
     db.aIInsight.findMany({ orderBy: { createdAt: "desc" } }),
     db.activityLog.findMany({ include: { user: true }, orderBy: { createdAt: "desc" }, take: 20 }),
@@ -125,7 +131,9 @@ export async function GET() {
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     }),
     db.project.findMany({
-      where: { managerId: sessionUser.id },
+      // Their own proposal isn't assigned work yet — it shows as "Your
+      // proposals" on Projects & Events until the founder approves it.
+      where: { managerId: sessionUser.id, approvalStatus: { not: "PENDING" } },
       include: {
         account: { select: { name: true } },
         manager: { select: { name: true } },

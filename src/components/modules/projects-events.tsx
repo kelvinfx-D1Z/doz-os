@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { ServicePicker } from "@/components/modules/projects/service-picker";
 import {
   StatCard,
   StatusBadge,
@@ -105,6 +106,10 @@ interface Project {
   progress: number;
   startDate: string | null;
   endDate: string | null;
+  approvalStatus?: string;
+  createdById?: string | null;
+  createdByName?: string | null;
+  rejectionNote?: string | null;
   accountId: string | null;
   account: { name: string; isStrategic: boolean } | null;
   managerId: string | null;
@@ -220,6 +225,8 @@ export function ProjectsEvents() {
   // WHICH projects are listed — an intern must still see the list.
   const showMoney = user?.role === "FOUNDER";
   const isPM = user?.role === "FREELANCER" || user?.role === "PRODUCTION_MANAGER";
+  // A production manager may propose a project; a plain freelancer may not.
+  const canPropose = user?.role === "PRODUCTION_MANAGER";
   const [data, setData] = useState<ProjectsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -282,10 +289,22 @@ export function ProjectsEvents() {
 
   const { stats, projects } = data;
 
+  // A proposed project isn't real work until the founder approves it, so it
+  // stays out of the normal list, the tabs and every count. It surfaces only in
+  // the approval queue below — the founder's to action, the proposer's to track.
+  const isLive = (p: Project) => (p.approvalStatus ?? "APPROVED") === "APPROVED";
+  const liveProjects = projects.filter(isLive);
+  const awaitingProjects = projects.filter((p) => !isLive(p));
+
   // PM: only show projects where they are the manager
   const scopedProjects = isPM && user
-    ? projects.filter(p => p.managerId === user.id)
-    : projects;
+    ? liveProjects.filter(p => p.managerId === user.id)
+    : liveProjects;
+
+  // The founder sees everything waiting on them; a proposer sees only their own.
+  const queue = user?.role === "FOUNDER"
+    ? awaitingProjects.filter((p) => p.approvalStatus === "PENDING")
+    : awaitingProjects.filter((p) => p.createdById === user?.id);
 
   // Filter by tab
   const filtered = scopedProjects.filter((p) => {
@@ -325,8 +344,23 @@ export function ProjectsEvents() {
         description={isPM
           ? `${scopedProjects.length} project(s) assigned to you`
           : `${stats.total} projects · ${stats.active} active · ${stats.completed} delivered`}
-        action={isPM ? undefined : <NewProjectButton onClick={() => setCreateOpen(true)} />}
+        action={
+          !isPM || canPropose ? (
+            <NewProjectButton
+              onClick={() => setCreateOpen(true)}
+              label={canPropose ? "Propose Project" : "New Project"}
+            />
+          ) : undefined
+        }
       />
+
+      {queue.length > 0 && (
+        <ApprovalQueue
+          projects={queue}
+          isFounder={user?.role === "FOUNDER"}
+          onChanged={load}
+        />
+      )}
 
       {/* KPI ROW — hidden for PMs (they don't see company financials) */}
       {showMoney && (
@@ -521,17 +555,151 @@ export function ProjectsEvents() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={load}
+        mode={canPropose ? "propose" : "create"}
       />
     </div>
   );
 }
 
+// ---------- Approval Queue ----------
+// A production manager can start a job moving without waiting on the founder,
+// but cannot commit the company alone. Proposals land here: the founder
+// approves or rejects (with a reason), and the proposer sees exactly where
+// theirs stands rather than watching it disappear.
+function ApprovalQueue({
+  projects,
+  isFounder,
+  onChanged,
+}: {
+  projects: Project[];
+  isFounder: boolean;
+  onChanged: () => void;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function act(p: Project, approve: boolean) {
+    let note: string | null = null;
+    if (!approve) {
+      note = window.prompt(
+        `Rejecting "${p.name}". Say why — the proposer needs to know what to change.`
+      );
+      if (!note?.trim()) return;
+    }
+    setBusyId(p.id);
+    try {
+      const res = await fetch("/api/doz/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: approve ? "approve_project" : "reject_project",
+          projectId: p.id,
+          ...(note ? { note: note.trim() } : {}),
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error || `Failed (${res.status})`);
+      toast.success(approve ? `Approved "${p.name}"` : `Rejected "${p.name}"`, {
+        description: approve
+          ? "It's now a live project — set its budget and contract value when you're ready."
+          : "The proposer will see your reason.",
+        duration: 6000,
+      });
+      onChanged();
+    } catch (err) {
+      toast.error("Couldn't update that proposal", {
+        description: err instanceof Error ? err.message : "Unknown error",
+        duration: 8000,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card className="border-amber-500/30 bg-amber-500/5 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-amber-400" />
+        <h3 className="text-sm font-semibold text-amber-200">
+          {isFounder
+            ? `${projects.length} project${projects.length === 1 ? "" : "s"} waiting for your approval`
+            : "Your proposals"}
+        </h3>
+      </div>
+      <div className="space-y-2">
+        {projects.map((p) => {
+          const rejected = p.approvalStatus === "REJECTED";
+          return (
+            <div
+              key={p.id}
+              className="flex flex-wrap items-center gap-3 rounded-md border border-border/60 bg-background/60 p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">{p.name}</span>
+                  <Badge
+                    variant="outline"
+                    className={
+                      rejected
+                        ? "border-rose-500/40 text-[9px] text-rose-400"
+                        : "border-amber-500/40 text-[9px] text-amber-400"
+                    }
+                  >
+                    {rejected ? "Rejected" : "Pending"}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {[
+                    serviceLabel(p.serviceType),
+                    p.account?.name,
+                    p.venue,
+                    p.eventDate ? new Date(p.eventDate).toLocaleDateString() : null,
+                    isFounder && p.createdByName ? `proposed by ${p.createdByName}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+                {rejected && p.rejectionNote && (
+                  <p className="mt-1 rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1 text-[11px] text-rose-300">
+                    {p.rejectionNote}
+                  </p>
+                )}
+              </div>
+              {isFounder && !rejected && (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={busyId === p.id}
+                    onClick={() => act(p, false)}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    disabled={busyId === p.id}
+                    onClick={() => act(p, true)}
+                  >
+                    {busyId === p.id && <Loader2 className="h-3 w-3 animate-spin" />}
+                    Approve
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 // ---------- New Project Button ----------
-function NewProjectButton({ onClick }: { onClick: () => void }) {
+function NewProjectButton({ onClick, label = "New Project" }: { onClick: () => void; label?: string }) {
   return (
     <Button onClick={onClick} size="sm" className="gap-1">
       <Plus className="h-4 w-4" />
-      New Project
+      {label}
     </Button>
   );
 }
@@ -704,15 +872,24 @@ function ClientSelect({
   );
 }
 
+// Two modes, one form. A founder or staffer creates the project outright and
+// prices it. A production manager *proposes* it: same details, no money
+// anywhere (they can't see budget, cost or profit), and it lands PENDING for
+// the founder to approve. Both get the service tick-list, so a new project
+// starts as a real cost sheet instead of an empty shell.
 function NewProjectDialog({
   open,
   onOpenChange,
   onCreated,
+  mode = "create",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreated: () => void;
+  mode?: "create" | "propose";
 }) {
+  const proposing = mode === "propose";
+  const [services, setServices] = useState<Set<string>>(new Set());
   const [name, setName] = useState("");
   const [serviceType, setServiceType] = useState<string>("");
   const [customServiceType, setCustomServiceType] = useState("");
@@ -738,6 +915,7 @@ function NewProjectDialog({
       setVenue("");
       setBudget("");
       setRevenue("");
+      setServices(new Set());
     }
   }, [open]);
 
@@ -757,10 +935,11 @@ function NewProjectDialog({
   const canSubmit =
     name.trim().length > 0 &&
     effectiveServiceType.length > 0 &&
-    budget.trim().length > 0 &&
-    Number(budget) >= 0 &&
-    revenue.trim().length > 0 &&
-    Number(revenue) >= 0 &&
+    (proposing ||
+      (budget.trim().length > 0 &&
+        Number(budget) >= 0 &&
+        revenue.trim().length > 0 &&
+        Number(revenue) >= 0)) &&
     !submitting;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -772,9 +951,14 @@ function NewProjectDialog({
         name: name.trim(),
         serviceType: effectiveServiceType,
         status,
-        budget: budgetNum,
-        revenue: revenueNum,
       };
+      // Never send money from a proposer — the server ignores it either way,
+      // but the request shouldn't carry figures they aren't allowed to hold.
+      if (!proposing) {
+        payload.budget = budgetNum;
+        payload.revenue = revenueNum;
+      }
+      if (services.size > 0) payload.serviceNames = [...services];
       if (accountId) payload.accountId = accountId;
       if (eventDate) payload.eventDate = eventDate;
       if (venue.trim()) payload.venue = venue.trim();
@@ -788,13 +972,16 @@ function NewProjectDialog({
       if (!res.ok || !json?.project) {
         throw new Error(json?.error || `Failed (${res.status})`);
       }
-      toast.success("Project created", {
-        description: `${json.project.name} (${json.project.code ?? "no code"})`,
+      toast.success(proposing ? "Sent to the founder for approval" : "Project created", {
+        description: proposing
+          ? `${json.project.name} — ${services.size} service line(s). You'll see it once it's approved.`
+          : `${json.project.name} (${json.project.code ?? "no code"})`,
+        duration: proposing ? 8000 : 4000,
       });
       onOpenChange(false);
       onCreated();
     } catch (err) {
-      toast.error("Couldn't create project", {
+      toast.error(proposing ? "Couldn't send that proposal" : "Couldn't create project", {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
@@ -808,10 +995,12 @@ function NewProjectDialog({
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Plus className="h-4 w-4 text-primary" />
-            Create New Project
+            {proposing ? "Propose a New Project" : "Create New Project"}
           </DialogTitle>
           <p className="text-xs text-muted-foreground">
-            Add a project with its cost, contract value, and key details.
+            {proposing
+              ? "Fill in the job and tick the services it needs. It goes to the founder for approval before it becomes live work."
+              : "Add a project with its cost, contract value, and key details."}
           </p>
         </DialogHeader>
 
@@ -916,7 +1105,23 @@ function NewProjectDialog({
               />
             </div>
 
-            {/* Budget + Revenue */}
+            {/* Services — the tick list. Shown to everyone; it's how a
+                project starts life as a cost sheet rather than an empty shell. */}
+            <div className="space-y-2 border-t border-border/60 pt-4">
+              <div>
+                <Label>Services needed</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Tick everything this job needs. Load a saved list to start from a
+                  standard setup, or save this selection to reuse next time.
+                </p>
+              </div>
+              <ServicePicker selected={services} onChange={setServices} />
+            </div>
+
+            {/* Budget + Revenue — FOUNDER/STAFF only. A proposing PM never
+                sees or sends money; the founder prices it on approval. */}
+            {!proposing && (
+            <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="np-budget">
@@ -984,6 +1189,8 @@ function NewProjectDialog({
                 Contract {formatNGN(revenueNum, true)} − Cost {formatNGN(budgetNum, true)}
               </p>
             </div>
+            </>
+            )}
           </div>
 
           <DialogFooter className="border-t border-border px-5 py-3">
@@ -999,12 +1206,12 @@ function NewProjectDialog({
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating…
+                  {proposing ? "Sending…" : "Creating…"}
                 </>
               ) : (
                 <>
                   <Plus className="h-4 w-4" />
-                  Create Project
+                  {proposing ? "Send for Approval" : "Create Project"}
                 </>
               )}
             </Button>

@@ -115,6 +115,19 @@ export async function GET(req: Request) {
     }),
   ]);
 
+  // Who proposed each pending project. `createdById` is a plain column with no
+  // relation, so resolve the names in one extra query rather than reshaping the
+  // schema — same trick used below for expenses and invoices.
+  const proposerIds = [...new Set(projects.map((p) => p.createdById).filter((v): v is string => !!v))];
+  const proposerNames = new Map<string, string>();
+  if (proposerIds.length > 0) {
+    const proposers = await db.user.findMany({
+      where: { id: { in: proposerIds } },
+      select: { id: true, name: true },
+    });
+    for (const u of proposers) proposerNames.set(u.id, u.name);
+  }
+
   // Build a lookup of expensesTotal per projectId.
   const expensesByProject = new Map<string, number>();
   for (const e of expenses) {
@@ -146,16 +159,21 @@ export async function GET(req: Request) {
     const profit = (p.revenue ?? 0) - expensesTotal;
     const margin = p.revenue && p.revenue > 0 ? (profit / p.revenue) * 100 : 0;
 
-    // roll-up stats
-    totalRevenue += p.revenue ?? 0;
-    totalExpenses += expensesTotal;
-    totalReceived += received;
-    totalBalance += balance;
-    if (["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)) activeCount += 1;
-    if (p.status === "COMPLETED") completedCount += 1;
-    if (p.revenue && p.revenue > 0) {
-      marginSum += margin;
-      marginSamples += 1;
+    // roll-up stats — proposed work is excluded until the founder approves it.
+    // A PENDING project has no agreed budget or contract value, so counting it
+    // would drag the totals and the average margin toward zero.
+    const countsTowardStats = (p.approvalStatus ?? "APPROVED") === "APPROVED";
+    if (countsTowardStats) {
+      totalRevenue += p.revenue ?? 0;
+      totalExpenses += expensesTotal;
+      totalReceived += received;
+      totalBalance += balance;
+      if (["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)) activeCount += 1;
+      if (p.status === "COMPLETED") completedCount += 1;
+      if (p.revenue && p.revenue > 0) {
+        marginSum += margin;
+        marginSamples += 1;
+      }
     }
 
     return {
@@ -176,6 +194,10 @@ export async function GET(req: Request) {
       endDate: p.endDate,
       // accountId is exposed so the Edit Project dialog can pre-select the
       // current client — the nested `account` object has no id.
+      approvalStatus: p.approvalStatus,
+      createdById: p.createdById,
+      createdByName: p.createdById ? proposerNames.get(p.createdById) ?? null : null,
+      rejectionNote: p.rejectionNote,
       accountId: p.accountId,
       account: p.account
         ? { name: p.account.name, isStrategic: p.account.isStrategic }
@@ -217,18 +239,22 @@ export async function GET(req: Request) {
 
   const totalProfit = totalRevenue - totalExpenses;
   const avgMargin = marginSamples > 0 ? marginSum / marginSamples : 0;
+  // Same reason as the roll-up above: a proposal isn't a project yet.
+  const approvedCount = projects.filter(
+    (p) => (p.approvalStatus ?? "APPROVED") === "APPROVED",
+  ).length;
 
   // Anyone who may not see company money gets a scoped summary.
   // (Was gated on isFreelancer alone, so INTERNs received the full company
   // revenue/profit/margin aggregate.)
   const stats = hideMoney
     ? {
-        total: projects.length,
+        total: approvedCount,
         active: activeCount,
         completed: completedCount,
       }
     : {
-        total: projects.length,
+        total: approvedCount,
         active: activeCount,
         completed: completedCount,
         totalRevenue,
@@ -249,12 +275,19 @@ export async function GET(req: Request) {
 // ------------------------------------------------------------
 export async function POST(req: Request) {
   try {
-    // Auth: only FOUNDER and STAFF can create projects.
+    // FOUNDER and STAFF create projects outright. A PRODUCTION_MANAGER may
+    // also create one, but it arrives PENDING and is not real work until the
+    // founder approves it — they are closest to the job and shouldn't have to
+    // wait on the founder to start planning, but they don't get to commit the
+    // company on their own.
     const user = await getSessionUser();
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (user.role !== "FOUNDER" && user.role !== "STAFF") {
+    const canCreateOutright = user.role === "FOUNDER" || user.role === "STAFF";
+    const canProposeOnly = user.role === "PRODUCTION_MANAGER";
+    if (!canCreateOutright && !canProposeOnly) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
+    const needsApproval = !canCreateOutright;
 
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
@@ -303,19 +336,30 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const budgetNum = typeof budget === "string" ? Number(budget) : budget;
-    const revenueNum = typeof revenue === "string" ? Number(revenue) : revenue;
-    if (typeof budgetNum !== "number" || isNaN(budgetNum) || budgetNum < 0) {
-      return NextResponse.json(
-        { error: "Missing or invalid required field: budget (must be a non-negative number)" },
-        { status: 400 }
-      );
-    }
-    if (typeof revenueNum !== "number" || isNaN(revenueNum) || revenueNum < 0) {
-      return NextResponse.json(
-        { error: "Missing or invalid required field: revenue (must be a non-negative number)" },
-        { status: 400 }
-      );
+    // Money is founder territory. A proposing PM never sends budget or revenue
+    // — they cannot see those figures anywhere in the app, so requiring them
+    // here would make proposing impossible. The project opens at zero and the
+    // founder prices it when they approve. Anything a PM *did* send is
+    // discarded rather than trusted.
+    let budgetNum = 0;
+    let revenueNum = 0;
+    if (canCreateOutright) {
+      const b = typeof budget === "string" ? Number(budget) : budget;
+      const r = typeof revenue === "string" ? Number(revenue) : revenue;
+      if (typeof b !== "number" || isNaN(b) || b < 0) {
+        return NextResponse.json(
+          { error: "Missing or invalid required field: budget (must be a non-negative number)" },
+          { status: 400 }
+        );
+      }
+      if (typeof r !== "number" || isNaN(r) || r < 0) {
+        return NextResponse.json(
+          { error: "Missing or invalid required field: revenue (must be a non-negative number)" },
+          { status: 400 }
+        );
+      }
+      budgetNum = b;
+      revenueNum = r;
     }
 
     // ---- Validate optional fields ----
@@ -417,18 +461,62 @@ export async function POST(req: Request) {
         serviceType,
         status: statusValue,
         accountId: accountValue,
-        managerId: managerValue,
         eventDate: eventDateValue,
         venue: venueValue,
         budget: budgetNum,
         revenue: revenueNum,
         progress: 0,
+        approvalStatus: needsApproval ? "PENDING" : "APPROVED",
+        createdById: user.id,
+        approvedById: needsApproval ? null : user.id,
+        approvedAt: needsApproval ? null : new Date(),
+        // A PM proposing a job manages it by default — they are the one who
+        // will run it, and without this they could not see what they created.
+        managerId: managerValue ?? (needsApproval ? user.id : null),
       },
       include: {
         account: { select: { id: true, name: true, isStrategic: true } },
         manager: { select: { id: true, name: true } },
       },
     });
+
+    // Services picked at creation become the opening cost sheet, unpriced.
+    // This is the point of the picker: the PM starts from a real list rather
+    // than an empty project they then have to populate line by line.
+    const picked: string[] = Array.isArray(body.serviceNames) ? body.serviceNames : [];
+    if (picked.length > 0) {
+      await db.projectService.createMany({
+        data: picked.slice(0, 200).map((entry) => {
+          const [category, ...rest] = String(entry).split("::");
+          const serviceName = rest.join("::") || category;
+          return {
+            projectId: created.id,
+            serviceName: serviceName.trim(),
+            category: rest.length ? category.trim() : "Other",
+            quantity: 1,
+            days: 1,
+            unitPrice: 0,
+            totalPrice: 0,
+            status: "LISTED",
+            createdBy: user.id,
+          };
+        }),
+      });
+    }
+
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: needsApproval ? "PROPOSED_PROJECT" : "CREATED_PROJECT",
+          entityType: "PROJECT",
+          entityId: created.id,
+          detail: needsApproval
+            ? `${user.name} proposed "${created.name}" with ${picked.length} service line(s) — awaiting founder approval`
+            : `Created "${created.name}"`,
+        },
+      });
+    } catch {}
 
     return NextResponse.json(
       {
@@ -633,6 +721,48 @@ export async function PATCH(req: Request) {
   }
   // FREELANCERs cannot change financial fields (budget, revenue) — only the founder can.
   const canEditFinancials = isFounder;
+
+  // ------------------------------------------------------------------
+  // Approve or reject a project a Production Manager proposed. FOUNDER only —
+  // this is the gate that decides whether proposed work becomes real work.
+  // ------------------------------------------------------------------
+  if (body.action === "approve_project" || body.action === "reject_project") {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden — only the founder can approve a project" }, { status: 403 });
+    }
+    if (existing.approvalStatus !== "PENDING") {
+      return NextResponse.json(
+        { error: `This project is already ${existing.approvalStatus.toLowerCase()}.` },
+        { status: 409 },
+      );
+    }
+    const approving = body.action === "approve_project";
+    const note = body.note ? String(body.note).trim() : null;
+    if (!approving && !note) {
+      return NextResponse.json({ error: "Say why you're rejecting it — the PM needs to know what to change." }, { status: 400 });
+    }
+    const updated = await db.project.update({
+      where: { id: body.projectId },
+      data: {
+        approvalStatus: approving ? "APPROVED" : "REJECTED",
+        approvedById: user.id,
+        approvedAt: new Date(),
+        rejectionNote: approving ? null : note,
+      },
+    });
+    try {
+      await db.activityLog.create({
+        data: {
+          userId: user.id,
+          action: approving ? "APPROVED_PROJECT" : "REJECTED_PROJECT",
+          entityType: "PROJECT",
+          entityId: updated.id,
+          detail: approving ? `Approved "${updated.name}"` : `Rejected "${updated.name}" — ${note}`,
+        },
+      });
+    } catch {}
+    return NextResponse.json({ ok: true, project: { id: updated.id, approvalStatus: updated.approvalStatus } });
+  }
 
   // ------------------------------------------------------------------
   // "Received" — money actually collected from the client.

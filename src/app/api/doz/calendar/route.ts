@@ -7,7 +7,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const [allProjects, allTasks, allInvoices, allFollowUps] = await Promise.all([
-    db.project.findMany({ include: { account: true } }),
+    // An unapproved proposal is not a scheduled event yet.
+    db.project.findMany({ where: { approvalStatus: { not: "PENDING" } }, include: { account: true } }),
     db.task.findMany({ where: { status: { not: "DONE" } }, include: { assignee: true } }),
     db.invoice.findMany({ where: { status: { not: "PAID" } }, include: { account: true } }),
     db.followUp.findMany({ where: { completed: false }, include: { contact: true } }),
