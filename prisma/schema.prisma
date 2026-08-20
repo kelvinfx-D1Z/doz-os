@@ -75,6 +75,33 @@ model User {
   timeEntries      TimeEntry[]
   messagesSent     Message[] @relation("MessageSender")
   messagesReceived Message[] @relation("MessageRecipient")
+  recoveryCodes    RecoveryCode[]
+}
+
+// ============================================================
+// ACCOUNT RECOVERY
+//
+// The founder has nobody above them to reset their password. Everyone else can
+// be reset from Team Management; the founder cannot, so a lost laptop or a
+// forgotten password locks the owner out of their own company permanently.
+//
+// There is no email provider in this app, so a reset link is not available.
+// Recovery codes need no infrastructure: generate a set, store them somewhere
+// physical, and one of them can be exchanged for a new password.
+//
+// Codes are HASHED with the same salted scrypt used for passwords — a leaked
+// database must not yield working recovery codes. Each is single use.
+// ============================================================
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  codeHash  String    // scrypt$salt$hash — never the code itself
+  label     String?   // "generated 2026-08-04"
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, usedAt])
 }
 
 // ============================================================
@@ -310,6 +337,14 @@ model Project {
   // Government clients withhold 5% at source, so the cash received is less
   // than the invoice total. Drives WHT on invoices for this project.
   isGovernment Boolean @default(false)
+  // A Production Manager can create a project, but it does not become real
+  // work until the founder approves it. Defaults to APPROVED so every existing
+  // project and anything the founder creates is unaffected.
+  approvalStatus String @default("APPROVED") // PENDING, APPROVED, REJECTED
+  createdById String?
+  approvedById String?
+  approvedAt  DateTime?
+  rejectionNote String?
   budget      Float    @default(0)
   revenue     Float    @default(0)
   progress    Int      @default(0)
@@ -606,6 +641,7 @@ model InvoiceLine {
 model EventTemplate {
   id          String   @id @default(cuid())
   name        String   @unique // "Conference", "Exhibition", "Shoot"
+  createdById String?  // who saved it; null for company-wide defaults
   description String?
   isActive    Boolean  @default(true)
   items       EventTemplateItem[]

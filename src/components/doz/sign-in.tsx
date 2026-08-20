@@ -7,7 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Loader2, ShieldCheck, ArrowRight } from "lucide-react";
 
+import { RecoverAccessDialog } from "@/components/doz/recover-access-dialog";
+
 export function SignIn() {
+  const [recoverOpen, setRecoverOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -69,6 +72,17 @@ export function SignIn() {
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Sign in <ArrowRight className="ml-1 h-4 w-4" /></>}
             </Button>
           </form>
+
+          {/* The founder has nobody who can reset them, so this must exist on
+              the sign-in screen itself — not behind a login. */}
+          <button
+            type="button"
+            onClick={() => setRecoverOpen(true)}
+            className="mt-3 w-full text-center text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Lost access to your account?
+          </button>
+          <RecoverAccessDialog open={recoverOpen} onOpenChange={setRecoverOpen} />
         </Card>
 
         <p className="text-center text-[10px] text-muted-foreground">
