@@ -351,3 +351,18 @@ export function parsePermissions(raw: string | null | undefined): string[] | nul
   }
   return null;
 }
+
+/**
+ * Who may create, view and download client documents.
+ *
+ * FOUNDER always. Anyone else only if the founder has explicitly granted them
+ * the `documents` module through the per-user permissions override — granting
+ * it exposes client pricing to that person, which is the founder's call.
+ */
+export function canIssueDocuments(user: {
+  role: string;
+  permissions?: string[] | null;
+}): boolean {
+  if (user.role === "FOUNDER") return true;
+  return Array.isArray(user.permissions) && user.permissions.includes("documents");
+}

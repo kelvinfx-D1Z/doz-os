@@ -163,6 +163,11 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   profile: <MyProfile />,
   messages: <Messages />,
   vendors: <Vendors />,
+  // Placeholder only — the "documents" module is not yet in NAV or
+  // ROLE_MODULES, so this entry is unreachable. It exists purely to satisfy
+  // the Record<ModuleId, ...> exhaustiveness check now that "documents" is a
+  // valid ModuleId. Task 11 wires the real nav entry and view.
+  documents: null,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -184,6 +189,8 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   vendors: { title: "Vendors", subtitle: "Suppliers and what they are owed per project" },
   messages: { title: "Messages", subtitle: "Direct messages with your team" },
   marketing: { title: "Marketing & Growth", subtitle: "Turn referrals into a predictable lead engine" },
+  // Placeholder — see MODULES.documents above. Unreachable until Task 11.
+  documents: { title: "Documents", subtitle: "" },
 };
 
 const ROLE_LABELS: Record<string, string> = {

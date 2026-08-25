@@ -8,6 +8,7 @@ import type { ModuleId } from "@/lib/store";
 const VALID_MODULES: ModuleId[] = [
   "command", "planning", "routines", "ai", "field", "crm", "marketing",
   "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates",
+  "documents",
 ];
 
 // Sanitize an incoming permissions array → valid ModuleId[] | null.
