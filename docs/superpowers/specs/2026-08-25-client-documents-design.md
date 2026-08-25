@@ -138,8 +138,14 @@ pre-fill as a starting point to argue with, not a formula:
 | Fabrication / scenic | 3.5× |
 | Personnel | 1.3× |
 
-Live margin in Naira and percent as the founder types. Never visible to a PM
-or intern.
+Live margin in Naira and percent as the founder types, measured on **cash
+expected**, not on the invoice total. Never visible to a PM or intern.
+
+**Gross-up for tax deducted at source.** On a government job the panel takes
+the amount the job must net and prices backwards, dividing by `1 - whtRate`
+and scaling line prices to match. The founder enters a target and confirms the
+resulting cash figure; they never do the arithmetic, so the 5% versus 5.26%
+trap cannot be walked into. Full derivation under Tax below.
 
 ### Phase 3 — The three documents
 
@@ -250,14 +256,103 @@ government invoice settles correctly despite 5% WHT.
 
 #### Tax
 
-Unchanged from the existing model, which is already correct. VAT 7.5% on the
-discounted subtotal. Where `Project.isGovernment`, WHT at 5% of the pre-VAT
-subtotal is shown on the document and `expectedCash = total − whtAmount`. The
-document shows both the invoice total and the cash expected, because those are
-different numbers and only one of them will arrive.
+**The existing model is wrong for government clients, and this is the most
+important correction in this document.**
 
-Quotations show VAT. Quotations do not show WHT — it is deducted at payment,
-not quoted.
+Nigerian MDAs deduct **both** taxes at source. On an NSITF job they withhold
+the 7.5% VAT *and* 5% WHT, remitting both themselves. Neither reaches D1Z.
+
+##### The invoice shows VAT only
+
+WHT never appears on the document. It is the payer's deduction, not D1Z's
+charge — putting it on an invoice is irregular and invites queries. The
+document shows the subtotal, VAT at 7.5%, and the total. Nothing else.
+
+WHT still exists in the data, because reconciliation needs it. It is simply
+never rendered.
+
+##### Gross-up: protecting the budget without showing the deduction
+
+Since the 5% cannot be shown, it is absorbed into the prices instead. The
+markup panel takes the amount the job must **net** and works backwards.
+
+With `T` = target net and `w` = WHT rate:
+
+```
+subtotal S = T / (1 - w)        // 18,120,000 / 0.95 = 19,073,684
+```
+
+**Divide by 0.95 — do not multiply by 1.05.** They are different numbers. A
+flat 5% uplift leaves a 0.25% shortfall on every government invoice: about
+₦45,000 on an ₦18m job, every time, forever.
+
+**The VAT is not grossed up.** It is added on top of D1Z's price and remitted
+to FIRS regardless of who withholds it, so it never erodes the budget.
+Grossing up for the full 12.5% would overcharge the client by roughly 7% —
+around ₦1.25m of padding on this example — for no benefit.
+
+Worked example, target net ₦18,120,000:
+
+| | |
+|---|---|
+| Subtotal, grossed up | ₦19,073,684 |
+| VAT 7.5% — the only tax shown | ₦1,430,526 |
+| **Invoice total** | **₦20,504,211** |
+| less VAT withheld at source | −₦1,430,526 |
+| less WHT 5% withheld at source | −₦953,684 |
+| **Cash received** | **₦18,120,000** |
+
+Line unit prices round to the nearest ₦100 after grossing up, so the resulting
+cash lands a few naira either side of target. The panel shows the actual
+figure next to the target rather than hiding the difference.
+
+##### Fields
+
+```prisma
+// Invoice
+vatWithheldAtSource Boolean @default(false) // MDAs withhold VAT too
+grossUpRate         Float   @default(0)     // uplift applied, for the record
+targetNet           Float?                  // what the founder asked to net
+```
+
+`vatWithheldAtSource` and `whtRate` default from `Project.isGovernment` and
+stay editable per invoice, because agencies vary.
+
+##### Expected cash
+
+With `S` = subtotal after discount:
+
+| | VAT | WHT | Invoice total | Cash received |
+|---|---|---|---|---|
+| Commercial | `0.075 × S` | 0 | `S + VAT` | `S + VAT` |
+| Government | `0.075 × S` | `0.05 × S` | `S + VAT` | `S − WHT` |
+
+```
+expectedCash = vatWithheldAtSource
+  ? S - whtAmount        // government: VAT never arrives
+  : total - whtAmount    // commercial: VAT arrives, WHT may not
+```
+
+The schema comment on `Invoice.expectedCash` currently claims the cash arriving
+is `amount - whtAmount`. That holds only for a commercial client. For a
+government client it overstates expected cash by the whole VAT amount, so every
+government invoice reads as permanently underpaid by exactly that figure — the
+same class of bug `expectedCash` was added to fix, one layer deeper. Correcting
+that comment is part of this phase.
+
+##### Margin basis
+
+Margin is measured against **cash that lands**, not against the invoice:
+
+```
+margin = expectedCash - projectCost
+```
+
+This is the honest number. Measuring on the grossed-up subtotal would flatter
+every government job by 5% — money that was withheld and never arrived. The
+WHT shows separately as a recoverable credit against income tax, not as profit.
+
+Quotations show VAT and are grossed up the same way. Quotations never show WHT.
 
 ### Rendering and PDF
 
@@ -296,9 +391,10 @@ Per document:
 - **Quotation** — event dates and scope up front, terms and payment terms
   below, and a client acceptance signature line. The hero figure is the quoted
   total. No "amount payable", because nothing is owed yet.
-- **Invoice** — issue and due dates, payment details, VAT and where applicable
-  WHT. The hero figure is the amount payable, with the invoice total shown
-  smaller beneath it.
+- **Invoice** — issue and due dates, payment details, and VAT. No WHT line and
+  no deductions block: the client sees subtotal, VAT, total. The hero figure is
+  the invoice total, which on a government job is what the MDA processes. What
+  D1Z expects to bank is internal only, never on the page.
 - **Receipt** — short and confirmatory, roughly half a page. The hero figure is
   the amount received. Shows the payment method and date, which invoice it
   settles, and the balance still outstanding.
@@ -344,6 +440,14 @@ already in the build script and `postinstall`.
 
 ## Open questions
 
-- Is WHT ever 10% for this work, or always 5%?
 - Should an accepted quotation also be able to create the project, or is the
   project always created first?
+- Does the price list need per-client rates, or is one standard cost per item
+  enough?
+
+## Settled
+
+- **WHT is 5%, VAT is 7.5%, and government clients withhold both at source.**
+  The invoice shows VAT only; the 5% is absorbed by grossing the subtotal up
+  by `1 / 0.95`.
+- Margin is measured on cash received, not on the invoice.
