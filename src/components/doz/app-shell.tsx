@@ -30,6 +30,7 @@ import {
   Boxes,
   KeyRound,
   Eye,
+  Building2,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -53,6 +54,7 @@ import { DidiBubble } from "@/components/doz/didi-bubble";
 import { ChangeOwnPasswordDialog } from "@/components/doz/change-own-password-dialog";
 import { ViewAsBanner, ViewAsDialog } from "@/components/doz/view-as";
 import { RecoveryCodesDialog } from "@/components/doz/recovery-codes-dialog";
+import { CompanySettingsDialog } from "@/components/doz/company-settings-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -215,6 +217,7 @@ export function AppShell() {
   const [pwOpen, setPwOpen] = useState(false);
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
 
   // keyboard shortcut cmd+k
   useEffect(() => {
@@ -377,6 +380,12 @@ export function AppShell() {
                     Recovery codes
                   </DropdownMenuItem>
                 )}
+                {role === "FOUNDER" && (
+                  <DropdownMenuItem onClick={() => setCompanyOpen(true)}>
+                    <Building2 className="mr-2 h-3.5 w-3.5" />
+                    Company details
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setPwOpen(true)}>
                   <KeyRound className="mr-2 h-3.5 w-3.5" />
                   Change password
@@ -476,6 +485,7 @@ export function AppShell() {
       <ChangeOwnPasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
       <ViewAsDialog open={viewAsOpen} onOpenChange={setViewAsOpen} />
       <RecoveryCodesDialog open={recoveryOpen} onOpenChange={setRecoveryOpen} />
+      <CompanySettingsDialog open={companyOpen} onOpenChange={setCompanyOpen} />
 
       {/* DIDI is FOUNDER-only: it answers from company-wide financials, so it
           must not appear for staff, interns or freelancers. The API behind it
