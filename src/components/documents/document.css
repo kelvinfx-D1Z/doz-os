@@ -50,3 +50,176 @@
 @media screen {
   .doc-page { box-shadow: 0 0 0 1px #e5e5e5; margin-top: 24px; margin-bottom: 24px; }
 }
+
+/* ============================================================
+   DOCUMENT BODY — quotation, invoice, receipt
+   Extends the masthead/bar system above. No new palette: the same
+   charcoal (#232323) and the same three oranges (#d2570e, #e8681c,
+   #f29222) carry through to the section marks and the totals cap, so
+   a quote, its invoice and its receipt read as one family of papers.
+   ============================================================ */
+
+/* --- small caps label used everywhere a field needs naming --- */
+.doc-eyebrow {
+  font-size: 7.5pt;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: #a0a0a0;
+  font-weight: 400;
+}
+.doc-eyebrow-invert { color: #b9b9b9; }
+
+/* --- headline band: what this document is about --- */
+.doc-lede {
+  display: flex;
+  gap: 10mm;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 6mm;
+  margin-bottom: 8mm;
+  border-bottom: 1px solid #ececec;
+}
+.doc-lede h1 {
+  font-size: 16pt;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.15;
+  color: #232323;
+  margin: 1.5mm 0 0;
+}
+.doc-lede-meta { text-align: right; flex: none; }
+
+/* --- party / date panels: a hairline above, orange on the one that
+       names the client, because that is where the eye should land --- */
+.doc-grid { display: flex; gap: 8mm; margin-bottom: 9mm; }
+.doc-panel { flex: 1; border-top: 1.2pt solid #232323; padding-top: 2.5mm; }
+.doc-panel-accent { border-top-color: #d2570e; }
+.doc-panel-narrow { flex: 0 0 34mm; }
+.doc-name { font-size: 11.5pt; font-weight: 700; margin-top: 1.5mm; line-height: 1.25; }
+.doc-value { font-size: 10.5pt; margin-top: 1.5mm; font-variant-numeric: tabular-nums; }
+.doc-text {
+  font-size: 9.5pt;
+  color: #55555b;
+  line-height: 1.45;
+  margin-top: 1.2mm;
+  white-space: pre-line;
+}
+
+/* --- the line table --- */
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+  font-variant-numeric: tabular-nums;
+}
+.doc-table thead tr { border-bottom: 1.2pt solid #232323; }
+.doc-table th {
+  font-weight: 400;
+  font-size: 7.5pt;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #a0a0a0;
+  padding: 0 0 2mm;
+  text-align: left;
+}
+.doc-table td { padding: 2.6mm 0; vertical-align: top; }
+.doc-table .num { text-align: right; }
+.doc-table .mid { text-align: center; }
+.doc-table tr { break-inside: avoid; }
+.doc-row { border-top: 1px solid #f1f1f1; }
+.doc-row .mid, .doc-row .rate { color: #6e6e6e; }
+.doc-line-sub { color: #8c8c8c; font-size: 8.5pt; margin-top: 0.6mm; }
+.doc-summary-row td { padding: 3.4mm 0; }
+
+/* the orange tick that opens each section — the bar motif, shrunk */
+.doc-section-head td {
+  padding: 6mm 0 1.5mm;
+  font-size: 7.5pt;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: #d2570e;
+}
+.doc-tick {
+  display: inline-block;
+  width: 6mm;
+  height: 1.2mm;
+  background: #e8681c;
+  margin-right: 2.4mm;
+  vertical-align: middle;
+}
+.doc-section-total td {
+  border-top: 1px solid #ececec;
+  padding: 1.8mm 0 0;
+  font-size: 8.5pt;
+  color: #8c8c8c;
+}
+
+/* --- closing block: obligations on the left, money on the right --- */
+.doc-close {
+  display: flex;
+  gap: 10mm;
+  margin-top: 9mm;
+  align-items: flex-start;
+  break-inside: avoid;
+}
+.doc-close-left { flex: 1; min-width: 0; }
+.doc-close-right { flex: 0 0 76mm; }
+.doc-sum {
+  display: flex;
+  justify-content: space-between;
+  gap: 6mm;
+  font-size: 10pt;
+  padding: 2.2mm 0;
+  border-top: 1px solid #ececec;
+  font-variant-numeric: tabular-nums;
+}
+.doc-sum:first-child { border-top: none; padding-top: 0; }
+.doc-sum-label { color: #6e6e6e; }
+
+/* the bar motif again, capping the total — closes the page the way
+   the masthead opens it */
+.doc-totals-cap { display: flex; height: 2mm; margin-top: 3mm; }
+.doc-totals-cap .b1 { width: 46%; background: #d2570e; }
+.doc-totals-cap .b2 { width: 18%; background: #e8681c; }
+.doc-totals-cap .b3 { width: 14%; background: #f29222; }
+.doc-hero { font-variant-numeric: tabular-nums; margin-top: 1mm; }
+.doc-hero-lg { font-size: 30pt; letter-spacing: -1.2px; line-height: 1.05; }
+
+/* --- definition lists: bank details, receipt particulars --- */
+.doc-dl { margin: 0; font-size: 9.5pt; }
+.doc-dl-row { display: flex; gap: 4mm; padding: 1.4mm 0; border-top: 1px solid #f4f4f4; }
+.doc-dl-row:first-child { border-top: none; }
+.doc-dl dt { flex: 0 0 32mm; color: #8c8c8c; }
+.doc-dl dd { margin: 0; flex: 1; min-width: 0; }
+.doc-reg { font-size: 8.5pt; color: #9a9a9a; margin-top: 3mm; }
+
+/* --- notes, terms, validity --- */
+.doc-note { font-size: 9pt; color: #6e6e6e; line-height: 1.55; margin-top: 7mm; }
+.doc-callout { border-left: 2pt solid #f29222; padding: 0.5mm 0 0.5mm 4mm; }
+.doc-status {
+  font-size: 11pt;
+  font-weight: 700;
+  margin-top: 6mm;
+  padding-top: 3mm;
+  border-top: 1px solid #ececec;
+}
+
+/* --- signature rules --- */
+.doc-signs { display: flex; gap: 12mm; margin-top: 12mm; break-inside: avoid; }
+.doc-sign { flex: 1; }
+.doc-sign-rule { border-bottom: 1px solid #2b2b2b; height: 14mm; }
+.doc-sign-label { font-size: 8pt; color: #6e6e6e; margin-top: 1.5mm; }
+
+/* Browsers drop background fills when printing unless told otherwise, and
+   these documents are mostly defined by their filled charcoal and orange. */
+@media print {
+  .doc-page,
+  .doc-masthead,
+  .doc-bars > div,
+  .doc-totals,
+  .doc-totals-cap > div,
+  .doc-tick {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
