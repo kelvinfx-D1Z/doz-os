@@ -22,6 +22,19 @@
 - **VAT rate 7.5, WHT rate 5.** Both stored per document and editable.
 - **WHT never appears on a rendered document.** It exists in the data for reconciliation only.
 - **Access:** documents are FOUNDER-only by default, grantable via the existing `User.permissions` module array. Check module permission, never a hard-coded role alone.
+- **Complement the existing system; never build a parallel one.** Founder
+  instruction, 2026-08-25. The documents feature writes to the SAME `Invoice`
+  and `InvoiceLine` tables that Finance, the client portal and project
+  reconciliation already read. Do not create a second invoice store, a second
+  status vocabulary, or a second source of truth for a client's money. This
+  codebase already carries one example of that mistake (`Referral` and
+  `ReferralSource`); do not add another.
+- **Legacy invoices must keep working.** Invoices already in the database were
+  created by the side effect in `src/app/api/doz/projects/route.ts` and have no
+  `InvoiceLine` rows, no `title` and no `detailLevel` set. Every document view
+  and every list must render these correctly, falling back to a single line
+  derived from `Invoice.amount`. An invoice with zero lines is normal data, not
+  an error state.
 - Verification before any completion claim: `npx tsc --noEmit`, `npm run lint` (baseline is 40 pre-existing errors — do not add any), `npm test`, and `npm run build` with `examples/` moved aside.
 
 ---
@@ -1262,7 +1275,33 @@ The founder has never been able to create an invoice. This adds that.
 
 - [ ] **Step 1: Write the route**
 
-Create `src/app/api/doz/documents/invoices/route.ts`. It is structurally identical to Task 6's quotations route with these differences — copy that file and change:
+Create `src/app/api/doz/documents/invoices/route.ts`.
+
+**Do not copy Task 6's route.** Before writing this one, extract everything the
+two share into `src/lib/document-request.ts` and refactor the quotations route
+to use it, so the tax and gross-up handling exists in exactly one place:
+
+```ts
+// src/lib/document-request.ts
+export type IncomingLine = { /* as in Task 6 */ };
+export function normaliseLines(raw: unknown): DocumentLineInput[]
+export function applyGrossUp(
+  lines: DocumentLineInput[], targetNet: number, whtRate: number,
+): { lines: DocumentLineInput[]; grossUpRate: number }
+/** Parsed, validated document fields common to quotations and invoices. */
+export function parseDocumentBody(body: Record<string, unknown>): {
+  lines: DocumentLineInput[]; subtotal: number; discount: number;
+  vatRate: number; whtRate: number; vatWithheldAtSource: boolean;
+  grossUpRate: number; targetNet: number | null;
+  tax: ReturnType<typeof computeTax>;
+} | { error: string }
+```
+
+Both routes then call `parseDocumentBody` and differ only in model, code prefix
+and status vocabulary. Re-run `npm test` after the refactor to confirm the
+quotations route still behaves.
+
+The invoice route differs from the quotation route in these ways:
 
 - `nextDocumentCode(tx, "INV")` instead of `"QUO"`
 - Model `db.invoice` / `db.invoiceLine`, field `invoiceId`
