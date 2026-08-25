@@ -2,13 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
-import { normaliseLines, applyGrossUp } from "@/lib/document-request";
-import {
-  computeTax,
-  lineAmount,
-  sumLines,
-  VAT_RATE,
-} from "@/lib/document-math";
+import { parseDocumentBody } from "@/lib/document-request";
+import { lineAmount } from "@/lib/document-math";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -41,28 +36,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  let lines = normaliseLines(body.lines);
-  if (lines.length === 0) {
-    return NextResponse.json(
-      { error: "Add at least one line with a description" },
-      { status: 400 },
-    );
+  const parsed = parseDocumentBody(body);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
-
-  const whtRate = Math.max(0, Number(body.whtRate) || 0);
-  const targetNet = Number(body.targetNet) || 0;
-  let grossUpRate = 0;
-  if (targetNet > 0 && whtRate > 0) {
-    const applied = applyGrossUp(lines, targetNet, whtRate);
-    lines = applied.lines;
-    grossUpRate = applied.grossUpRate;
-  }
-
-  const subtotal = sumLines(lines);
-  const discount = Math.max(0, Number(body.discount) || 0);
-  const vatRate = body.vatRate === undefined ? VAT_RATE : Number(body.vatRate) || 0;
-  const vatWithheldAtSource = body.vatWithheldAtSource === true;
-  const tax = computeTax({ subtotal, discount, vatRate, whtRate, vatWithheldAtSource });
+  const { lines, subtotal, discount, vatRate, whtRate, vatWithheldAtSource, grossUpRate, targetNet, tax } = parsed;
 
   const created = await db.$transaction(async (tx) => {
     const code = await nextDocumentCode(tx, "QUO");
@@ -83,7 +61,7 @@ export async function POST(req: Request) {
         whtRate,
         vatWithheldAtSource,
         grossUpRate,
-        targetNet: targetNet > 0 ? targetNet : null,
+        targetNet,
         paymentTerms: body.paymentTerms ? String(body.paymentTerms).trim() : null,
         notes: body.notes ? String(body.notes).trim() : null,
         validUntil: body.validUntil ? new Date(body.validUntil) : null,

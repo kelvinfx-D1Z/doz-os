@@ -15,6 +15,8 @@ import {
   sumLines,
   grossUpSubtotal,
   roundToNearest,
+  computeTax,
+  VAT_RATE,
   type DocumentLineInput,
 } from "./document-math.ts";
 
@@ -66,5 +68,59 @@ export function applyGrossUp(
       unitPrice: roundToNearest(l.unitPrice * factor, 100),
     })),
     grossUpRate: whtRate,
+  };
+}
+
+/**
+ * Parses and validates the fields common to quotations and invoices:
+ * line items, the optional gross-up against a target net, discount, VAT
+ * rate, WHT rate and whether the client withholds VAT at source — then runs
+ * `computeTax` once. Both document routes call this and differ only in
+ * model, code prefix and status vocabulary, so the tax and gross-up
+ * handling cannot drift between them.
+ */
+export function parseDocumentBody(body: Record<string, unknown>):
+  | {
+      lines: DocumentLineInput[];
+      subtotal: number;
+      discount: number;
+      vatRate: number;
+      whtRate: number;
+      vatWithheldAtSource: boolean;
+      grossUpRate: number;
+      targetNet: number | null;
+      tax: ReturnType<typeof computeTax>;
+    }
+  | { error: string } {
+  let lines = normaliseLines(body.lines);
+  if (lines.length === 0) {
+    return { error: "Add at least one line with a description" };
+  }
+
+  const whtRate = Math.max(0, Number(body.whtRate) || 0);
+  const targetNet = Number(body.targetNet) || 0;
+  let grossUpRate = 0;
+  if (targetNet > 0 && whtRate > 0) {
+    const applied = applyGrossUp(lines, targetNet, whtRate);
+    lines = applied.lines;
+    grossUpRate = applied.grossUpRate;
+  }
+
+  const subtotal = sumLines(lines);
+  const discount = Math.max(0, Number(body.discount) || 0);
+  const vatRate = body.vatRate === undefined ? VAT_RATE : Number(body.vatRate) || 0;
+  const vatWithheldAtSource = body.vatWithheldAtSource === true;
+  const tax = computeTax({ subtotal, discount, vatRate, whtRate, vatWithheldAtSource });
+
+  return {
+    lines,
+    subtotal,
+    discount,
+    vatRate,
+    whtRate,
+    vatWithheldAtSource,
+    grossUpRate,
+    targetNet: targetNet > 0 ? targetNet : null,
+    tax,
   };
 }

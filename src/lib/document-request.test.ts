@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normaliseLines, applyGrossUp, type IncomingLine } from "./document-request.ts";
+import { normaliseLines, applyGrossUp, parseDocumentBody, type IncomingLine } from "./document-request.ts";
 import { sumLines, computeTax, type DocumentLineInput } from "./document-math.ts";
 
 function incoming(over: Partial<IncomingLine> = {}): IncomingLine {
@@ -127,4 +127,73 @@ test("applyGrossUp returns lines unchanged when targetNet is negative", () => {
   const result = applyGrossUp(lines, -500, 5);
   assert.equal(result.grossUpRate, 0);
   assert.deepEqual(result.lines, lines);
+});
+
+// ---- parseDocumentBody -----------------------------------------------------
+
+test("parseDocumentBody returns an error when lines is missing/not an array", () => {
+  const result = parseDocumentBody({});
+  assert.ok("error" in result);
+  assert.equal(result.error, "Add at least one line with a description");
+});
+
+test("parseDocumentBody returns an error when lines has no valid entries", () => {
+  const result = parseDocumentBody({ lines: [incoming({ description: "" })] });
+  assert.ok("error" in result);
+  assert.equal(result.error, "Add at least one line with a description");
+});
+
+test("parseDocumentBody applies gross-up only when both targetNet and whtRate are positive", () => {
+  const body = {
+    lines: [incoming({ quantity: 1, days: 1, unitPrice: 100_000 })],
+    whtRate: 5,
+    targetNet: 0,
+  };
+  const result = parseDocumentBody(body);
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.grossUpRate, 0);
+  assert.equal(result.targetNet, null);
+  assert.equal(result.lines[0].unitPrice, 100_000);
+});
+
+test("parseDocumentBody applies gross-up when targetNet and whtRate are both positive", () => {
+  const body = {
+    lines: [incoming({ quantity: 1, days: 1, unitPrice: 100_000 })],
+    whtRate: 5,
+    targetNet: 100_000,
+  };
+  const result = parseDocumentBody(body);
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.grossUpRate, 5);
+  assert.equal(result.targetNet, 100_000);
+  assert.ok(result.lines[0].unitPrice > 100_000);
+});
+
+test("parseDocumentBody skips gross-up when whtRate is 0 even if targetNet is set", () => {
+  const body = {
+    lines: [incoming({ quantity: 1, days: 1, unitPrice: 100_000 })],
+    whtRate: 0,
+    targetNet: 100_000,
+  };
+  const result = parseDocumentBody(body);
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.grossUpRate, 0);
+  assert.equal(result.lines[0].unitPrice, 100_000);
+});
+
+test("parseDocumentBody yields expectedCash 17,214,000 for the government worked example", () => {
+  const body = {
+    lines: [incoming({ quantity: 1, days: 1, unitPrice: 18_120_000 })],
+    whtRate: 5,
+    vatWithheldAtSource: true,
+  };
+  const result = parseDocumentBody(body);
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.subtotal, 18_120_000);
+  assert.equal(result.vatWithheldAtSource, true);
+  assert.equal(result.tax.expectedCash, 17_214_000);
 });
