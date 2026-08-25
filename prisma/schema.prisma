@@ -193,6 +193,7 @@ model Account {
   lifetimeValue Float @default(0)
   portalToken String?  @unique // for client portal access (?portal=TOKEN)
   portalActive Boolean @default(false)
+  billingAddress String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -206,6 +207,7 @@ model Account {
   clientFeedback   ClientFeedback[]
   contracts      Contract[]
   leads         Lead[]
+  quotations     Quotation[]
 }
 
 model Contact {
@@ -374,6 +376,7 @@ model Project {
   timeEntries     TimeEntry[]
   postEventReviews PostEventReview[]
   vendorReviewsFrom  VendorReview[]
+  quotations   Quotation[]
 
   @@index([managerId])
   @@index([accountId])
@@ -585,8 +588,10 @@ model Invoice {
   vatRate     Float    @default(7.5)
   // Withholding tax is DEDUCTED AT SOURCE by government clients on the pre-VAT
   // value. It is not a discount and not a debt — it is remitted to FIRS on our
-  // behalf and reclaimed as a credit. So the cash that actually arrives is
-  // `amount - whtAmount`, and that is what payment must be reconciled against.
+  // behalf and reclaimed as a credit. The cash that arrives depends on whether
+  // the client also withholds VAT: government MDAs withhold both, so cash is
+  // `net - wht`; a commercial client pays the VAT across, so cash is
+  // `total - wht`. See vatWithheldAtSource and src/lib/document-math.ts.
   // Without expectedCash, every government invoice reads as permanently
   // underpaid by exactly the withheld amount.
   whtRate     Float    @default(0)  // 5 for government contracts, else 0
@@ -601,9 +606,19 @@ model Invoice {
   lastReminderAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  detailLevel String   @default("SUMMARY")
+  title       String?
+  eventStart  DateTime?
+  eventEnd    DateTime?
+  paymentTerms String?
+  quotationId String?
+  vatWithheldAtSource Boolean @default(false)
+  grossUpRate Float    @default(0)
+  targetNet   Float?
 
   paymentConfirmations PaymentConfirmation[]
   lines       InvoiceLine[]
+  receipts    Receipt[]
 
   @@index([projectId])
   @@index([accountId])
@@ -622,6 +637,7 @@ model InvoiceLine {
   invoice     Invoice  @relation(fields: [invoiceId], references: [id])
   section     String?  // "AUDIO VISUAL", "Branding Indoor and Outdoor"
   description String
+  subDescription String?
   days        Int      @default(1)
   quantity    Int      @default(1)
   unitPrice   Float    @default(0)
@@ -1440,4 +1456,101 @@ model ProjectService {
   createdBy   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model CompanySettings {
+  id            String  @id @default("singleton")
+  legalName     String  @default("D1Z Technologies Ltd")
+  tradingName   String? @default("D1Z tech")
+  address       String  @default("114 Ebitu Ekiwe Street, Jabi, FCT Abuja")
+  phone         String  @default("+234 906 236 7649")
+  email         String  @default("info@d1zmedia.com")
+  website       String? @default("www.d1zmedia.com")
+  rcNumber      String?
+  tin           String?
+  vatRegistered Boolean @default(true)
+  bankName      String?
+  bankAccount   String?
+  bankAccountName String?
+  logoUrl       String?
+  defaultPaymentTerms String? @default("Payment due within 30 days of invoice date.")
+  updatedAt     DateTime @updatedAt @default(now())
+}
+
+model Quotation {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id])
+  title       String?
+  eventStart  DateTime?
+  eventEnd    DateTime?
+  detailLevel String   @default("SUMMARY")
+  subtotal    Float    @default(0)
+  discount    Float    @default(0)
+  vatRate     Float    @default(7.5)
+  tax         Float    @default(0)
+  total       Float    @default(0)
+  whtRate     Float    @default(0)
+  vatWithheldAtSource Boolean @default(false)
+  grossUpRate Float    @default(0)
+  targetNet   Float?
+  paymentTerms String?
+  notes       String?
+  status      String   @default("DRAFT")
+  validUntil  DateTime?
+  convertedInvoiceId String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines       QuotationLine[]
+
+  @@index([projectId])
+  @@index([accountId])
+  @@index([status])
+}
+
+model QuotationLine {
+  id          String   @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id])
+  section     String?
+  description String
+  subDescription String?
+  days        Int      @default(1)
+  quantity    Int      @default(1)
+  unitPrice   Float    @default(0)
+  amount      Float    @default(0)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([quotationId])
+}
+
+model Receipt {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  amount      Float
+  method      String?
+  reference   String?
+  receivedAt  DateTime @default(now())
+  balanceAfter Float   @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+model DocumentSequence {
+  id     String @id @default(cuid())
+  type   String
+  year   Int
+  next   Int    @default(1)
+
+  @@unique([type, year])
 }
