@@ -32,11 +32,21 @@ function toDate(value: Date | string | null | undefined): Date | null {
 // a client checks against their own diary, so every date here reads as UTC.
 const UTC = "UTC" as const;
 
+// en-GB abbreviates September as "Sept" — four letters where every other
+// month gets three ("Jan", "Feb", … "Oct", "Nov", "Dec"). Left alone, that
+// ragged one-off sits visibly uneven beside other dates in the tabular date
+// panels. Correct as English; not uniform, so trimmed to three letters here.
+function threeLetterMonths(formatted: string): string {
+  return formatted.replace("Sept", "Sep");
+}
+
 /** `24 Aug 2026` */
 export function formatDay(value: Date | string | null | undefined): string {
   const d = toDate(value);
   if (!d) return "—";
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: UTC });
+  return threeLetterMonths(
+    d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: UTC }),
+  );
 }
 
 /** `23 September 2026` — for prose, where an abbreviation reads as clipped. */
@@ -67,7 +77,9 @@ export function formatRange(
   if (sameMonth && s.getUTCDate() === e.getUTCDate()) return formatDay(s);
   if (sameMonth) return `${s.getUTCDate()}–${formatDay(e)}`;
   if (sameYear) {
-    const from = s.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: UTC });
+    const from = threeLetterMonths(
+      s.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: UTC }),
+    );
     return `${from} – ${formatDay(e)}`;
   }
   return `${formatDay(s)} – ${formatDay(e)}`;
@@ -194,6 +206,34 @@ const LABEL: Record<DocumentKind, string> = {
   receipt: "Receipt",
 };
 
+// Blink (this Chrome's print engine) supports `@page` margin boxes and the
+// `counter(page)`/`counter(pages)` functions inside them, but not CSS
+// Paged Media's `string-set`/`string()` — there is no way for a shared,
+// static stylesheet to pull the document code out of the page's own DOM
+// into a margin box. So this one rule is generated per document, with the
+// real code baked in as a literal string at render time, and scoped to the
+// non-`:first` `@page` context — page 1 keeps margin: 0 (see document.css),
+// so its margin box has no area to draw into regardless.
+function escapeCssString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, " ");
+}
+
+function RunningHeaderStyle({ docCode }: { docCode: string }) {
+  const code = escapeCssString(docCode);
+  return (
+    <style>{`
+      @page {
+        @top-center {
+          content: "${code} · " counter(page) " of " counter(pages);
+          font-family: "Helvetica Neue", Arial, sans-serif;
+          font-size: 8pt;
+          color: #8c8c8c;
+        }
+      }
+    `}</style>
+  );
+}
+
 /**
  * The shared D1Z page furniture: orange bars, charcoal masthead, footer.
  *
@@ -213,6 +253,7 @@ export function DocumentShell({
 }) {
   return (
     <div className="doc-page">
+      <RunningHeaderStyle docCode={docCode} />
       <div className="doc-bars doc-bars-top">
         <div className="b1" /><div className="b2" /><div className="b3" />
       </div>

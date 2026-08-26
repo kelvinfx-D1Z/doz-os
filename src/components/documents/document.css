@@ -39,12 +39,54 @@
 .doc-totals { background: #232323; color: #fff; padding: 5mm 6mm; }
 .doc-hero { font-size: 20pt; font-weight: 700; letter-spacing: -0.5px; }
 
-@page { size: A4; margin: 0; }
+/*
+ * `.doc-page` is one continuous box that fragments across pages — its
+ * inline size (width) is resolved once, from page 1's containing block, and
+ * does NOT re-shrink to fit a narrower containing block on a later page.
+ * `.doc-body`'s own 16mm left/right padding already keeps every line of
+ * text and every table column comfortably clear of the ~4-6mm unprintable
+ * strip most desktop printers carve out of the sheet, on every page, since
+ * `.doc-page` renders at the same width throughout. So left/right page
+ * margin stays 0 everywhere — giving continuation pages their own nonzero
+ * side margins was tried first and broke exactly this: `.doc-page` kept
+ * page 1's full 210mm width, and the excess overhung the narrower
+ * continuation content area, clipping the Amount column off the sheet.
+ * Confirmed by rendering a real two-page invoice to PDF.
+ *
+ * Top and bottom margin are block-size only — pagination already varies
+ * page to page, so giving continuation pages real top/bottom clearance (for
+ * the unprintable strip, and room for the running header) carries none of
+ * that risk. Page 1 keeps margin 0 on every side, so its masthead and bars
+ * still bleed edge to edge, and its running-header margin box has no area
+ * to draw into regardless (see the inline `<style>` in DocumentShell,
+ * which supplies the actual per-document content for that margin box).
+ */
+@page {
+  size: A4;
+  margin: 16mm 0 10mm;
+}
+
+@page :first {
+  margin: 0;
+}
 
 @media print {
   .no-print { display: none !important; }
   .doc-page { width: auto; min-height: auto; margin: 0; }
-  body { background: #fff; }
+  /*
+   * next-themes sets `style="color-scheme: dark"` inline on <html> for the
+   * app shell's dark theme. Continuation pages have real @page margins (see
+   * below), and Chrome fills that margin area — the print canvas — using
+   * the system "Canvas" colour for the active `color-scheme`, not using
+   * `html`/`body`'s own `background-color`: an explicit white background on
+   * both still left the margin boxes on page 2+ painted near-black, and only
+   * forcing `color-scheme` back to `light` for print fixed it. Confirmed by
+   * isolating the two properties independently and rendering real two-page
+   * PDFs of each. `!important` is required because the inline style attr
+   * otherwise outranks any stylesheet rule, `@media print` included.
+   */
+  html { color-scheme: light !important; }
+  html, body { background: #fff; }
 }
 
 @media screen {
