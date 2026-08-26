@@ -222,7 +222,13 @@ export async function GET() {
         const daysOverdue = inv.dueDate
           ? daysBetween(now, new Date(inv.dueDate))
           : 0;
-        const balance = Math.max(0, inv.amount - inv.amountPaid);
+        // This balance is the figure the founder CHASES: it is interpolated
+        // straight into the WhatsApp and email drafts below. A government
+        // client (MDA) withholds VAT and WHT at source, so the face value
+        // overstates what they owe by the withheld 12.5% — money already
+        // remitted to FIRS on our behalf, not a debt. Dunning them for
+        // `amount` demands cash they are legally not allowed to send.
+        const balance = Math.max(0, collectableAmount(inv) - inv.amountPaid);
         return { inv, daysOverdue, balance };
       })
       .sort((a, b) => b.daysOverdue - a.daysOverdue);
@@ -251,7 +257,9 @@ export async function GET() {
         const daysUntilDue = inv.dueDate
           ? daysBetween(new Date(inv.dueDate), now)
           : 0;
-        const balance = Math.max(0, inv.amount - inv.amountPaid);
+        // Same rule as the overdue list: what is still to collect, not face
+        // value. See the note above.
+        const balance = Math.max(0, collectableAmount(inv) - inv.amountPaid);
         return { inv, daysUntilDue, balance };
       })
       .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
@@ -341,7 +349,10 @@ export async function GET() {
         code: c.invoice.code ?? "—",
         amount: c.invoice.amount,
         amountPaid: c.invoice.amountPaid,
-        balance: Math.max(0, c.invoice.amount - c.invoice.amountPaid),
+        // The residue shown next to a payment awaiting verification. Measured
+        // against collectableAmount so a government invoice the client has
+        // settled in full reads as 0 rather than the withheld 12.5%.
+        balance: Math.max(0, collectableAmount(c.invoice) - c.invoice.amountPaid),
         status: c.invoice.status,
       },
       account: { name: c.account?.name ?? "—" },

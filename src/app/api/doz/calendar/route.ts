@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { collectableAmount } from "@/lib/received-allocation";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -40,7 +41,10 @@ export async function GET() {
     events.push({
       id: inv.id, type: "INVOICE", title: `${inv.code ?? "Invoice"} — ${inv.account?.name ?? "Client"}`, date: inv.dueDate,
       color: "amber",
-      amount: inv.amount - inv.amountPaid,
+      // The amount still to collect on the due date, not the invoice face
+      // value: a government client withholds VAT and WHT at source, so the
+      // withheld 12.5% is never landing in the bank on that date.
+      amount: Math.max(0, collectableAmount(inv) - inv.amountPaid),
     });
   }
   for (const f of followUps) {

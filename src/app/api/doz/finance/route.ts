@@ -59,13 +59,18 @@ export async function GET(req: Request) {
   const outstandingInvoices = effectiveInvoices.filter((i) =>
     ["SENT", "PARTIAL", "OVERDUE"].includes(i.status)
   );
+  // Outstanding/overdue is what clients still OWE, so it must be measured
+  // against what each invoice will actually collect. Government clients (MDAs)
+  // withhold VAT and WHT at source; that portion is a tax credit reclaimed from
+  // FIRS, never a receivable. Using face value inflated both tiles by the
+  // withheld 12.5% on every government invoice.
   const outstandingAmount = outstandingInvoices.reduce(
-    (s, i) => s + (i.amount - i.amountPaid),
+    (s, i) => s + (collectableAmount(i) - i.amountPaid),
     0
   );
   const overdueInvoices = effectiveInvoices.filter((i) => i.status === "OVERDUE");
   const overdueAmount = overdueInvoices.reduce(
-    (s, i) => s + (i.amount - i.amountPaid),
+    (s, i) => s + (collectableAmount(i) - i.amountPaid),
     0
   );
   const overdueCount = overdueInvoices.length;

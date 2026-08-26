@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { geminiChatComplete } from "@/lib/gemini";
 import { getSessionUser } from "@/lib/auth";
+import { collectableAmount } from "@/lib/received-allocation";
 
 // ============================================================
 // AI Chief of Staff — Proactive Morning Briefing (auto-generated)
@@ -44,9 +45,13 @@ async function buildContextSummary() {
   const outstandingInvoices = invoices.filter(
     (i) => i.status === "OVERDUE" || i.status === "PARTIAL" || i.status === "SENT"
   );
-  const outstandingAmount = outstandingInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+  // The assistant quotes these figures back to the founder as receivables, so
+  // they must be what clients actually owe. Government clients (MDAs) withhold
+  // VAT and WHT at source — that 12.5% is reclaimed from FIRS, not chased from
+  // the client — so face value would have the assistant overstate the debt.
+  const outstandingAmount = outstandingInvoices.reduce((s, i) => s + (collectableAmount(i) - i.amountPaid), 0);
   const overdueInvoices = invoices.filter((i) => i.status === "OVERDUE");
-  const overdueAmount = overdueInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+  const overdueAmount = overdueInvoices.reduce((s, i) => s + (collectableAmount(i) - i.amountPaid), 0);
 
   const totalRevenue = invoices.reduce((s, i) => s + i.amountPaid, 0);
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);

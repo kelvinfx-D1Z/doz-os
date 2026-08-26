@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
+import { collectableAmount } from "@/lib/received-allocation";
 
 // CEO Command Center aggregate — company-wide data + per-user `myDay` block.
 // The company-wide payload is what the founder sees. Staff/Interns/Freelancers
@@ -192,9 +193,14 @@ export async function GET() {
   const totalRevenue = invoices.reduce((s, i) => s + i.amountPaid, 0);
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   const outstandingInvoices = invoices.filter((i) => i.status === "OVERDUE" || i.status === "PARTIAL" || i.status === "SENT");
-  const outstandingAmount = outstandingInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+  // Outstanding/overdue is what clients still OWE, so it must be measured
+  // against what each invoice will actually collect. Government clients (MDAs)
+  // withhold VAT and WHT at source; that portion is a tax credit reclaimed from
+  // FIRS, never a receivable. Using face value inflated both tiles by the
+  // withheld 12.5% on every government invoice.
+  const outstandingAmount = outstandingInvoices.reduce((s, i) => s + (collectableAmount(i) - i.amountPaid), 0);
   const overdueInvoices = invoices.filter((i) => i.status === "OVERDUE");
-  const overdueAmount = overdueInvoices.reduce((s, i) => s + (i.amount - i.amountPaid), 0);
+  const overdueAmount = overdueInvoices.reduce((s, i) => s + (collectableAmount(i) - i.amountPaid), 0);
   const cashPosition = totalRevenue - totalExpenses;
 
   const upcoming = [
