@@ -624,6 +624,15 @@ model Invoice {
   vatWithheldAtSource Boolean @default(false)
   grossUpRate Float    @default(0)
   targetNet   Float?
+  // True only for the placeholder invoice reconcileReceived() mints in
+  // /api/doz/projects when a project has no real (Documents-issued) invoice
+  // yet, purely to give a "received" figure somewhere to land. Never set by
+  // the Documents module. Once a project has a real invoice, reconcileReceived
+  // stops minting these and Finance stops counting an existing one once the
+  // project's real invoice goes live (non-DRAFT) - otherwise the same cash
+  // is counted on both rows. Defaults false; legacy rows are backfilled by a
+  // one-off data script, not by this default.
+  isSynthetic Boolean @default(false)
 
   paymentConfirmations PaymentConfirmation[]
   lines       InvoiceLine[]

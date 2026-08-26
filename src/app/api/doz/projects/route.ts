@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 import { MONEY_EPSILON, allocateDelta, collectableAmount } from "@/lib/received-allocation";
 import { nextDocumentCode } from "@/lib/document-code";
+import { isSyntheticInvoice } from "@/lib/invoice-provenance";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -581,11 +582,17 @@ class ReceivedError extends Error {}
  * what ledger entries must exist, then writes the allocation and its audit
  * trail.
  *
- * If the project has no invoice yet, one is created from its revenue figure
- * so the money has somewhere to land — the common case for work invoiced
- * outside the app. If the invoices on file cannot hold the new total, a
- * supplementary invoice is raised for the shortfall (no screen in this app
- * can edit an invoice amount, so refusing would leave the founder stuck).
+ * If the project already has a REAL, Documents-issued invoice, the received
+ * figure is allocated against those real invoices only — a synthetic one is
+ * never minted once real invoicing exists for the project. Only a project
+ * with no real invoice yet gets the synthetic-invoice fallback: one is
+ * created from its revenue figure so the money has somewhere to land (the
+ * common case for work invoiced outside the app), and if what's on file
+ * can't hold the new total a supplementary synthetic invoice is raised for
+ * the shortfall (no screen in this app can edit an invoice amount, so
+ * refusing would leave the founder stuck). See the "stop auto-creating once
+ * a real invoice exists" ruling in
+ * .superpowers/sdd/2026-08-25-client-documents/final-fix-report.md.
  *
  * Runs inside a caller-supplied transaction so the project's own field
  * update and this reconciliation succeed or fail together.
@@ -599,10 +606,16 @@ async function reconcileReceived(
   const project = await tx.project.findUnique({ where: { id: projectId } });
   if (!project) throw new ReceivedError("Project not found.");
 
-  const invoices = await tx.invoice.findMany({
+  const invoicesRaw = await tx.invoice.findMany({
     where: { projectId },
     orderBy: { issuedDate: "asc" },
+    include: { _count: { select: { lines: true } } },
   });
+  // isSyntheticInvoice also falls back to "zero line items" so the four
+  // invoices that existed before the isSynthetic column did are still
+  // classified correctly without a data-migration backfill — see
+  // @/lib/invoice-provenance.
+  const invoices = invoicesRaw.map((i) => ({ ...i, linesCount: i._count.lines }));
 
   async function createInvoice(amount: number) {
     // ONE numbering authority for invoices, shared with the Documents module.
@@ -617,7 +630,7 @@ async function reconcileReceived(
     // such a project should only ever expect the net figure in cash.
     const whtRate = project!.isGovernment ? 5 : 0;
     const whtAmount = whtRate > 0 ? (amount * whtRate) / 100 : 0;
-    return tx.invoice.create({
+    const created = await tx.invoice.create({
       data: {
         code,
         projectId,
@@ -629,30 +642,58 @@ async function reconcileReceived(
         status: "SENT",
         amountPaid: 0,
         issuedDate: new Date(),
+        isSynthetic: true,
       },
     });
+    // synthetic invoices never get line items
+    return { ...created, linesCount: 0, _count: { lines: 0 } };
   }
 
-  // No invoice yet → create one so there's a ledger entry to pay against.
-  if (invoices.length === 0) {
-    if (newTotal === 0) return; // nothing received, nothing to record
-    invoices.push(await createInvoice(Math.max(project.revenue ?? 0, newTotal)));
-  }
+  // A real (Documents-issued) invoice already exists for this project → the
+  // received figure allocates against those real invoices only. Never mint a
+  // synthetic invoice alongside a real one: that is exactly how a project
+  // ends up carrying two invoices for the same money (see Finance finding 1).
+  // Any synthetic invoice the project already carries from before a real one
+  // existed is left untouched here — not deleted, not reallocated — Finance
+  // (dedupeSyntheticInvoices) is what stops it from being double-counted
+  // once a real invoice goes live.
+  const realInvoices = invoices.filter((i) => !isSyntheticInvoice(i));
+  const allocationTarget = realInvoices.length > 0 ? realInvoices : invoices;
 
-  // Not enough invoiced to hold this much money → raise a supplementary
-  // invoice for the shortfall. Appended last, so it is also last in the
-  // oldest-first allocation order below.
-  const invoiceCapacity = invoices.reduce((sum, i) => sum + collectableAmount(i), 0);
-  const shortfall = newTotal - invoiceCapacity;
-  if (shortfall > MONEY_EPSILON) {
-    invoices.push(await createInvoice(shortfall));
+  if (realInvoices.length === 0) {
+    // No real invoice yet → the legacy synthetic-ledger path.
+    // No invoice at all yet → create one so there's a ledger entry to pay against.
+    if (allocationTarget.length === 0) {
+      if (newTotal === 0) return; // nothing received, nothing to record
+      allocationTarget.push(await createInvoice(Math.max(project.revenue ?? 0, newTotal)));
+    }
+
+    // Not enough invoiced to hold this much money → raise a supplementary
+    // synthetic invoice for the shortfall. Appended last, so it is also last
+    // in the oldest-first allocation order below.
+    const invoiceCapacity = allocationTarget.reduce((sum, i) => sum + collectableAmount(i), 0);
+    const shortfall = newTotal - invoiceCapacity;
+    if (shortfall > MONEY_EPSILON) {
+      allocationTarget.push(await createInvoice(shortfall));
+    }
   }
 
   // Delta-only allocation — see @/lib/received-allocation.
-  const { delta, changes, unallocated } = allocateDelta(invoices, newTotal);
+  const { delta, changes, unallocated } = allocateDelta(allocationTarget, newTotal);
   if (delta === 0) return; // no change
 
   if (unallocated > MONEY_EPSILON) {
+    if (realInvoices.length > 0) {
+      // Real invoicing exists — we deliberately do not mint a top-up
+      // invoice here (that would recreate the double-count this function
+      // exists to prevent). The founder needs to raise the rest through
+      // Documents.
+      throw new ReceivedError(
+        `This project's real invoices can't absorb ₦${unallocated.toLocaleString("en-NG")} ` +
+          `of the ₦${newTotal.toLocaleString("en-NG")} received. Issue an additional invoice ` +
+          `through Documents for the difference before recording it as received.`,
+      );
+    }
     // Defensive: the capacity top-up above should make this unreachable.
     throw new ReceivedError(
       `Could not apply ₦${Math.abs(delta).toLocaleString("en-NG")} to this project's invoices.`,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { collectableAmount } from "@/lib/received-allocation";
+import { dedupeSyntheticInvoices } from "@/lib/invoice-provenance";
 
 // Financial Intelligence — profit visibility by project, client & service.
 // All aggregations computed in JS from fetched invoices + expenses + projects + budgets + accounts.
@@ -16,29 +17,47 @@ export async function GET(req: Request) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const [invoices, expenses, projects, budgets, accounts] = await Promise.all([
-    db.invoice.findMany({ include: { account: true, project: true } }),
+    db.invoice.findMany({
+      include: { account: true, project: true, _count: { select: { lines: true } } },
+    }),
     db.expense.findMany({ include: { project: true, vendor: true } }),
     db.project.findMany({ include: { account: true } }),
     db.budget.findMany({ include: { project: true } }),
     db.account.findMany(),
   ]);
 
+  // ------------------------------------------------------------------
+  // DEDUPE: a synthetic invoice (reconcileReceived's placeholder — see
+  // @/lib/invoice-provenance) exists only to give a "received" figure
+  // somewhere to land before the project has a real, Documents-issued
+  // invoice. Once that project's real invoice goes LIVE (anything but
+  // DRAFT), the real invoice is the source of truth and the synthetic row
+  // would double-count the same cash if both were summed. A synthetic
+  // invoice is never created alongside a real one going forward (see
+  // reconcileReceived in /api/doz/projects), but projects that picked up
+  // both before that rule existed still have to report correctly — so the
+  // exclusion is applied here rather than relying on the ledger being clean.
+  // ------------------------------------------------------------------
+  const effectiveInvoices = dedupeSyntheticInvoices(
+    invoices.map((i) => ({ ...i, linesCount: i._count.lines })),
+  );
+
   // =====================================================
   // STATS
   // =====================================================
-  const totalRevenue = invoices.reduce((s, i) => s + i.amountPaid, 0);
+  const totalRevenue = effectiveInvoices.reduce((s, i) => s + i.amountPaid, 0);
   const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
   const grossProfit = totalRevenue - totalExpenses;
   const marginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-  const outstandingInvoices = invoices.filter((i) =>
+  const outstandingInvoices = effectiveInvoices.filter((i) =>
     ["SENT", "PARTIAL", "OVERDUE"].includes(i.status)
   );
   const outstandingAmount = outstandingInvoices.reduce(
     (s, i) => s + (i.amount - i.amountPaid),
     0
   );
-  const overdueInvoices = invoices.filter((i) => i.status === "OVERDUE");
+  const overdueInvoices = effectiveInvoices.filter((i) => i.status === "OVERDUE");
   const overdueAmount = overdueInvoices.reduce(
     (s, i) => s + (i.amount - i.amountPaid),
     0
@@ -47,7 +66,7 @@ export async function GET(req: Request) {
 
   const cashPosition = totalRevenue - totalExpenses;
 
-  const collectedThisMonth = invoices
+  const collectedThisMonth = effectiveInvoices
     .filter((i) => i.paidDate && new Date(i.paidDate) >= monthStart)
     .reduce((s, i) => s + i.amountPaid, 0);
   const paidOutThisMonth = expenses
@@ -80,7 +99,7 @@ export async function GET(req: Request) {
   //     See the "Margin basis" section of the client-documents design spec.
   // ------------------------------------------------------------------
   const projectAgg = new Map<string, { revenue: number; expenses: number }>();
-  for (const inv of invoices) {
+  for (const inv of effectiveInvoices) {
     if (!inv.projectId) continue;
     if (inv.status === "DRAFT") continue;
     const cur = projectAgg.get(inv.projectId) ?? { revenue: 0, expenses: 0 };
@@ -129,7 +148,7 @@ export async function GET(req: Request) {
   >();
   // Same two rules as the project loop above: skip DRAFT (unissued paperwork
   // is not revenue) and measure on collectable cash, not invoice face value.
-  for (const inv of invoices) {
+  for (const inv of effectiveInvoices) {
     if (!inv.accountId) continue;
     if (inv.status === "DRAFT") continue;
     const acct = inv.account ?? accounts.find((a) => a.id === inv.accountId);
@@ -248,7 +267,7 @@ export async function GET(req: Request) {
     months.push({ key, label, start, end });
   }
   const monthlyCashFlow = months.map((m) => {
-    const rev = invoices
+    const rev = effectiveInvoices
       .filter((i) => {
         const d = i.paidDate ?? (i.amountPaid > 0 ? i.issuedDate : null);
         return d && new Date(d) >= m.start && new Date(d) < m.end;
