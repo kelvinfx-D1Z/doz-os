@@ -54,6 +54,7 @@ import {
   MiniBar,
 } from "@/components/doz/ui-primitives";
 import { formatNGN, relativeTime, formatDate, avatarColor } from "@/lib/format";
+import { CLIENT_PORTAL_ENABLED } from "@/lib/feature-flags";
 
 // ---------- types (mirroring API response shape) ----------
 type Stats = {
@@ -592,7 +593,11 @@ export function CrmSales() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {a.portalActive && a.portalToken ? (
+                          {!CLIENT_PORTAL_ENABLED ? (
+                            <span className="text-[10px] text-muted-foreground">
+                              Portal off — send documents by email
+                            </span>
+                          ) : a.portalActive && a.portalToken ? (
                             <Button
                               size="sm"
                               variant="outline"

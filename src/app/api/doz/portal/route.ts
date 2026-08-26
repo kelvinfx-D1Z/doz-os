@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { collectableAmount } from "@/lib/received-allocation";
+import { CLIENT_PORTAL_ENABLED } from "@/lib/feature-flags";
 
 // ============================================================
 // Client Portal API (DOZ OS — Task P3-C)
@@ -44,6 +45,14 @@ async function resolveAccountByToken(
 
 // ---------- GET ----------
 export async function GET(req: Request) {
+  // Kill switch: the founder downloads documents and emails them directly,
+  // clients never touch the OS. Respond exactly as an invalid token would —
+  // same shape, same status — so this endpoint doesn't tell a caller
+  // whether the portal is off or their token is simply wrong.
+  if (!CLIENT_PORTAL_ENABLED) {
+    return NextResponse.json({ error: "invalid_token" }, { status: 404 });
+  }
+
   const url = new URL(req.url);
   const token = url.searchParams.get("token")?.trim();
 
@@ -193,6 +202,12 @@ export async function GET(req: Request) {
 
 // ---------- POST ----------
 export async function POST(req: Request) {
+  // Kill switch: see the GET handler above. Mirror invalid-token handling
+  // (same status, same body) rather than a distinct "disabled" response.
+  if (!CLIENT_PORTAL_ENABLED) {
+    return NextResponse.json({ error: "invalid_token" }, { status: 401 });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
