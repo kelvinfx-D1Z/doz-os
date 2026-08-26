@@ -13,65 +13,39 @@ export type ServiceCatalogueCategory = {
   items: { id: string; name: string }[];
 };
 
-// A per-line description field that suggests D1Z's service catalogue without
-// ever forcing a pick. The visible input IS the description — typing updates
-// the real line value directly, so a founder who types something not in the
-// catalogue never has to "confirm" anything: it's already there. Picking a
-// catalogue item additionally fills the section with its department. The
-// list is filtered ourselves (same substring match ServicePicker uses) with
-// shouldFilter={false} on Command, since the field driving the search is a
-// plain styled Input outside Command's own CommandInput, not cmdk's search box.
-export function DescriptionCombobox({
+// Shared popover/keyboard mechanics for a free-typeable field that suggests
+// catalogue picks without ever forcing one. This was extracted out of what
+// used to be a single description-only component so that the Section field
+// (section-combobox.tsx) can reuse it verbatim instead of re-solving the
+// same Radix quirks a second time. The list content itself (what's inside
+// CommandList) is left to the caller via `children` — Section's list is a
+// flat department list, Description's is grouped-by-department — but the
+// open/close/focus wiring below is identical for both and must stay that way.
+export function ComboboxField({
   value,
   onChange,
-  onPick,
-  categories,
+  open,
+  onOpenChange,
   placeholder,
   className,
+  children,
 }: {
   value: string;
-  onChange: (description: string) => void;
-  onPick: (description: string, section: string) => void;
-  categories: ServiceCatalogueCategory[] | null;
+  onChange: (v: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   placeholder?: string;
   className?: string;
+  children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /** Did this event originate from our own input? */
   const isOwnInput = (target: EventTarget | null) =>
     target instanceof Node && inputRef.current?.contains(target) === true;
 
-  const filtered = useMemo(() => {
-    if (!categories) return [];
-    const q = value.trim().toLowerCase();
-    if (!q) return categories;
-    return categories
-      .map((c) => ({ ...c, items: c.items.filter((i) => i.name.toLowerCase().includes(q)) }))
-      .filter((c) => c.items.length > 0);
-  }, [categories, value]);
-
-  // No catalogue yet (still loading) or the fetch failed/returned nothing —
-  // degrade to a plain input rather than block the founder from typing.
-  if (!categories || categories.length === 0) {
-    return (
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "Description"}
-        className={cn("h-8", className)}
-      />
-    );
-  }
-
-  const trimmed = value.trim();
-  const exactMatch = categories.some((c) =>
-    c.items.some((i) => i.name.toLowerCase() === trimmed.toLowerCase()),
-  );
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <Command shouldFilter={false} className="overflow-visible bg-transparent">
         <PopoverAnchor asChild>
           <Input
@@ -87,14 +61,14 @@ export function DescriptionCombobox({
             //     list impossible to dismiss with Escape or a pick.
             onChange={(e) => {
               onChange(e.target.value);
-              setOpen(true);
+              onOpenChange(true);
             }}
-            onClick={() => setOpen(true)}
+            onClick={() => onOpenChange(true)}
             onKeyDown={(e) => {
-              if (e.key === "ArrowDown") setOpen(true);
-              if (e.key === "Escape") setOpen(false);
+              if (e.key === "ArrowDown") onOpenChange(true);
+              if (e.key === "Escape") onOpenChange(false);
             }}
-            placeholder={placeholder ?? "Description — type or pick from catalogue"}
+            placeholder={placeholder}
             className={cn("h-8", className)}
             autoComplete="off"
           />
@@ -117,38 +91,121 @@ export function DescriptionCombobox({
             if (isOwnInput(e.target)) e.preventDefault();
           }}
         >
-          <CommandList className="max-h-[280px]">
-            {trimmed.length > 0 && !exactMatch && (
-              <CommandGroup heading="Custom">
-                <CommandItem
-                  value={`__custom__${trimmed}`}
-                  onSelect={() => setOpen(false)}
-                  className="italic"
-                >
-                  Use &ldquo;{trimmed}&rdquo; as typed
-                </CommandItem>
-              </CommandGroup>
-            )}
-            {filtered.map((cat) => (
-              <CommandGroup key={cat.id} heading={cat.icon ? `${cat.icon} ${cat.name}` : cat.name}>
-                {cat.items.map((item) => (
-                  <CommandItem
-                    key={item.id}
-                    value={item.id}
-                    onSelect={() => {
-                      onPick(item.name, cat.name);
-                      setOpen(false);
-                    }}
-                  >
-                    {item.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
-            <CommandEmpty>Nothing matches — keep typing, it&apos;s used as typed.</CommandEmpty>
-          </CommandList>
+          <CommandList className="max-h-[280px]">{children}</CommandList>
         </PopoverContent>
       </Command>
     </Popover>
+  );
+}
+
+// A per-line description field that suggests D1Z's service catalogue without
+// ever forcing a pick. The visible input IS the description — typing updates
+// the real line value directly, so a founder who types something not in the
+// catalogue never has to "confirm" anything: it's already there. Picking a
+// catalogue item additionally fills the section with its department. The
+// list is filtered ourselves (same substring match ServicePicker uses) with
+// shouldFilter={false} on Command, since the field driving the search is a
+// plain styled Input outside Command's own CommandInput, not cmdk's search box.
+//
+// `section` cascades the list: when it matches a catalogue department
+// (case-insensitively), only that department's items are shown, ungrouped
+// (a single-department heading would be redundant). Empty or unmatched
+// section falls back to every department, grouped — the list is never left
+// empty because of a section the founder typed freehand.
+export function DescriptionCombobox({
+  value,
+  onChange,
+  onPick,
+  categories,
+  section,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (description: string) => void;
+  onPick: (description: string, section: string) => void;
+  categories: ServiceCatalogueCategory[] | null;
+  section: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const scoped = useMemo(() => {
+    if (!categories) return null;
+    const dept = section.trim().toLowerCase();
+    if (!dept) return null;
+    return categories.find((c) => c.name.toLowerCase() === dept) ?? null;
+  }, [categories, section]);
+
+  const filtered = useMemo(() => {
+    if (!categories) return [];
+    const pool = scoped ? [scoped] : categories;
+    const q = value.trim().toLowerCase();
+    if (!q) return pool;
+    return pool
+      .map((c) => ({ ...c, items: c.items.filter((i) => i.name.toLowerCase().includes(q)) }))
+      .filter((c) => c.items.length > 0);
+  }, [categories, value, scoped]);
+
+  // No catalogue yet (still loading) or the fetch failed/returned nothing —
+  // degrade to a plain input rather than block the founder from typing.
+  if (!categories || categories.length === 0) {
+    return (
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? "Description"}
+        className={cn("h-8", className)}
+      />
+    );
+  }
+
+  const trimmed = value.trim();
+  const exactMatch = categories.some((c) =>
+    c.items.some((i) => i.name.toLowerCase() === trimmed.toLowerCase()),
+  );
+
+  return (
+    <ComboboxField
+      value={value}
+      onChange={onChange}
+      open={open}
+      onOpenChange={setOpen}
+      placeholder={placeholder ?? "Description — type or pick from catalogue"}
+      className={className}
+    >
+      {trimmed.length > 0 && !exactMatch && (
+        <CommandGroup heading="Custom">
+          <CommandItem
+            value={`__custom__${trimmed}`}
+            onSelect={() => setOpen(false)}
+            className="italic"
+          >
+            Use &ldquo;{trimmed}&rdquo; as typed
+          </CommandItem>
+        </CommandGroup>
+      )}
+      {filtered.map((cat) => (
+        <CommandGroup
+          key={cat.id}
+          heading={scoped ? undefined : cat.icon ? `${cat.icon} ${cat.name}` : cat.name}
+        >
+          {cat.items.map((item) => (
+            <CommandItem
+              key={item.id}
+              value={item.id}
+              onSelect={() => {
+                onPick(item.name, cat.name);
+                setOpen(false);
+              }}
+            >
+              {item.name}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      ))}
+      <CommandEmpty>Nothing matches — keep typing, it&apos;s used as typed.</CommandEmpty>
+    </ComboboxField>
   );
 }

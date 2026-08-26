@@ -19,6 +19,7 @@ import { computeTax, lineAmount, sumLines, VAT_RATE } from "@/lib/document-math"
 import { applyGrossUp } from "@/lib/document-request";
 import { ClientSelect } from "@/components/modules/projects-events";
 import { DescriptionCombobox, type ServiceCatalogueCategory } from "@/components/modules/documents/description-combobox";
+import { SectionCombobox } from "@/components/modules/documents/section-combobox";
 
 // The document builder — one dialog, two outcomes (quotation or invoice).
 // Every number shown here comes from the same pure helpers the API uses
@@ -362,11 +363,11 @@ export function DocumentBuilder({
                   {lines.map((l) => (
                     <TableRow key={l.key}>
                       <TableCell>
-                        <Input
+                        <SectionCombobox
                           value={l.section}
-                          onChange={(e) => updateLine(l.key, { section: e.target.value })}
+                          onChange={(section) => updateLine(l.key, { section })}
+                          categories={serviceCatalogue}
                           placeholder="Section"
-                          className="h-8"
                         />
                       </TableCell>
                       <TableCell>
@@ -374,8 +375,17 @@ export function DocumentBuilder({
                           <DescriptionCombobox
                             value={l.description}
                             onChange={(description) => updateLine(l.key, { description })}
-                            onPick={(description, section) => updateLine(l.key, { description, section })}
+                            onPick={(description, section) =>
+                              updateLine(l.key, {
+                                description,
+                                // Back-fill only when Section is still empty —
+                                // once the founder has set it, picking a
+                                // description must not overwrite their choice.
+                                ...(l.section.trim() ? {} : { section }),
+                              })
+                            }
                             categories={serviceCatalogue}
+                            section={l.section}
                             placeholder="Description"
                           />
                           <Input
