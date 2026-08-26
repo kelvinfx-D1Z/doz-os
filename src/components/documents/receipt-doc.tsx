@@ -7,6 +7,7 @@ import {
   formatDay,
   type CompanyInfo,
 } from "./document-shell";
+import { MONEY_EPSILON } from "@/lib/received-allocation";
 
 export type ReceiptDocData = {
   code: string;
@@ -54,7 +55,11 @@ export function ReceiptDoc({
   invoice: ReceiptInvoiceRef;
   company: CompanyInfo;
 }) {
-  const settled = receipt.balanceAfter <= 0;
+  // Compared against the epsilon, not against 0. A grossed-up government
+  // invoice leaves sub-naira float residue behind, and `<= 0` would fail on a
+  // balance of 0.0000001 — printing "Balance outstanding: ₦0" on a document
+  // that goes to the client, where it should read "Paid in full".
+  const settled = receipt.balanceAfter <= MONEY_EPSILON;
   const payer = invoice?.account?.name ?? null;
 
   return (

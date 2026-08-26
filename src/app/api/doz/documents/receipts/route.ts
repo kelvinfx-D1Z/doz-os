@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
-import { collectableAmount, invoiceStatusFor } from "@/lib/received-allocation";
+import { collectableAmount, invoiceStatusFor, MONEY_EPSILON } from "@/lib/received-allocation";
 
 export async function GET() {
   const user = await getSessionUser();
@@ -49,14 +49,47 @@ export async function POST(req: Request) {
     );
   }
 
-  const invoice = await db.invoice.findUnique({ where: { id: body.invoiceId } });
-  if (!invoice) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const collectable = collectableAmount(invoice);
-  const paidAfter = invoice.amountPaid + amount;
-  const balanceAfter = Math.max(0, collectable - paidAfter);
-
+  // Everything below — the read, the arithmetic and the write — happens INSIDE
+  // one transaction, and the invoice is re-read here rather than before it.
+  //
+  // This is a read-modify-write on money. Reading amountPaid outside the
+  // transaction and later writing an ABSOLUTE value back means two payments
+  // recorded close together (two tabs, a double-click that beats the UI guard,
+  // the founder and a delegated user at once) both read amountPaid = 0 and
+  // both write the same absolute figure. Two receipts get issued, each
+  // printing a balance as if the other did not exist, and one payment simply
+  // vanishes from the ledger — and from the project's derived "received",
+  // which is sum(amountPaid).
   const result = await db.$transaction(async (tx) => {
+    const exists = await tx.invoice.findUnique({
+      where: { id: body.invoiceId },
+      select: { id: true },
+    });
+    if (!exists) return null;
+
+    // The increment is what makes this safe, not merely being inside the
+    // transaction: under Postgres' default READ COMMITTED isolation two
+    // concurrent transactions can still each READ amountPaid = 0. `increment`
+    // is applied by the database as `amountPaid = amountPaid + $1`, which
+    // takes a row lock — the second writer blocks until the first commits and
+    // then adds to the committed value. `invoice` below therefore holds the
+    // TRUE post-payment figure, and its status/paidDate are still the
+    // pre-payment ones this update did not touch, which is exactly what
+    // invoiceStatusFor needs.
+    const invoice = await tx.invoice.update({
+      where: { id: body.invoiceId },
+      data: { amountPaid: { increment: amount } },
+    });
+
+    const collectable = collectableAmount(invoice);
+    const paidAfter = invoice.amountPaid;
+    const rawBalance = collectable - paidAfter;
+    // Snap sub-naira residue to zero before storing. Float arithmetic on a
+    // grossed-up government invoice leaves fractions of a kobo behind, and a
+    // stored 0.0000001 makes the client-facing receipt print "Balance
+    // outstanding: ₦0" where it should say the account is settled.
+    const balanceAfter = rawBalance > MONEY_EPSILON ? rawBalance : 0;
+
     const code = await nextDocumentCode(tx, "REC");
     const receipt = await tx.receipt.create({
       data: {
@@ -81,12 +114,15 @@ export async function POST(req: Request) {
       invoice.status,
       invoice.paidDate,
     );
+    // amountPaid is deliberately NOT written again here — it was already moved
+    // atomically above. Writing the absolute value back is the bug.
     const updated = await tx.invoice.update({
       where: { id: invoice.id },
-      data: { amountPaid: paidAfter, status, paidDate },
+      data: { status, paidDate },
     });
     return { receipt, invoice: updated };
   });
 
+  if (!result) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.json(result, { status: 201 });
 }
