@@ -709,7 +709,7 @@ function NewProjectButton({ onClick, label = "New Project" }: { onClick: () => v
 // Loads accounts from the CRM endpoint and lets the founder create a client
 // inline when the one they need isn't in the list yet — the new client is
 // selected immediately, so they never have to leave the project form.
-function ClientSelect({
+export function ClientSelect({
   id,
   value,
   onChange,

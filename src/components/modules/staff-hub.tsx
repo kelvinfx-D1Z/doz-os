@@ -34,6 +34,7 @@ import {
   LayoutDashboard, Repeat, Smartphone,
   Megaphone, Clapperboard, Truck, Wallet,
   UserCog, BookOpen, HelpCircle, Package, Users2,
+  FileText,
 } from "lucide-react";
 
 type ModuleEntry = {
@@ -54,6 +55,7 @@ const MODULE_CATALOG: ModuleEntry[] = [
   { id: "projects", label: "Projects & Events", icon: <Clapperboard className="h-3.5 w-3.5" />, group: "Deliver" },
   { id: "procurement", label: "Procurement", icon: <Truck className="h-3.5 w-3.5" />, group: "Deliver" },
   { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-3.5 w-3.5" />, group: "Control" },
+  { id: "documents", label: "Documents", icon: <FileText className="h-3.5 w-3.5" />, group: "Control" },
   { id: "team", label: "Team Management", icon: <UserCog className="h-3.5 w-3.5" />, group: "Control" },
   { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-3.5 w-3.5" />, group: "Control" },
   { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-3.5 w-3.5" />, group: "Scale" },

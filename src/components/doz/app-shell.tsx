@@ -31,6 +31,7 @@ import {
   KeyRound,
   Eye,
   Building2,
+  FileText,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -50,6 +51,7 @@ import { UpdatesPage } from "@/components/modules/updates-page";
 import { MyProfile } from "@/components/modules/my-profile";
 import { Messages } from "@/components/modules/messages";
 import { Vendors } from "@/components/modules/vendors";
+import { DocumentsModule } from "@/components/modules/documents";
 import { DidiBubble } from "@/components/doz/didi-bubble";
 import { ChangeOwnPasswordDialog } from "@/components/doz/change-own-password-dialog";
 import { ViewAsBanner, ViewAsDialog } from "@/components/doz/view-as";
@@ -101,6 +103,7 @@ const NAV: NavItem[] = [
   { id: "vendors", label: "Vendors", icon: <Boxes className="h-4 w-4" />, group: "Deliver" },
   { id: "procurement", label: "Procurement", icon: <Truck className="h-4 w-4" />, group: "Deliver" },
   { id: "finance", label: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, group: "Control" },
+  { id: "documents", label: "Documents", icon: <FileText className="h-4 w-4" />, group: "Control" },
   { id: "team", label: "Team Management", icon: <UserCog className="h-4 w-4" />, group: "Control" },
   { id: "staff-hub", label: "Staff Hub", icon: <Users className="h-4 w-4" />, group: "Control" },
   { id: "sop", label: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, group: "Scale" },
@@ -121,7 +124,7 @@ const NAV: NavItem[] = [
 //       OVERRIDES these role-based defaults. The founder can grant any
 //       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors"],
+  FOUNDER: ["command", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors", "documents"],
   STAFF: ["command", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
   INTERN: ["command", "field", "sop", "help", "profile", "messages"],
   FREELANCER: ["command", "field", "projects", "help", "profile", "messages"],
@@ -165,11 +168,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   profile: <MyProfile />,
   messages: <Messages />,
   vendors: <Vendors />,
-  // Placeholder only — the "documents" module is not yet in NAV or
-  // ROLE_MODULES, so this entry is unreachable. It exists purely to satisfy
-  // the Record<ModuleId, ...> exhaustiveness check now that "documents" is a
-  // valid ModuleId. Task 11 wires the real nav entry and view.
-  documents: null,
+  documents: <DocumentsModule />,
 };
 
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
@@ -191,8 +190,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   vendors: { title: "Vendors", subtitle: "Suppliers and what they are owed per project" },
   messages: { title: "Messages", subtitle: "Direct messages with your team" },
   marketing: { title: "Marketing & Growth", subtitle: "Turn referrals into a predictable lead engine" },
-  // Placeholder — see MODULES.documents above. Unreachable until Task 11.
-  documents: { title: "Documents", subtitle: "" },
+  documents: { title: "Documents", subtitle: "Quotations, invoices and receipts, ready to send" },
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -254,7 +252,14 @@ export function AppShell() {
 
   const role = user.role;
   const allowed = resolveAllowedModules(role, user.permissions);
-  const visibleNav = NAV.filter((n) => allowed.includes(n.id));
+  // Money is FOUNDER-only. This mirrors canIssueDocuments() on the server:
+  // the founder always sees Documents, everyone else only if explicitly
+  // granted the "documents" permission — regardless of what a custom
+  // permissions override otherwise resolves to.
+  const canSeeDocuments = role === "FOUNDER" || (user.permissions ?? []).includes("documents");
+  const visibleNav = NAV.filter(
+    (n) => allowed.includes(n.id) && (n.id !== "documents" || canSeeDocuments),
+  );
 
   // If the active module isn't allowed for this role, fall back to command
   const effectiveModule = allowed.includes(activeModule) ? activeModule : "command";

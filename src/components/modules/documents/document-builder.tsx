@@ -1,0 +1,488 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Loader2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { formatNGN as naira } from "@/lib/format";
+import { computeTax, lineAmount, sumLines, grossUpSubtotal, VAT_RATE } from "@/lib/document-math";
+import { ClientSelect } from "@/components/modules/projects-events";
+
+// The document builder — one dialog, two outcomes (quotation or invoice).
+// Every number shown here comes from the same pure helpers the API uses
+// (document-math.ts) so what the founder previews is exactly what gets
+// stored: no second formula living in the client.
+
+type DocType = "QUOTATION" | "INVOICE";
+
+interface BuilderLine {
+  key: string;
+  section: string;
+  description: string;
+  subDescription: string;
+  quantity: string;
+  days: string;
+  unitPrice: string;
+}
+
+function emptyLine(): BuilderLine {
+  return {
+    key: Math.random().toString(36).slice(2),
+    section: "",
+    description: "",
+    subDescription: "",
+    quantity: "1",
+    days: "1",
+    unitPrice: "",
+  };
+}
+
+interface ProjectOption {
+  id: string;
+  name: string;
+}
+
+const NO_PROJECT = "__none__";
+
+export function DocumentBuilder({
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [docType, setDocType] = useState<DocType>("QUOTATION");
+  const [accountId, setAccountId] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [title, setTitle] = useState("");
+  const [eventStart, setEventStart] = useState("");
+  const [eventEnd, setEventEnd] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [validUntil, setValidUntil] = useState("");
+  const [lines, setLines] = useState<BuilderLine[]>([emptyLine()]);
+  const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">("SUMMARY");
+  const [government, setGovernment] = useState(false);
+  const [grossUpTarget, setGrossUpTarget] = useState("");
+  const [discount, setDiscount] = useState("");
+  const [vatRate, setVatRate] = useState(String(VAT_RATE));
+  const [saving, setSaving] = useState(false);
+
+  // Loaded once on mount, like ClientSelect's own account fetch — this
+  // component stays mounted (only <DialogContent> hides), so a plain effect
+  // with setState in its .then() continuation is safe and lint-clean.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/doz/projects")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setProjects(
+          (d.projects ?? []).map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })),
+        );
+      })
+      .catch(() => {
+        /* non-fatal — the picker just stays empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function updateLine(key: string, patch: Partial<BuilderLine>) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  function addLine() {
+    setLines((prev) => [...prev, emptyLine()]);
+  }
+  function removeLine(key: string) {
+    setLines((prev) => (prev.length > 1 ? prev.filter((l) => l.key !== key) : prev));
+  }
+
+  function toggleGovernment(checked: boolean) {
+    setGovernment(checked);
+    if (!checked) setGrossUpTarget("");
+  }
+
+  const numericLines = lines.map((l) => ({
+    section: l.section.trim() || null,
+    description: l.description,
+    subDescription: l.subDescription.trim() || null,
+    quantity: Number(l.quantity) || 0,
+    days: Number(l.days) || 0,
+    unitPrice: Number(l.unitPrice) || 0,
+  }));
+
+  const discountNum = Number(discount) || 0;
+  const vatRateNum = vatRate === "" ? VAT_RATE : Number(vatRate) || 0;
+  const whtRateNum = government ? 5 : 0;
+  const currentSubtotal = sumLines(numericLines);
+  const currentTax = computeTax({
+    subtotal: currentSubtotal,
+    discount: discountNum,
+    vatRate: vatRateNum,
+    whtRate: whtRateNum,
+    vatWithheldAtSource: government,
+  });
+
+  const targetNetNum = Number(grossUpTarget) || 0;
+  const preview =
+    government && targetNetNum > 0
+      ? computeTax({
+          subtotal: grossUpSubtotal(targetNetNum, whtRateNum),
+          discount: discountNum,
+          vatRate: vatRateNum,
+          whtRate: whtRateNum,
+          vatWithheldAtSource: true,
+        })
+      : null;
+
+  function reset() {
+    setDocType("QUOTATION");
+    setAccountId("");
+    setProjectId("");
+    setTitle("");
+    setEventStart("");
+    setEventEnd("");
+    setDueDate("");
+    setValidUntil("");
+    setLines([emptyLine()]);
+    setDetailLevel("SUMMARY");
+    setGovernment(false);
+    setGrossUpTarget("");
+    setDiscount("");
+    setVatRate(String(VAT_RATE));
+  }
+
+  async function submit() {
+    if (saving) return;
+    const validLines = numericLines.filter((l) => l.description.trim().length > 0);
+    if (validLines.length === 0) {
+      toast.error("Add at least one line with a description");
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        lines: validLines,
+        projectId: projectId || undefined,
+        accountId: accountId || undefined,
+        title: title.trim() || undefined,
+        eventStart: eventStart || undefined,
+        eventEnd: eventEnd || undefined,
+        detailLevel,
+        discount: discountNum,
+        vatRate: vatRateNum,
+        whtRate: whtRateNum,
+        vatWithheldAtSource: government,
+        targetNet: government && targetNetNum > 0 ? targetNetNum : undefined,
+      };
+      if (docType === "QUOTATION") {
+        body.validUntil = validUntil || undefined;
+      } else {
+        body.dueDate = dueDate || undefined;
+      }
+
+      const endpoint =
+        docType === "QUOTATION" ? "/api/doz/documents/quotations" : "/api/doz/documents/invoices";
+      const r = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      const code = docType === "QUOTATION" ? j.quotation?.code : j.invoice?.code;
+      toast.success(`${docType === "QUOTATION" ? "Quotation" : "Invoice"} ${code ?? ""} created`.trim());
+      reset();
+      onOpenChange(false);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save document", { duration: 8000 });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[760px]">
+        <DialogHeader>
+          <DialogTitle>New document</DialogTitle>
+          <DialogDescription>Build a quotation or invoice — the numbers here are exactly what gets stored.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-type">Document type</Label>
+              <Select value={docType} onValueChange={(v) => setDocType(v as DocType)}>
+                <SelectTrigger id="doc-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="QUOTATION">Quotation</SelectItem>
+                  <SelectItem value="INVOICE">Invoice</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-client">Client</Label>
+              <ClientSelect id="doc-client" value={accountId} onChange={setAccountId} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-project">Project (optional)</Label>
+              <Select
+                value={projectId || NO_PROJECT}
+                onValueChange={(v) => setProjectId(v === NO_PROJECT ? "" : v)}
+              >
+                <SelectTrigger id="doc-project"><SelectValue placeholder="No project" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT}>No project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-title">Title</Label>
+              <Input id="doc-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-event-start">Event start</Label>
+              <Input id="doc-event-start" type="date" value={eventStart} onChange={(e) => setEventStart(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-event-end">Event end</Label>
+              <Input id="doc-event-end" type="date" value={eventEnd} onChange={(e) => setEventEnd(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-due">{docType === "QUOTATION" ? "Valid until" : "Due date"}</Label>
+              <Input
+                id="doc-due"
+                type="date"
+                value={docType === "QUOTATION" ? validUntil : dueDate}
+                onChange={(e) =>
+                  docType === "QUOTATION" ? setValidUntil(e.target.value) : setDueDate(e.target.value)
+                }
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Line items</Label>
+              <Button type="button" size="sm" variant="outline" className="h-7 gap-1" onClick={addLine}>
+                <Plus className="h-3.5 w-3.5" /> Add row
+              </Button>
+            </div>
+            <div className="overflow-x-auto rounded-md border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-32">Section</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="w-16">Qty</TableHead>
+                    <TableHead className="w-16">Days</TableHead>
+                    <TableHead className="w-28">Unit price</TableHead>
+                    <TableHead className="w-28 text-right">Amount</TableHead>
+                    <TableHead className="w-8" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((l) => (
+                    <TableRow key={l.key}>
+                      <TableCell>
+                        <Input
+                          value={l.section}
+                          onChange={(e) => updateLine(l.key, { section: e.target.value })}
+                          placeholder="Section"
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <Input
+                            value={l.description}
+                            onChange={(e) => updateLine(l.key, { description: e.target.value })}
+                            placeholder="Description"
+                            className="h-8"
+                          />
+                          <Input
+                            value={l.subDescription}
+                            onChange={(e) => updateLine(l.key, { subDescription: e.target.value })}
+                            placeholder="Sub-description (optional)"
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={l.quantity}
+                          onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                          inputMode="numeric"
+                          className="h-8 w-16"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={l.days}
+                          onChange={(e) => updateLine(l.key, { days: e.target.value })}
+                          inputMode="numeric"
+                          className="h-8 w-16"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={l.unitPrice}
+                          onChange={(e) => updateLine(l.key, { unitPrice: e.target.value })}
+                          inputMode="decimal"
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-medium">
+                        {naira(
+                          lineAmount({
+                            quantity: Number(l.quantity) || 0,
+                            days: Number(l.days) || 0,
+                            unitPrice: Number(l.unitPrice) || 0,
+                          }),
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => removeLine(l.key)}
+                          disabled={lines.length <= 1}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Detail level</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={detailLevel === "SUMMARY" ? "default" : "outline"}
+                onClick={() => setDetailLevel("SUMMARY")}
+              >
+                Summary
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={detailLevel === "ITEMISED" ? "default" : "outline"}
+                onClick={() => setDetailLevel("ITEMISED")}
+              >
+                Itemised
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Summary groups lines by section. Itemised shows every line — use it for clients who ask for the full breakdown.
+            </p>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <div className="flex items-center gap-2">
+              <Checkbox id="doc-gov" checked={government} onCheckedChange={(v) => toggleGovernment(v === true)} />
+              <Label htmlFor="doc-gov" className="cursor-pointer text-sm font-normal">
+                Client withholds tax at source (government/MDA)
+              </Label>
+            </div>
+            {government && (
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="doc-grossup">Amount this job must bring in</Label>
+                <Input
+                  id="doc-grossup"
+                  inputMode="decimal"
+                  value={grossUpTarget}
+                  onChange={(e) => setGrossUpTarget(e.target.value)}
+                  placeholder="e.g. 15000000"
+                />
+                {preview && (
+                  <p className="text-xs text-muted-foreground">
+                    Invoice total {naira(preview.total)} · cash landing {naira(preview.expectedCash)}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-discount">Discount (NGN)</Label>
+              <Input id="doc-discount" inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-vat">VAT rate (%)</Label>
+              <Input id="doc-vat" inputMode="decimal" value={vatRate} onChange={(e) => setVatRate(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span>{naira(currentSubtotal)}</span>
+            </div>
+            {discountNum > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Discount</span>
+                <span>-{naira(discountNum)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">VAT ({vatRateNum}%)</span>
+              <span>{naira(currentTax.vat)}</span>
+            </div>
+            <div className="flex justify-between border-t border-border pt-1 font-semibold">
+              <span>Total</span>
+              <span>{naira(currentTax.total)}</span>
+            </div>
+            {government && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Cash landing (internal only — never printed)</span>
+                <span>{naira(currentTax.expectedCash)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" onClick={submit} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {docType === "QUOTATION" ? "Create quotation" : "Create invoice"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
