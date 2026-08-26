@@ -575,7 +575,12 @@ model Approval {
 
 model Invoice {
   id          String   @id @default(cuid())
-  code        String?  // INV-2025-001
+  // Unique because TWO code paths mint invoice numbers into this one
+  // namespace: the Documents module and reconcileReceived() in
+  // /api/doz/projects. Both now draw from the same DocumentSequence, and this
+  // constraint is the database making sure they can never silently diverge
+  // again — a duplicated invoice number is an audit problem.
+  code        String?  @unique // INV-2025-001
   projectId   String?
   project     Project? @relation(fields: [projectId], references: [id])
   accountId   String?
@@ -611,7 +616,11 @@ model Invoice {
   eventStart  DateTime?
   eventEnd    DateTime?
   paymentTerms String?
-  quotationId String?
+  // Unique so the database enforces conversion idempotency: a quotation
+  // converts to exactly one invoice. The check in the convert route happens
+  // outside its transaction, so two simultaneous converts could otherwise
+  // create two invoices from one quotation.
+  quotationId String?  @unique
   vatWithheldAtSource Boolean @default(false)
   grossUpRate Float    @default(0)
   targetNet   Float?

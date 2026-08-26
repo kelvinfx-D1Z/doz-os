@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 import { MONEY_EPSILON, allocateDelta, collectableAmount } from "@/lib/received-allocation";
+import { nextDocumentCode } from "@/lib/document-code";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -604,15 +605,21 @@ async function reconcileReceived(
   });
 
   async function createInvoice(amount: number) {
-    const year = new Date().getFullYear();
-    const count = await tx.invoice.count();
+    // ONE numbering authority for invoices, shared with the Documents module.
+    // This used to mint `INV-${year}-${count()+1}` from a global row count,
+    // which is a different series from the DocumentSequence the Documents
+    // builder draws on — two schemes minting into a single namespace, so the
+    // first Documents invoice of a year would eventually collide with an
+    // invoice raised here. nextDocumentCode reserves atomically inside `tx`,
+    // so a rolled-back reconciliation does not burn a number either.
+    const code = await nextDocumentCode(tx, "INV");
     // Government clients withhold 5% at source, so an auto-created invoice for
     // such a project should only ever expect the net figure in cash.
     const whtRate = project!.isGovernment ? 5 : 0;
     const whtAmount = whtRate > 0 ? (amount * whtRate) / 100 : 0;
     return tx.invoice.create({
       data: {
-        code: `INV-${year}-${String(count + 1).padStart(3, "0")}`,
+        code,
         projectId,
         accountId: project!.accountId,
         amount,
