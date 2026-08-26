@@ -21,9 +21,9 @@
 }
 
 .doc-bars { display: flex; height: 5mm; }
-.doc-bars-top .b1 { width: 22%; background: #d2570e; }
-.doc-bars-top .b2 { width: 9%; background: #e8681c; }
-.doc-bars-top .b3 { width: 7%; background: #f29222; }
+.doc-bars .b1 { width: 22%; background: #d2570e; }
+.doc-bars .b2 { width: 9%; background: #e8681c; }
+.doc-bars .b3 { width: 7%; background: #f29222; }
 .doc-bars-bottom { flex-direction: row-reverse; }
 
 .doc-footer {
