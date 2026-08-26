@@ -204,6 +204,22 @@ export type ReceivedPlan = {
  * that is the contract in @/lib/received-allocation, and passing a
  * project-wide total against a narrowed list is exactly the bug this
  * replaces.
+ *
+ * `realCapacity` floors EACH real invoice at whatever it ALREADY holds, not
+ * just at `collectableAmount`. An MDA that pays the gross instead of
+ * withholding leaves a real invoice with `amountPaid > collectableAmount` —
+ * legitimate cash the client actually sent against that specific invoice.
+ * Without the floor, `realTarget` would sit below what the real invoices
+ * already hold, and `allocateDelta` would dutifully try to unwind the
+ * "overflow" onto the synthetic rows (or, with none present, report it as
+ * unallocated) even when `total` has not changed at all. That is both the
+ * doubled-`unallocated` bug (the same overpayment gets treated as overflow
+ * in both the migration and payment stages) and the silent-sweep bug
+ * (genuine client cash migrating off a real invoice, desyncing it from its
+ * `Receipt` rows). Overpayment is a state to hold, not a shortfall to
+ * resolve — the floor only ever widens capacity to match cash already on
+ * the invoice, so it can never let a real invoice absorb NEW money beyond
+ * `collectableAmount`; increases still stop at capacity via `allocateDelta`.
  */
 function planAtTotal(
   real: LedgerInvoice[],
@@ -211,7 +227,10 @@ function planAtTotal(
   total: number,
   now: Date,
 ): { changes: AllocationChange[]; unallocated: number } {
-  const realCapacity = real.reduce((s, i) => s + collectableAmount(i), 0);
+  const realCapacity = real.reduce(
+    (s, i) => s + Math.max(collectableAmount(i), i.amountPaid ?? 0),
+    0,
+  );
   const realTarget = Math.min(total, realCapacity);
   const residue = total - realTarget; // >= 0; only ever non-zero on overflow
   const a = allocateDelta(real, realTarget, now);

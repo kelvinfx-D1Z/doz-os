@@ -343,6 +343,87 @@ test("planReceivedReconciliation: no money is created or destroyed, at any targe
   }
 });
 
+// ---- planReceivedReconciliation: MDA pays GROSS instead of withholding ---
+// An overpaid real invoice (amountPaid exceeds its own collectableAmount) is
+// legitimate business reality here, not a data error, and must be
+// accommodated as a state to hold rather than a shortfall to resolve.
+
+test("planReceivedReconciliation: THE EXACT REPRODUCTION — an overpaid real invoice must not double-report its own overpayment as unallocated", () => {
+  // Government invoice: amount 10,000,000, expectedCash 9,500,000 (5% WHT
+  // withheld), but the MDA paid the GROSS 10,000,000 instead of withholding.
+  const invoices = [real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000)];
+  const plan = planReceivedReconciliation(invoices, 10_000_000);
+  assert.equal(plan.delta, 0);
+  assert.equal(plan.unallocated, 0, "must report the true shortfall (zero) once, not doubled to 1,000,000");
+});
+
+test("planReceivedReconciliation: a no-op re-save on an overpaid invoice succeeds (writes nothing)", () => {
+  const invoices = [real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000)];
+  const plan = planReceivedReconciliation(invoices, 10_000_000);
+  assert.deepEqual(plan.writes, [], "an unchanged figure must not touch the ledger, even when overpaid");
+  assert.deepEqual(plan.payments, []);
+});
+
+test("planReceivedReconciliation: an overpaid real invoice keeps its money instead of having it swept to a synthetic", () => {
+  // A synthetic IS present with plenty of spare capacity — the previous bug
+  // silently moved the real invoice's overpayment onto it on a no-op resave,
+  // desyncing the real invoice's amountPaid from its filed Receipt rows.
+  const invoices = [
+    real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000),
+    syn("SYN", 1_000_000, 0, "SENT"),
+  ];
+  const plan = planReceivedReconciliation(invoices, 10_000_000);
+  assert.deepEqual(plan.writes, [], "no money may migrate off the real invoice on a no-op resave");
+  assert.equal(applied(invoices, plan.writes), 10_000_000);
+});
+
+test("planReceivedReconciliation: the founder can edit received UPWARD on a project holding an overpaid invoice", () => {
+  // REAL is already overpaid by 500,000. The founder records a further
+  // 1,000,000 genuinely received — capacity is exhausted on REAL, so it must
+  // land on the synthetic, not be refused or double-counted.
+  const invoices = [
+    real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000),
+    syn("SYN", 2_000_000, 0, "SENT"),
+  ];
+  const plan = planReceivedReconciliation(invoices, 11_000_000);
+  assert.equal(plan.unallocated, 0);
+  assert.equal(applied(invoices, plan.writes), 11_000_000);
+  assert.equal(plan.delta, 1_000_000);
+  assert.equal(
+    plan.payments.reduce((s, c) => s + Math.abs(c.to - c.from), 0),
+    1_000_000,
+    "the recordable payment is exactly the new money, not the pre-existing overpayment",
+  );
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  assert.equal(byId.get("REAL"), undefined, "the overpaid real invoice is untouched");
+  assert.equal(byId.get("SYN")!.to, 1_000_000);
+});
+
+test("planReceivedReconciliation: the founder can edit received DOWNWARD on a project holding an overpaid invoice", () => {
+  const invoices = [real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000)];
+  const plan = planReceivedReconciliation(invoices, 9_000_000);
+  assert.equal(plan.unallocated, 0);
+  assert.equal(applied(invoices, plan.writes), 9_000_000);
+  assert.equal(plan.delta, -1_000_000);
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  assert.equal(byId.get("REAL")!.to, 9_000_000);
+});
+
+test("planReceivedReconciliation: money stays conserved at any target on a project with an overpaid real invoice", () => {
+  for (const target of [0, 5_000_000, 9_000_000, 9_500_000, 10_000_000, 10_500_000, 12_000_000]) {
+    const invoices = [
+      real("REAL", 10_000_000, 10_000_000, "PAID", 9_500_000),
+      syn("SYN", 2_000_000, 0, "SENT"),
+    ];
+    const plan = planReceivedReconciliation(invoices, target);
+    assert.equal(
+      applied(invoices, plan.writes) + plan.unallocated,
+      target,
+      `target ${target}: ledger + unallocated must equal the founder's figure`,
+    );
+  }
+});
+
 // ---- planReceivedReconciliation: migration carries the source's paidDate --
 // F1 (final-fix-report.md): emptying a synthetic during the sweep gave it
 // paidDate: null; the receiving real invoice had no prior paidDate, so
