@@ -5,6 +5,23 @@ import { nextDocumentCode } from "@/lib/document-code";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 
+/**
+ * The company's own VAT registration, read once per document creation.
+ *
+ * A company that is not VAT-registered must not issue documents charging VAT.
+ * The checkbox in Company settings was stored and whitelisted but never read
+ * by anything, so unticking it changed no output. This is what wires it up.
+ * Defaults to registered if the row does not exist yet, matching the schema
+ * default.
+ */
+async function companyVatRegistered(): Promise<boolean> {
+  const company = await db.companySettings.findUnique({
+    where: { id: "singleton" },
+    select: { vatRegistered: true },
+  });
+  return company?.vatRegistered ?? true;
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -36,7 +53,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const parsed = parseDocumentBody(body);
+  const parsed = parseDocumentBody(body, {
+    vatRegistered: await companyVatRegistered(),
+  });
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
@@ -141,7 +160,50 @@ export async function DELETE(req: Request) {
       { status: 409 },
     );
   }
+
+  // amountPaid === 0 is NOT enough to prove nothing hangs off this invoice.
+  // Receipt.invoiceId and PaymentConfirmation.invoiceId are both REQUIRED
+  // relations, so Prisma's default Restrict makes the delete raise P2003 and
+  // surface as an unhandled 500. Both are reachable with nothing paid:
+  //   - a client files a payment confirmation through the portal, which
+  //     deliberately does not touch amountPaid; or
+  //   - the founder corrects a project's "received" figure back down, and
+  //     allocateDelta unwinds amountPaid to 0 while the confirmation rows stay.
+  // Count them first and say plainly what is in the way.
+  const [receiptCount, confirmationCount] = await Promise.all([
+    db.receipt.count({ where: { invoiceId: body.invoiceId } }),
+    db.paymentConfirmation.count({ where: { invoiceId: body.invoiceId } }),
+  ]);
+  if (receiptCount > 0 || confirmationCount > 0) {
+    const blockers: string[] = [];
+    if (receiptCount > 0) {
+      blockers.push(`${receiptCount} receipt${receiptCount === 1 ? "" : "s"}`);
+    }
+    if (confirmationCount > 0) {
+      blockers.push(
+        `${confirmationCount} client payment confirmation${confirmationCount === 1 ? "" : "s"}`,
+      );
+    }
+    return NextResponse.json(
+      {
+        error: `This invoice cannot be deleted because ${blockers.join(" and ")} ${
+          receiptCount + confirmationCount === 1 ? "is" : "are"
+        } filed against it. Delete or reject those first.`,
+      },
+      { status: 409 },
+    );
+  }
+
   await db.$transaction([
+    // Release any quotation pointing at this invoice. Without this the
+    // quotation is stranded ACCEPTED with a dangling convertedInvoiceId: it
+    // cannot be re-converted (409), cannot be deleted (409), and the UI hides
+    // both buttons — a permanently unusable row. Sending it back to SENT
+    // returns it to the state it was in before the conversion.
+    db.quotation.updateMany({
+      where: { convertedInvoiceId: body.invoiceId },
+      data: { convertedInvoiceId: null, status: "SENT" },
+    }),
     db.invoiceLine.deleteMany({ where: { invoiceId: body.invoiceId } }),
     db.invoice.delete({ where: { id: body.invoiceId } }),
   ]);

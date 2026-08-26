@@ -5,6 +5,23 @@ import { nextDocumentCode } from "@/lib/document-code";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 
+/**
+ * The company's own VAT registration, read once per document creation.
+ *
+ * A company that is not VAT-registered must not issue documents charging VAT.
+ * The checkbox in Company settings was stored and whitelisted but never read
+ * by anything, so unticking it changed no output. This is what wires it up.
+ * Defaults to registered if the row does not exist yet, matching the schema
+ * default.
+ */
+async function companyVatRegistered(): Promise<boolean> {
+  const company = await db.companySettings.findUnique({
+    where: { id: "singleton" },
+    select: { vatRegistered: true },
+  });
+  return company?.vatRegistered ?? true;
+}
+
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -36,7 +53,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const parsed = parseDocumentBody(body);
+  const parsed = parseDocumentBody(body, {
+    vatRegistered: await companyVatRegistered(),
+  });
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }

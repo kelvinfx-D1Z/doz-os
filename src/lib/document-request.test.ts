@@ -197,3 +197,112 @@ test("parseDocumentBody yields expectedCash 17,214,000 for the government worked
   assert.equal(result.vatWithheldAtSource, true);
   assert.equal(result.tax.expectedCash, 17_214_000);
 });
+
+// ---- gross-up vs discount (final-review finding 7) ----------------------
+
+test("applyGrossUp with no discount is unchanged by the new parameter", () => {
+  const lines = [line({ unitPrice: 1_000_000 })];
+  const withDefault = applyGrossUp(lines, 950_000, 5);
+  const withExplicitZero = applyGrossUp(lines, 950_000, 5, 0);
+  assert.deepEqual(withDefault.lines, withExplicitZero.lines);
+});
+
+test("applyGrossUp accounts for the discount so the target still survives WHT", () => {
+  // Target 9,500,000 net of 5% WHT, with a 500,000 discount on the subtotal.
+  // The tax base is subtotal - discount, so the subtotal must carry the
+  // discount on top of the grossed-up figure.
+  const lines = [line({ unitPrice: 1_000_000 })];
+  const discount = 500_000;
+  const target = 9_500_000;
+  const { lines: grossed } = applyGrossUp(lines, target, 5, discount);
+  const subtotal = sumLines(grossed);
+  const tax = computeTax({
+    subtotal,
+    discount,
+    vatRate: 7.5,
+    whtRate: 5,
+    vatWithheldAtSource: true,
+  });
+  // Within one rounding step (unit prices round to the nearest 100).
+  assert.ok(
+    Math.abs(tax.expectedCash - target) < 100,
+    `expectedCash ${tax.expectedCash} should be within 100 of target ${target}`,
+  );
+});
+
+test("ignoring the discount would undershoot by 0.95 x discount", () => {
+  // Pins the old behaviour as wrong: the un-discounted gross-up lands short by
+  // exactly (1 - whtRate/100) x discount.
+  const lines = [line({ unitPrice: 1_000_000 })];
+  const discount = 500_000;
+  const target = 9_500_000;
+  const { lines: grossed } = applyGrossUp(lines, target, 5); // discount ignored
+  const tax = computeTax({
+    subtotal: sumLines(grossed),
+    discount,
+    vatRate: 7.5,
+    whtRate: 5,
+    vatWithheldAtSource: true,
+  });
+  const shortfall = target - tax.expectedCash;
+  assert.ok(
+    Math.abs(shortfall - 0.95 * discount) < 100,
+    `shortfall ${shortfall} should be about ${0.95 * discount}`,
+  );
+});
+
+test("parseDocumentBody passes the discount through to the gross-up", () => {
+  const result = parseDocumentBody({
+    lines: [incoming({ quantity: 1, days: 1, unitPrice: 1_000_000 })],
+    whtRate: 5,
+    targetNet: 9_500_000,
+    discount: 500_000,
+    vatWithheldAtSource: true,
+  });
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.ok(Math.abs(result.tax.expectedCash - 9_500_000) < 100);
+});
+
+// ---- company VAT registration (final-review finding 8) ------------------
+
+test("parseDocumentBody charges VAT by default", () => {
+  const result = parseDocumentBody({ lines: [incoming({ unitPrice: 1_000_000 })] });
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.vatRate, 7.5);
+  assert.ok(result.tax.vat > 0);
+});
+
+test("parseDocumentBody charges no VAT when the company is not VAT registered", () => {
+  const result = parseDocumentBody(
+    { lines: [incoming({ unitPrice: 1_000_000 })] },
+    { vatRegistered: false },
+  );
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.vatRate, 0);
+  assert.equal(result.tax.vat, 0);
+  assert.equal(result.tax.total, result.tax.net);
+});
+
+test("an explicit vatRate cannot override an unregistered company", () => {
+  const result = parseDocumentBody(
+    { lines: [incoming({ unitPrice: 1_000_000 })], vatRate: 7.5 },
+    { vatRegistered: false },
+  );
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.vatRate, 0);
+  assert.equal(result.tax.vat, 0);
+});
+
+test("vatRegistered true leaves the requested rate alone", () => {
+  const result = parseDocumentBody(
+    { lines: [incoming({ unitPrice: 1_000_000 })], vatRate: 5 },
+    { vatRegistered: true },
+  );
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.equal(result.vatRate, 5);
+});
