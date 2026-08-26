@@ -32,11 +32,17 @@ export async function GET(req: Request) {
   // somewhere to land before the project has a real, Documents-issued
   // invoice. Once that project's real invoice goes LIVE (anything but
   // DRAFT), the real invoice is the source of truth and the synthetic row
-  // would double-count the same cash if both were summed. A synthetic
-  // invoice is never created alongside a real one going forward (see
-  // reconcileReceived in /api/doz/projects), but projects that picked up
-  // both before that rule existed still have to report correctly — so the
-  // exclusion is applied here rather than relying on the ledger being clean.
+  // would double-count the same WORK if both face values were summed.
+  //
+  // What it does NOT do is delete the row's money. An earlier version
+  // dropped the superseded synthetic outright, which meant that the instant
+  // the founder pressed "Mark as sent" the cash already collected vanished
+  // from Finance — the synthetic went with its ₦12,000,000 while the real
+  // invoice still read amountPaid = 0. dedupeSyntheticInvoices now strips
+  // only the duplicated face value and reports every naira of cash.
+  //
+  // /api/doz/projects calls the same module for a project's "received", so
+  // the two routes cannot answer this question differently.
   // ------------------------------------------------------------------
   const effectiveInvoices = dedupeSyntheticInvoices(
     invoices.map((i) => ({ ...i, linesCount: i._count.lines })),

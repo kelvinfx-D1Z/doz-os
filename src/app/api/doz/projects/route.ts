@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
-import { MONEY_EPSILON, allocateDelta, collectableAmount } from "@/lib/received-allocation";
+import { MONEY_EPSILON, collectableAmount } from "@/lib/received-allocation";
 import { nextDocumentCode } from "@/lib/document-code";
-import { isSyntheticInvoice } from "@/lib/invoice-provenance";
+import {
+  isSyntheticInvoice,
+  receivedByProject,
+  planReceivedReconciliation,
+} from "@/lib/invoice-provenance";
 
 // ============================================================
 // PROJECTS & EVENT OPERATIONS API
@@ -109,11 +113,21 @@ export async function GET(req: Request) {
       where: { projectId: { not: null } },
       select: { projectId: true, amount: true },
     }),
-    // Same trick for invoices — we only need amountPaid per project so we can
-    // compute "received" (sum of amountPaid) without bloating each project row.
+    // Same trick for invoices — we only need enough per project to derive
+    // "received" without bloating each project row. `isSynthetic` and the
+    // line count come along because "received" is not a plain sum: see
+    // receivedByProject in @/lib/invoice-provenance.
     db.invoice.findMany({
       where: { projectId: { not: null } },
-      select: { projectId: true, amountPaid: true, amount: true, status: true },
+      select: {
+        projectId: true,
+        amountPaid: true,
+        amount: true,
+        expectedCash: true,
+        status: true,
+        isSynthetic: true,
+        _count: { select: { lines: true } },
+      },
     }),
   ]);
 
@@ -137,12 +151,18 @@ export async function GET(req: Request) {
     expensesByProject.set(e.projectId, (expensesByProject.get(e.projectId) ?? 0) + e.amount);
   }
 
-  // Build a lookup of received (sum of amountPaid) per projectId.
-  const receivedByProject = new Map<string, number>();
-  for (const inv of invoices) {
-    if (!inv.projectId) continue;
-    receivedByProject.set(inv.projectId, (receivedByProject.get(inv.projectId) ?? 0) + (inv.amountPaid ?? 0));
-  }
+  // Build a lookup of received per projectId.
+  //
+  // NOT a bare sum over every invoice row. A project can carry both a
+  // synthetic reconcileReceived placeholder and a real Documents invoice,
+  // and summing both reports the same naira twice — the founder types
+  // ₦19,000,000 and the project shows ₦38,000,000 with a ₦0 balance, i.e.
+  // "client has paid in full". Finance already resolves this; this route
+  // must resolve it the SAME way, so both call the one authority in
+  // @/lib/invoice-provenance rather than each carrying its own rule.
+  const receivedLookup = receivedByProject(
+    invoices.map((i) => ({ ...i, linesCount: i._count.lines })),
+  );
 
   // Compute per-project profit/margin and decorate payload.
   let totalRevenue = 0;
@@ -156,7 +176,7 @@ export async function GET(req: Request) {
 
   const decorated = projects.map((p) => {
     const expensesTotal = expensesByProject.get(p.id) ?? 0;
-    const received = receivedByProject.get(p.id) ?? 0;
+    const received = receivedLookup.get(p.id) ?? 0;
     const balance = Math.max(0, (p.revenue ?? 0) - received);
     const profit = (p.revenue ?? 0) - expensesTotal;
     const margin = p.revenue && p.revenue > 0 ? (profit / p.revenue) * 100 : 0;
@@ -650,48 +670,56 @@ async function reconcileReceived(
   }
 
   // A real (Documents-issued) invoice already exists for this project → the
-  // received figure allocates against those real invoices only. Never mint a
-  // synthetic invoice alongside a real one: that is exactly how a project
-  // ends up carrying two invoices for the same money (see Finance finding 1).
-  // Any synthetic invoice the project already carries from before a real one
-  // existed is left untouched here — not deleted, not reallocated — Finance
-  // (dedupeSyntheticInvoices) is what stops it from being double-counted
-  // once a real invoice goes live.
+  // received figure allocates against those real invoices FIRST, and the
+  // money already parked on the superseded synthetic rows is swept onto them
+  // in the same transaction. Never mint a synthetic invoice alongside a real
+  // one: that is exactly how a project ends up carrying two invoices for the
+  // same money (see Finance finding 1).
+  //
+  // Leaving the synthetic's amountPaid where it sat — the previous
+  // behaviour — is what stranded the money: allocateDelta derives its delta
+  // from the list it is handed, so cash on a row excluded from that list is
+  // invisible to the delta and yet still summed by every consumer. The
+  // founder typed ₦19,000,000 and the project reported ₦38,000,000. The
+  // sweep is the fix; planReceivedReconciliation owns it.
   const realInvoices = invoices.filter((i) => !isSyntheticInvoice(i));
-  const allocationTarget = realInvoices.length > 0 ? realInvoices : invoices;
 
   if (realInvoices.length === 0) {
-    // No real invoice yet → the legacy synthetic-ledger path.
+    // No real invoice yet → the legacy synthetic-ledger path, unchanged.
     // No invoice at all yet → create one so there's a ledger entry to pay against.
-    if (allocationTarget.length === 0) {
+    if (invoices.length === 0) {
       if (newTotal === 0) return; // nothing received, nothing to record
-      allocationTarget.push(await createInvoice(Math.max(project.revenue ?? 0, newTotal)));
+      invoices.push(await createInvoice(Math.max(project.revenue ?? 0, newTotal)));
     }
 
     // Not enough invoiced to hold this much money → raise a supplementary
     // synthetic invoice for the shortfall. Appended last, so it is also last
     // in the oldest-first allocation order below.
-    const invoiceCapacity = allocationTarget.reduce((sum, i) => sum + collectableAmount(i), 0);
+    const invoiceCapacity = invoices.reduce((sum, i) => sum + collectableAmount(i), 0);
     const shortfall = newTotal - invoiceCapacity;
     if (shortfall > MONEY_EPSILON) {
-      allocationTarget.push(await createInvoice(shortfall));
+      invoices.push(await createInvoice(shortfall));
     }
   }
 
-  // Delta-only allocation — see @/lib/received-allocation.
-  const { delta, changes, unallocated } = allocateDelta(allocationTarget, newTotal);
-  if (delta === 0) return; // no change
+  // One authority for how received money lands — see @/lib/invoice-provenance.
+  // `delta` here is measured across EVERY invoice on the project, so the
+  // internal sweep from synthetic to real cannot masquerade as a payment.
+  const { previousReceived, delta, writes, payments, unallocated } =
+    planReceivedReconciliation(invoices, newTotal);
 
   if (unallocated > MONEY_EPSILON) {
     if (realInvoices.length > 0) {
       // Real invoicing exists — we deliberately do not mint a top-up
       // invoice here (that would recreate the double-count this function
       // exists to prevent). The founder needs to raise the rest through
-      // Documents.
+      // Documents. `unallocated` is what NO invoice on the project can hold,
+      // real or synthetic, so the figure quoted is one the founder can act
+      // on rather than an artefact of which list was passed where.
       throw new ReceivedError(
-        `This project's real invoices can't absorb ₦${unallocated.toLocaleString("en-NG")} ` +
-          `of the ₦${newTotal.toLocaleString("en-NG")} received. Issue an additional invoice ` +
-          `through Documents for the difference before recording it as received.`,
+        `This project's invoices can only account for ₦${(newTotal - unallocated).toLocaleString("en-NG")} ` +
+          `of the ₦${newTotal.toLocaleString("en-NG")} received. Issue an invoice through ` +
+          `Documents for the remaining ₦${unallocated.toLocaleString("en-NG")} before recording it.`,
       );
     }
     // Defensive: the capacity top-up above should make this unreachable.
@@ -700,25 +728,33 @@ async function reconcileReceived(
     );
   }
 
-  for (const c of changes) {
+  if (writes.length === 0) return; // ledger already says exactly this
+
+  for (const c of writes) {
     await tx.invoice.update({
       where: { id: c.id },
       data: { amountPaid: c.to, status: c.status, paidDate: c.paidDate },
     });
   }
 
-  // Audit trail — one VERIFIED PaymentConfirmation per invoice that actually
-  // moved, attributed to THAT invoice, with a positive amount. The direction
-  // is NOT recorded here: `note` is rendered to the client in the portal
-  // (see /api/doz/portal + client-portal.tsx), so it stays neutral and
-  // client-safe. The signed direction lives in the ActivityLog below, which
-  // is internal-only.
-  for (const c of changes) {
+  // Audit trail — one VERIFIED PaymentConfirmation per invoice that received
+  // ACTUAL NEW MONEY, attributed to THAT invoice, with a positive amount.
+  // `payments` sums to exactly |delta|, so a project whose ledger was merely
+  // migrated from a synthetic row onto its real invoice files nothing: this
+  // record is rendered to the CLIENT in the portal, and telling a client we
+  // verified a payment they did not make is not a rounding error.
+  //
+  // The direction is NOT recorded in `note` for the same reason — it stays
+  // neutral and client-safe. The signed direction lives in the ActivityLog
+  // below, which is internal-only.
+  for (const c of payments) {
+    const moved = Math.abs(c.to - c.from);
+    if (moved <= MONEY_EPSILON) continue;
     await tx.paymentConfirmation.create({
       data: {
         invoiceId: c.id,
         accountId: project.accountId,
-        amount: Math.abs(c.to - c.from),
+        amount: moved,
         method: null,
         note:
           delta > 0
@@ -729,16 +765,22 @@ async function reconcileReceived(
     });
   }
 
+  const isPayment = Math.abs(delta) > MONEY_EPSILON;
   await tx.activityLog.create({
     data: {
       userId,
-      action: delta > 0 ? "Recorded payment received" : "Corrected payment received",
+      action: isPayment
+        ? delta > 0
+          ? "Recorded payment received"
+          : "Corrected payment received"
+        : "Moved received onto real invoices",
       entityType: "PROJECT",
       entityId: projectId,
       detail:
-        `${project.name}: received set to ₦${newTotal.toLocaleString("en-NG")} ` +
-        `(${delta > 0 ? "+" : "-"}₦${Math.abs(delta).toLocaleString("en-NG")}) — ` +
-        changes
+        `${project.name}: received ₦${previousReceived.toLocaleString("en-NG")} → ` +
+        `₦${newTotal.toLocaleString("en-NG")} ` +
+        `(${delta >= 0 ? "+" : "-"}₦${Math.abs(delta).toLocaleString("en-NG")}) — ` +
+        writes
           .map(
             (c) =>
               `${c.code ?? c.id}: ₦${c.from.toLocaleString("en-NG")} → ` +
