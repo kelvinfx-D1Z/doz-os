@@ -18,6 +18,7 @@ import { formatNGN as naira } from "@/lib/format";
 import { computeTax, lineAmount, sumLines, VAT_RATE } from "@/lib/document-math";
 import { applyGrossUp } from "@/lib/document-request";
 import { ClientSelect } from "@/components/modules/projects-events";
+import { DescriptionCombobox, type ServiceCatalogueCategory } from "@/components/modules/documents/description-combobox";
 
 // The document builder — one dialog, two outcomes (quotation or invoice).
 // Every number shown here comes from the same pure helpers the API uses
@@ -74,6 +75,7 @@ export function DocumentBuilder({
   const [dueDate, setDueDate] = useState("");
   const [validUntil, setValidUntil] = useState("");
   const [lines, setLines] = useState<BuilderLine[]>([emptyLine()]);
+  const [serviceCatalogue, setServiceCatalogue] = useState<ServiceCatalogueCategory[] | null>(null);
   const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">("SUMMARY");
   const [government, setGovernment] = useState(false);
   const [grossUpTarget, setGrossUpTarget] = useState("");
@@ -96,6 +98,26 @@ export function DocumentBuilder({
       })
       .catch(() => {
         /* non-fatal — the picker just stays empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Same one-shot pattern: fetched once while the builder is mounted, not
+  // per line. A failed or empty fetch leaves this null/[] and every line's
+  // DescriptionCombobox degrades to a plain free-text input on its own —
+  // the founder is never blocked from creating a document.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/doz/services")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        setServiceCatalogue(d?.categories ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceCatalogue([]);
       });
     return () => {
       cancelled = true;
@@ -349,11 +371,12 @@ export function DocumentBuilder({
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <Input
+                          <DescriptionCombobox
                             value={l.description}
-                            onChange={(e) => updateLine(l.key, { description: e.target.value })}
+                            onChange={(description) => updateLine(l.key, { description })}
+                            onPick={(description, section) => updateLine(l.key, { description, section })}
+                            categories={serviceCatalogue}
                             placeholder="Description"
-                            className="h-8"
                           />
                           <Input
                             value={l.subDescription}
