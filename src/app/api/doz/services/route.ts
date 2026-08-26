@@ -129,5 +129,116 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, item: created }, { status: 201 });
   }
 
+  // ============================================================
+  // CATALOGUE MANAGEMENT — departments (ServiceCategory) and their
+  // services (ServiceItem). FOUNDER only: this is company-wide reference
+  // data, not a per-project decision, so it does not go through
+  // canBuildBudget (which lets STAFF/PRODUCTION_MANAGER build a cost
+  // sheet) or the narrower add_custom_item above (a production manager's
+  // one-off item for their own project, unaffected by everything below).
+  //
+  // Safety property: nothing in the database references ServiceItem by id.
+  // InvoiceLine.description, QuotationLine.description and
+  // ProjectService.serviceName all store the service name as plain text,
+  // captured at the moment the line was created — the only relation to
+  // ServiceItem anywhere in prisma/schema.prisma is ServiceCategory.items.
+  // So renaming or deleting a catalogue entry here can never alter or
+  // break a document already issued: an invoice keeps the words it was
+  // issued with, forever, regardless of what the catalogue looks like
+  // afterwards. That is what makes it safe to hand this editor to the
+  // founder with no developer in the loop.
+  // ============================================================
+  const CATALOGUE_ACTIONS = [
+    "catalogue_add_department", "catalogue_rename_department", "catalogue_delete_department",
+    "catalogue_add_item", "catalogue_rename_item", "catalogue_delete_item",
+  ];
+  if (CATALOGUE_ACTIONS.includes(body.action) && user.role !== "FOUNDER") {
+    return NextResponse.json({ error: "forbidden — only the founder can edit the catalogue" }, { status: 403 });
+  }
+
+  if (body.action === "catalogue_add_department") {
+    const name = String(body.name || "").trim();
+    if (!name) return NextResponse.json({ error: "Department name is required" }, { status: 400 });
+    const all = await db.serviceCategory.findMany({ select: { id: true, name: true, sortOrder: true } });
+    if (all.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      return NextResponse.json({ error: `A department named "${name}" already exists` }, { status: 400 });
+    }
+    const nextSort = all.reduce((m, c) => Math.max(m, c.sortOrder), 0) + 1;
+    try {
+      const created = await db.serviceCategory.create({ data: { name, sortOrder: nextSort } });
+      return NextResponse.json({ ok: true, category: { id: created.id, name: created.name, icon: created.icon, items: [] } }, { status: 201 });
+    } catch (e: any) {
+      if (e?.code === "P2002") return NextResponse.json({ error: `A department named "${name}" already exists` }, { status: 400 });
+      throw e;
+    }
+  }
+
+  if (body.action === "catalogue_rename_department") {
+    if (!body.categoryId) return NextResponse.json({ error: "categoryId required" }, { status: 400 });
+    const name = String(body.name || "").trim();
+    if (!name) return NextResponse.json({ error: "Department name is required" }, { status: 400 });
+    const existing = await db.serviceCategory.findUnique({ where: { id: body.categoryId } });
+    if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const all = await db.serviceCategory.findMany({ select: { id: true, name: true } });
+    if (all.some((c) => c.id !== body.categoryId && c.name.toLowerCase() === name.toLowerCase())) {
+      return NextResponse.json({ error: `A department named "${name}" already exists` }, { status: 400 });
+    }
+    try {
+      const updated = await db.serviceCategory.update({ where: { id: body.categoryId }, data: { name } });
+      return NextResponse.json({ ok: true, category: updated });
+    } catch (e: any) {
+      if (e?.code === "P2002") return NextResponse.json({ error: `A department named "${name}" already exists` }, { status: 400 });
+      throw e;
+    }
+  }
+
+  if (body.action === "catalogue_delete_department") {
+    if (!body.categoryId) return NextResponse.json({ error: "categoryId required" }, { status: 400 });
+    const existing = await db.serviceCategory.findUnique({ where: { id: body.categoryId }, include: { items: true } });
+    if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (existing.items.length > 0) {
+      return NextResponse.json({
+        error: `"${existing.name}" still has ${existing.items.length} service${existing.items.length === 1 ? "" : "s"} — move or delete ${existing.items.length === 1 ? "it" : "them"} first, then delete the department`,
+      }, { status: 400 });
+    }
+    await db.serviceCategory.delete({ where: { id: body.categoryId } });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "catalogue_add_item") {
+    if (!body.categoryId) return NextResponse.json({ error: "categoryId required" }, { status: 400 });
+    const name = String(body.name || "").trim();
+    if (!name) return NextResponse.json({ error: "Service name is required" }, { status: 400 });
+    const category = await db.serviceCategory.findUnique({ where: { id: body.categoryId }, include: { items: true } });
+    if (!category) return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (category.items.some((i) => i.name.toLowerCase() === name.toLowerCase())) {
+      return NextResponse.json({ error: `"${name}" already exists under ${category.name}` }, { status: 400 });
+    }
+    const created = await db.serviceItem.create({ data: { categoryId: body.categoryId, name, isCustom: false } });
+    return NextResponse.json({ ok: true, item: created }, { status: 201 });
+  }
+
+  if (body.action === "catalogue_rename_item") {
+    if (!body.itemId) return NextResponse.json({ error: "itemId required" }, { status: 400 });
+    const name = String(body.name || "").trim();
+    if (!name) return NextResponse.json({ error: "Service name is required" }, { status: 400 });
+    const existing = await db.serviceItem.findUnique({ where: { id: body.itemId } });
+    if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const siblings = await db.serviceItem.findMany({ where: { categoryId: existing.categoryId }, select: { id: true, name: true } });
+    if (siblings.some((i) => i.id !== body.itemId && i.name.toLowerCase() === name.toLowerCase())) {
+      return NextResponse.json({ error: `"${name}" already exists in this department` }, { status: 400 });
+    }
+    const updated = await db.serviceItem.update({ where: { id: body.itemId }, data: { name } });
+    return NextResponse.json({ ok: true, item: updated });
+  }
+
+  if (body.action === "catalogue_delete_item") {
+    if (!body.itemId) return NextResponse.json({ error: "itemId required" }, { status: 400 });
+    const existing = await db.serviceItem.findUnique({ where: { id: body.itemId } });
+    if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
+    await db.serviceItem.delete({ where: { id: body.itemId } });
+    return NextResponse.json({ ok: true });
+  }
+
   return NextResponse.json({ error: "invalid action" }, { status: 400 });
 }

@@ -12,11 +12,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-primitives";
+import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
 import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
+import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
 
 // Documents — quotations, invoices and receipts for clients. Reads/writes the
 // same Invoice rows Finance and the client portal already use; this is not a
@@ -97,6 +99,8 @@ function openDocument(type: "quotation" | "invoice" | "receipt", id: string) {
 }
 
 export function DocumentsModule() {
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
   const [quotations, setQuotations] = useState<Quotation[] | null>(null);
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [receipts, setReceipts] = useState<ReceiptRow[] | null>(null);
@@ -244,6 +248,7 @@ export function DocumentsModule() {
           <TabsTrigger value="quotations">Quotations</TabsTrigger>
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
           <TabsTrigger value="receipts">Receipts</TabsTrigger>
+          {isFounder && <TabsTrigger value="catalogue">Catalogue</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="quotations">
@@ -293,6 +298,12 @@ export function DocumentsModule() {
             )}
           </div>
         </TabsContent>
+
+        {isFounder && (
+          <TabsContent value="catalogue">
+            <CatalogueEditor />
+          </TabsContent>
+        )}
       </Tabs>
 
       <DocumentBuilder open={builderOpen} onOpenChange={setBuilderOpen} onSaved={() => loadAll().catch(() => {})} />
