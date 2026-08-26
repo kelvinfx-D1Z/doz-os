@@ -185,13 +185,19 @@ test("receivedByProject: synthetic-only project reports exactly its cash", () =>
 
 // ---- planReceivedReconciliation ------------------------------------------
 
-const syn = (id: string, amount: number, amountPaid: number, status = "PAID") => ({
+const syn = (
+  id: string,
+  amount: number,
+  amountPaid: number,
+  status = "PAID",
+  paidDate: Date | null = null,
+) => ({
   id,
   code: id,
   amount,
   amountPaid,
   status,
-  paidDate: null,
+  paidDate,
   isSynthetic: true,
   linesCount: 0,
 });
@@ -202,6 +208,7 @@ const real = (
   amountPaid: number,
   status = "SENT",
   expectedCash?: number,
+  paidDate: Date | null = null,
 ) => ({
   id,
   code: id,
@@ -209,7 +216,7 @@ const real = (
   expectedCash,
   amountPaid,
   status,
-  paidDate: null,
+  paidDate,
   isSynthetic: false,
   linesCount: 4,
 });
@@ -334,4 +341,110 @@ test("planReceivedReconciliation: no money is created or destroyed, at any targe
       `target ${target}: ledger + unallocated must equal the founder's figure`,
     );
   }
+});
+
+// ---- planReceivedReconciliation: migration carries the source's paidDate --
+// F1 (final-fix-report.md): emptying a synthetic during the sweep gave it
+// paidDate: null; the receiving real invoice had no prior paidDate, so
+// invoiceStatusFor's `existingPaidDate ?? now` fallback stamped it with
+// today and corrupted monthly cash-flow. The fix: migration carries the
+// EARLIEST paidDate among the synthetics it actually took money off of.
+
+test("planReceivedReconciliation: a single synthetic's paidDate is carried onto the real invoice", () => {
+  const paidJune = new Date("2026-06-25T00:00:00Z");
+  const invoices = [syn("SYN", 5_000_000, 5_000_000, "PAID", paidJune), real("REAL", 5_000_000, 0)];
+  const plan = planReceivedReconciliation(invoices, 5_000_000);
+
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  assert.equal(byId.get("REAL")!.to, 5_000_000);
+  assert.equal(byId.get("REAL")!.paidDate?.getTime(), paidJune.getTime());
+  // Pure migration — no money moved, so this must not read as a payment.
+  assert.equal(plan.delta, 0);
+  assert.deepEqual(plan.payments, []);
+});
+
+test("planReceivedReconciliation: several synthetics contribute — the EARLIEST paidDate wins", () => {
+  // The live production shape: three synthetics feed one real invoice large
+  // enough to absorb all of them.
+  const june25 = new Date("2026-06-25T00:00:00Z");
+  const july30 = new Date("2026-07-30T00:00:00Z");
+  const invoices = [
+    syn("A", 1_500_000, 1_500_000, "PAID", june25),
+    syn("B", 4_500_000, 4_500_000, "PAID", july30),
+    syn("C", 1_500_000, 1_500_000, "PAID", july30),
+    real("REAL", 7_500_000, 0),
+  ];
+  const plan = planReceivedReconciliation(invoices, 7_500_000);
+
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  assert.equal(byId.get("REAL")!.to, 7_500_000);
+  // Earliest across A/B/C is June 25 — the conservative choice, even though
+  // most of the money (6,000,000 of 7,500,000) is actually July money.
+  assert.equal(byId.get("REAL")!.paidDate?.getTime(), june25.getTime());
+  assert.deepEqual(plan.payments, []);
+});
+
+test("planReceivedReconciliation: genuinely new money is still dated now, not migrated", () => {
+  const july30 = new Date("2026-07-30T00:00:00Z");
+  const now = new Date("2026-08-26T12:00:00Z");
+  const invoices = [syn("SYN", 4_000_000, 4_000_000, "PAID", july30), real("REAL", 10_000_000, 0)];
+  // Founder receives an ADDITIONAL 2,000,000 today on top of the sweep.
+  const plan = planReceivedReconciliation(invoices, 6_000_000, now);
+
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  assert.equal(byId.get("REAL")!.to, 6_000_000);
+  // Still PARTIAL (10,000,000 capacity, 6,000,000 paid) — no paidDate at all,
+  // migrated or otherwise, which is invoiceStatusFor's own unchanged rule.
+  assert.equal(byId.get("REAL")!.status, "PARTIAL");
+  assert.equal(byId.get("REAL")!.paidDate, null);
+  // The genuinely new money is exactly the payment recorded.
+  assert.equal(plan.delta, 2_000_000);
+  assert.equal(
+    plan.payments.reduce((s, c) => s + Math.abs(c.to - c.from), 0),
+    2_000_000,
+  );
+});
+
+test("planReceivedReconciliation: real invoice fully paid by sweep PLUS new money still gets now() for the new portion's confirmation, while paidDate reflects the migration", () => {
+  // A real invoice exactly the size of the synthetic it absorbs, then MORE
+  // money arrives on top so a second real invoice on the project newly
+  // reaches PAID from genuinely new money in stage 2 — that one must read now.
+  const july30 = new Date("2026-07-30T00:00:00Z");
+  const now = new Date("2026-08-26T12:00:00Z");
+  const invoices = [
+    syn("SYN", 3_000_000, 3_000_000, "PAID", july30),
+    real("REAL_A", 3_000_000, 0),
+    real("REAL_B", 2_000_000, 0),
+  ];
+  const plan = planReceivedReconciliation(invoices, 5_000_000, now);
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+
+  // REAL_A absorbs the migrated 3,000,000 — dated with the synthetic's date.
+  assert.equal(byId.get("REAL_A")!.to, 3_000_000);
+  assert.equal(byId.get("REAL_A")!.paidDate?.getTime(), july30.getTime());
+
+  // REAL_B absorbs the genuinely new 2,000,000 and is newly PAID — dated now.
+  assert.equal(byId.get("REAL_B")!.to, 2_000_000);
+  assert.equal(byId.get("REAL_B")!.paidDate?.getTime(), now.getTime());
+});
+
+test("planReceivedReconciliation: a destination that already has a paidDate keeps its own", () => {
+  // REAL was already PARTIAL-paid with its own paidDate is impossible
+  // (PARTIAL never carries one), so model the realistic case: REAL was
+  // already fully paid earlier from a previous sweep/payment and keeps that
+  // date even though a synthetic with an earlier date is migrated onto it
+  // for the residual shortfall top-up.
+  const march = new Date("2026-03-01T00:00:00Z");
+  const july30 = new Date("2026-07-30T00:00:00Z");
+  const invoices = [
+    real("REAL", 3_000_000, 3_000_000, "PAID", undefined, march),
+    syn("SYN", 1_000_000, 1_000_000, "PAID", july30),
+  ];
+  // Re-saving the same total (pure migration): REAL is already at capacity,
+  // so nothing should move onto it — its own paidDate must survive untouched.
+  const plan = planReceivedReconciliation(invoices, 4_000_000);
+  const byId = new Map(plan.writes.map((w) => [w.id, w]));
+  // REAL is unchanged (already at its 3,000,000 capacity) — no write at all.
+  assert.equal(byId.has("REAL"), false);
+  assert.deepEqual(plan.payments, []);
 });

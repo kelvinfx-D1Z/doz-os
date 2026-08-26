@@ -222,6 +222,45 @@ function planAtTotal(
   };
 }
 
+/**
+ * MIGRATION stage only. Moving money off a superseded synthetic onto a real
+ * invoice at the SAME total is not a payment, so the real invoice must not be
+ * dated `now` just because it had no `paidDate` of its own —
+ * invoiceStatusFor's `existingPaidDate ?? now` fallback does exactly that,
+ * and re-stamping "today" corrupts monthly cash-flow (finance/route.ts buckets
+ * cash by paidDate). The client's money arrived on the SYNTHETIC's date, not
+ * today, so that is the date migration must carry forward.
+ *
+ * Carries the EARLIEST paidDate among the rows this migration actually took
+ * money off of onto any row that gained money and had no paidDate of its
+ * own — the conservative choice when several synthetics feed one
+ * destination, and it's when the client's money first arrived. A row that
+ * already had a paidDate is untouched (invoiceStatusFor already preserves
+ * it); this only ever supplies a date invoiceStatusFor would otherwise have
+ * invented.
+ */
+function carryMigratedPaidDates(
+  before: LedgerInvoice[],
+  changes: AllocationChange[],
+): AllocationChange[] {
+  const byId = new Map(before.map((i) => [i.id, i]));
+  let earliestSource: Date | null = null;
+  for (const c of changes) {
+    const orig = byId.get(c.id);
+    if (orig && c.to < c.from - MONEY_EPSILON && orig.paidDate) {
+      if (!earliestSource || orig.paidDate < earliestSource) earliestSource = orig.paidDate;
+    }
+  }
+  if (!earliestSource) return changes;
+  return changes.map((c) => {
+    const orig = byId.get(c.id);
+    if (orig && !orig.paidDate && c.paidDate) {
+      return { ...c, paidDate: earliestSource };
+    }
+    return c;
+  });
+}
+
 function applyChanges<T extends LedgerInvoice>(invoices: T[], changes: AllocationChange[]): T[] {
   const byId = new Map(changes.map((c) => [c.id, c]));
   return invoices.map((inv) => {
@@ -264,7 +303,11 @@ export function planReceivedReconciliation(
   // so this cannot come up short; its unallocated is carried anyway rather
   // than assumed away.
   const before = split(invoices);
-  const migration = planAtTotal(before.real, before.synthetic, previousReceived, now);
+  const migrationRaw = planAtTotal(before.real, before.synthetic, previousReceived, now);
+  const migration = {
+    changes: carryMigratedPaidDates(invoices, migrationRaw.changes),
+    unallocated: migrationRaw.unallocated,
+  };
   const migrated = applyChanges(invoices, migration.changes);
 
   // Stage 2 — the payment itself.
