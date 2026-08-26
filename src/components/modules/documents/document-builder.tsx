@@ -15,7 +15,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatNGN as naira } from "@/lib/format";
-import { computeTax, lineAmount, sumLines, grossUpSubtotal, VAT_RATE } from "@/lib/document-math";
+import { computeTax, lineAmount, sumLines, VAT_RATE } from "@/lib/document-math";
+import { applyGrossUp } from "@/lib/document-request";
 import { ClientSelect } from "@/components/modules/projects-events";
 
 // The document builder — one dialog, two outcomes (quotation or invoice).
@@ -138,15 +139,32 @@ export function DocumentBuilder({
   });
 
   const targetNetNum = Number(grossUpTarget) || 0;
+  // Preview the figure that will ACTUALLY BE STORED, not the un-rounded ideal.
+  // The server runs applyGrossUp, which scales every unit price and then rounds
+  // each one to the nearest 100 naira, so the stored total differs from the
+  // theoretical gross-up by a few hundred naira on a job of this size.
+  // Previewing grossUpSubtotal() directly showed the founder a number the
+  // server would never produce. Running the same two pure functions the server
+  // runs — applyGrossUp then sumLines — means the panel and the database
+  // cannot disagree. The design spec is explicit: show the actual figure next
+  // to the target rather than hiding the difference.
   const preview =
     government && targetNetNum > 0
-      ? computeTax({
-          subtotal: grossUpSubtotal(targetNetNum, whtRateNum),
-          discount: discountNum,
-          vatRate: vatRateNum,
-          whtRate: whtRateNum,
-          vatWithheldAtSource: true,
-        })
+      ? (() => {
+          const grossedUp = applyGrossUp(
+            numericLines,
+            targetNetNum,
+            whtRateNum,
+            discountNum,
+          ).lines;
+          return computeTax({
+            subtotal: sumLines(grossedUp),
+            discount: discountNum,
+            vatRate: vatRateNum,
+            whtRate: whtRateNum,
+            vatWithheldAtSource: true,
+          });
+        })()
       : null;
 
   function reset() {
@@ -205,7 +223,19 @@ export function DocumentBuilder({
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
       const code = docType === "QUOTATION" ? j.quotation?.code : j.invoice?.code;
-      toast.success(`${docType === "QUOTATION" ? "Quotation" : "Invoice"} ${code ?? ""} created`.trim());
+      const label = docType === "QUOTATION" ? "Quotation" : "Invoice";
+      // The POST already returns the authoritative expectedCash it stored; the
+      // builder used to discard it. Echoing it back closes the loop — the
+      // founder sees the real cash-landing figure from the server, not just
+      // the client-side preview of it. Internal only: WHT and cash landing
+      // never appear on a rendered client document.
+      const landed = typeof j.expectedCash === "number" ? j.expectedCash : null;
+      toast.success(
+        `${label} ${code ?? ""} created`.trim(),
+        government && landed !== null
+          ? { description: `Cash landing ${naira(landed)} (internal — not printed)` }
+          : undefined,
+      );
       reset();
       onOpenChange(false);
       onSaved();
@@ -428,9 +458,20 @@ export function DocumentBuilder({
                   placeholder="e.g. 15000000"
                 />
                 {preview && (
-                  <p className="text-xs text-muted-foreground">
-                    Invoice total {naira(preview.total)} · cash landing {naira(preview.expectedCash)}
-                  </p>
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
+                    <p>
+                      Invoice total {naira(preview.total)} · cash landing{" "}
+                      {naira(preview.expectedCash)}
+                    </p>
+                    {/* The difference is shown, never hidden: rounding each unit
+                        price to the nearest ₦100 means the cash landing lands
+                        near the target rather than exactly on it. */}
+                    <p>
+                      Target {naira(targetNetNum)} ·{" "}
+                      {preview.expectedCash >= targetNetNum ? "over" : "under"} by{" "}
+                      {naira(Math.abs(preview.expectedCash - targetNetNum))} after rounding
+                    </p>
+                  </div>
                 )}
               </div>
             )}

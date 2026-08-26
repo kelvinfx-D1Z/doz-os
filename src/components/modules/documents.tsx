@@ -14,7 +14,7 @@ import {
 import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-primitives";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
-import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Receipt as ReceiptIcon } from "lucide-react";
+import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 
@@ -149,6 +149,38 @@ export function DocumentsModule() {
     }
   }
 
+  // DRAFT -> SENT. The draft state is deliberate: the founder prepares a
+  // document without it going live, and nothing else in the app can move it
+  // off DRAFT except a payment landing on it. Until this existed the PATCH
+  // handlers on both routes were unreachable, so an invoice stayed invisible
+  // to Finance and the client portal forever.
+  async function markSent(kind: "quotation" | "invoice", id: string, code: string) {
+    setBusyId(id);
+    try {
+      const endpoint =
+        kind === "quotation"
+          ? "/api/doz/documents/quotations"
+          : "/api/doz/documents/invoices";
+      const r = await fetch(endpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          kind === "quotation"
+            ? { quotationId: id, status: "SENT" }
+            : { invoiceId: id, status: "SENT" },
+        ),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      toast.success(`${code} marked as sent`);
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't mark as sent", { duration: 8000 });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function deleteQuotation(q: Quotation) {
     if (!confirm(`Delete quotation ${q.code}? This cannot be undone.`)) return;
     setBusyId(q.id);
@@ -226,6 +258,7 @@ export function DocumentsModule() {
                   busy={busyId === q.id}
                   onConvert={() => convertToInvoice(q)}
                   onDelete={() => deleteQuotation(q)}
+                  onMarkSent={() => markSent("quotation", q.id, q.code)}
                 />
               ))
             )}
@@ -244,6 +277,7 @@ export function DocumentsModule() {
                   busy={busyId === inv.id}
                   onDelete={() => deleteInvoice(inv)}
                   onRecordPayment={() => setPaymentTarget(inv)}
+                  onMarkSent={() => markSent("invoice", inv.id, inv.code ?? "Invoice")}
                 />
               ))
             )}
@@ -272,8 +306,8 @@ export function DocumentsModule() {
 }
 
 function QuotationRow({
-  q, busy, onConvert, onDelete,
-}: { q: Quotation; busy: boolean; onConvert: () => void; onDelete: () => void }) {
+  q, busy, onConvert, onDelete, onMarkSent,
+}: { q: Quotation; busy: boolean; onConvert: () => void; onDelete: () => void; onMarkSent: () => void }) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -299,6 +333,11 @@ function QuotationRow({
         <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => openDocument("quotation", q.id)}>
           <ExternalLink className="h-3.5 w-3.5" /> Open
         </Button>
+        {q.status === "DRAFT" && (
+          <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onMarkSent}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent
+          </Button>
+        )}
         {!q.convertedInvoiceId && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onConvert}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />} Convert to invoice
@@ -315,8 +354,8 @@ function QuotationRow({
 }
 
 function InvoiceRow({
-  inv, busy, onDelete, onRecordPayment,
-}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void }) {
+  inv, busy, onDelete, onRecordPayment, onMarkSent,
+}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void; onMarkSent: () => void }) {
   const collectable = collectableAmount(inv);
   const balance = Math.max(0, collectable - inv.amountPaid);
   const canRecordPayment = inv.status !== "PAID" && balance > MONEY_EPSILON;
@@ -347,6 +386,11 @@ function InvoiceRow({
         <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => openDocument("invoice", inv.id)}>
           <ExternalLink className="h-3.5 w-3.5" /> Open
         </Button>
+        {inv.status === "DRAFT" && (
+          <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onMarkSent}>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent
+          </Button>
+        )}
         {canRecordPayment && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRecordPayment}>
             <Banknote className="h-3.5 w-3.5" /> Record payment
