@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Command, CommandGroup, CommandItem, CommandList, CommandEmpty } from "@/components/ui/command";
@@ -37,6 +37,11 @@ export function DescriptionCombobox({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /** Did this event originate from our own input? */
+  const isOwnInput = (target: EventTarget | null) =>
+    target instanceof Node && inputRef.current?.contains(target) === true;
 
   const filtered = useMemo(() => {
     if (!categories) return [];
@@ -70,9 +75,25 @@ export function DescriptionCombobox({
       <Command shouldFilter={false} className="overflow-visible bg-transparent">
         <PopoverAnchor asChild>
           <Input
+            ref={inputRef}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onFocus={() => setOpen(true)}
+            // Opens on click, typing or arrow-down — deliberately NOT on focus.
+            // Two reasons, both found by reproducing this inside a real dialog:
+            //  1. The dialog auto-focuses its first field, so this input can
+            //     already hold focus while the list is closed. onFocus only
+            //     fires on a transition, so it could never reopen.
+            //  2. Radix restores focus to the anchor when the list closes. With
+            //     an onFocus opener that immediately reopened it, making the
+            //     list impossible to dismiss with Escape or a pick.
+            onChange={(e) => {
+              onChange(e.target.value);
+              setOpen(true);
+            }}
+            onClick={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") setOpen(true);
+              if (e.key === "Escape") setOpen(false);
+            }}
             placeholder={placeholder ?? "Description — type or pick from catalogue"}
             className={cn("h-8", className)}
             autoComplete="off"
@@ -82,7 +103,19 @@ export function DescriptionCombobox({
           align="start"
           sideOffset={4}
           className="w-[min(360px,var(--radix-popover-trigger-width))] p-0"
+          // The anchor IS the input, and Radix treats the anchor as "outside"
+          // the content. Left alone, focusing the input opens the list and
+          // that very same focus is then judged an outside interaction, so it
+          // dismisses on the same tick — the list appears to flash and vanish.
+          // Keep focus in the input, and never let the input's own focus or
+          // clicks dismiss the list it just opened.
           onOpenAutoFocus={(e) => e.preventDefault()}
+          onFocusOutside={(e) => {
+            if (isOwnInput(e.target)) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            if (isOwnInput(e.target)) e.preventDefault();
+          }}
         >
           <CommandList className="max-h-[280px]">
             {trimmed.length > 0 && !exactMatch && (
