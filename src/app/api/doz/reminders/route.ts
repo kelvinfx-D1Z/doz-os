@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { collectableAmount, invoiceStatusFor } from "@/lib/received-allocation";
 
 // ============================================================
 // Invoice Reminders API (DOZ OS — Phase 3, Task P3-D)
@@ -504,16 +505,22 @@ export async function POST(req: Request) {
 
         const inv = confirmation.invoice;
         const newAmountPaid = inv.amountPaid + confirmation.amount;
-        const newBalance = inv.amount - newAmountPaid;
 
-        let newStatus = inv.status;
-        let paidDate = inv.paidDate;
-        if (newBalance <= 0.0001) {
-          newStatus = "PAID";
-          paidDate = new Date();
-        } else if (newAmountPaid > 0) {
-          newStatus = "PARTIAL";
-        }
+        // Reconcile against collectableAmount, not `amount`: a government
+        // client withholds VAT and WHT at source, so a fully-settled invoice
+        // arrives as expectedCash and would otherwise NEVER reach PAID here.
+        //
+        // Status and paidDate BOTH come from invoiceStatusFor. This branch used
+        // to stamp `paidDate = new Date()` by hand, which is exactly the bug
+        // that helper exists to prevent: re-stamping a previously-paid invoice
+        // moves a January collection into today's month and corrupts the
+        // monthly cash-flow buckets in /api/doz/finance.
+        const { status: newStatus, paidDate } = invoiceStatusFor(
+          collectableAmount(inv),
+          newAmountPaid,
+          inv.status,
+          inv.paidDate,
+        );
 
         const updatedInvoice = await tx.invoice.update({
           where: { id: inv.id },

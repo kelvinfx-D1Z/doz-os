@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { collectableAmount } from "@/lib/received-allocation";
 
 // ============================================================
 // Client Portal API (DOZ OS — Task P3-C)
@@ -79,7 +80,14 @@ export async function GET(req: Request) {
       },
     }),
     db.invoice.findMany({
+      // DRAFT is the founder's private staging state: an invoice is born DRAFT
+      // and only becomes real when it is marked sent. Finance, dashboard,
+      // reminders and cashflow all exclude it, and this — the one CLIENT-facing
+      // query — must exclude it hardest of all: a draft shown here would give
+      // the client an outstanding balance and a "report a payment" button for a
+      // document that has never been issued to them.
       where: {
+        status: { not: "DRAFT" },
         OR: [{ accountId: account.id }, { project: { accountId: account.id } }],
       },
       orderBy: { issuedDate: "desc" },
@@ -139,7 +147,12 @@ export async function GET(req: Request) {
     amount: inv.amount,
     tax: inv.tax,
     amountPaid: inv.amountPaid,
-    balance: Math.max(0, inv.amount - inv.amountPaid),
+    // Balance is measured against what this invoice will actually COLLECT, not
+    // its face value. A government client withholds VAT and WHT at source, so
+    // an invoice they have settled in full sits at amountPaid === expectedCash.
+    // Reconciling against `amount` here told the client their PAID invoice
+    // still owed the withheld 12.5% — a debt they do not have.
+    balance: Math.max(0, collectableAmount(inv) - inv.amountPaid),
     status: inv.status,
     issuedDate: inv.issuedDate,
     dueDate: inv.dueDate,

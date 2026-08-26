@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { collectableAmount } from "@/lib/received-allocation";
 
 // Financial Intelligence — profit visibility by project, client & service.
 // All aggregations computed in JS from fetched invoices + expenses + projects + budgets + accounts.
@@ -56,11 +57,34 @@ export async function GET(req: Request) {
   // =====================================================
   // PROJECT P&L (group invoices + expenses by project)
   // =====================================================
+  // ------------------------------------------------------------------
+  // Why this loop is not a plain `sum(inv.amount)`. Two separate reasons,
+  // and the next person needs both:
+  //
+  //  1. DRAFT is skipped. A project can now legitimately carry MORE THAN ONE
+  //     invoice — the Documents builder issues real client invoices against
+  //     the same project that reconcileReceived() may already have raised a
+  //     ledger row for. That is intended (a deposit invoice and a balance
+  //     invoice are two real invoices). What is NOT intended is an unissued
+  //     document counting as revenue: an invoice is born DRAFT and stays
+  //     invisible to the client until the founder marks it sent, so an
+  //     abandoned draft would otherwise inflate margin for as long as it
+  //     exists. Finance, dashboard, reminders and cashflow all agree on this
+  //     exclusion — keep them in step.
+  //
+  //  2. collectableAmount(), not `amount`. Government clients (MDAs) withhold
+  //     VAT and WHT at source, so the face value of the invoice is never the
+  //     money the business sees. Margin measured on face value flatters every
+  //     government job by the withheld 12.5%. P&L here is a CASH measure:
+  //     what the job will actually bring in, against what it actually cost.
+  //     See the "Margin basis" section of the client-documents design spec.
+  // ------------------------------------------------------------------
   const projectAgg = new Map<string, { revenue: number; expenses: number }>();
   for (const inv of invoices) {
     if (!inv.projectId) continue;
+    if (inv.status === "DRAFT") continue;
     const cur = projectAgg.get(inv.projectId) ?? { revenue: 0, expenses: 0 };
-    cur.revenue += inv.amount;
+    cur.revenue += collectableAmount(inv);
     projectAgg.set(inv.projectId, cur);
   }
   for (const exp of expenses) {
@@ -103,8 +127,11 @@ export async function GET(req: Request) {
     string,
     { name: string; isStrategic: boolean; revenue: number; expenses: number }
   >();
+  // Same two rules as the project loop above: skip DRAFT (unissued paperwork
+  // is not revenue) and measure on collectable cash, not invoice face value.
   for (const inv of invoices) {
     if (!inv.accountId) continue;
+    if (inv.status === "DRAFT") continue;
     const acct = inv.account ?? accounts.find((a) => a.id === inv.accountId);
     if (!acct) continue;
     const cur =
@@ -114,7 +141,7 @@ export async function GET(req: Request) {
         revenue: 0,
         expenses: 0,
       };
-    cur.revenue += inv.amount;
+    cur.revenue += collectableAmount(inv);
     clientAgg.set(inv.accountId, cur);
   }
   for (const exp of expenses) {

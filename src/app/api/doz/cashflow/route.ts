@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { collectableAmount } from "@/lib/received-allocation";
 
 // GET — 90-day cash flow forecast
 export async function GET() {
@@ -32,7 +33,11 @@ export async function GET() {
 
   // Inflows: invoice payments (probability based on age)
   for (const inv of outstandingInvoices) {
-    const balance = inv.amount - inv.amountPaid;
+    // Forecast the cash that will actually arrive, not the invoice face value.
+    // Government clients withhold VAT and WHT at source, so the withheld
+    // portion is a tax credit reclaimed from FIRS — never an inflow. Using
+    // `amount` here forecast money that was never going to land.
+    const balance = collectableAmount(inv) - inv.amountPaid;
     if (balance <= 0) continue;
     const daysSinceIssued = Math.floor((now.getTime() - new Date(inv.issuedDate).getTime()) / 86400000);
     const probability = inv.status === "OVERDUE" ? 60 : inv.status === "PARTIAL" ? 80 : 70;
