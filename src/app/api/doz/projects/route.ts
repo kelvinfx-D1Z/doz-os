@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
+import { lineTotal } from "@/lib/pricing";
 import { MONEY_EPSILON, collectableAmount } from "@/lib/received-allocation";
 import { nextDocumentCode } from "@/lib/document-code";
 import {
@@ -529,6 +530,40 @@ export async function POST(req: Request) {
           };
         }),
       });
+    }
+
+    // A template seeds the cost sheet with the shape of a typical job: the
+    // sections, the line names, and the quantities and day counts that
+    // usually apply. Costs come through only where the template carries a
+    // real one — an unpriced line is honest, an invented one is not.
+    if (typeof body.templateId === "string" && body.templateId) {
+      const tpl = await db.eventTemplate.findUnique({
+        where: { id: body.templateId },
+        include: { items: { orderBy: [{ sortOrder: "asc" }, { section: "asc" }] } },
+      });
+      if (tpl) {
+        const enabled = tpl.items.filter((i) => i.enabledByDefault);
+        if (enabled.length > 0) {
+          await db.projectService.createMany({
+            data: enabled.map((i) => ({
+              projectId: created.id,
+              serviceName: i.name,
+              category: i.section,
+              quantity: i.defaultQuantity,
+              days: i.defaultDays,
+              unitPrice: i.defaultUnitCost ?? 0,
+              totalPrice: lineTotal({
+                quantity: i.defaultQuantity,
+                days: i.defaultDays,
+                price: i.defaultUnitCost ?? 0,
+              }),
+              status: "LISTED",
+              createdBy: user.id,
+            })),
+          });
+        }
+        await db.project.update({ where: { id: created.id }, data: { templateId: tpl.id } });
+      }
     }
 
     try {

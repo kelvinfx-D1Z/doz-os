@@ -53,7 +53,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ServicePicker } from "@/components/modules/projects/service-picker";
+import { ServicePicker, type Template as EventTemplateOption } from "@/components/modules/projects/service-picker";
 import { MarkupPanel } from "@/components/modules/projects/markup-panel";
 import {
   StatCard,
@@ -895,6 +895,8 @@ function NewProjectDialog({
 }) {
   const proposing = mode === "propose";
   const [services, setServices] = useState<Set<string>>(new Set());
+  const [templates, setTemplates] = useState<EventTemplateOption[]>([]);
+  const [templateId, setTemplateId] = useState<string>("");
   const [name, setName] = useState("");
   const [serviceType, setServiceType] = useState<string>("");
   const [customServiceType, setCustomServiceType] = useState("");
@@ -907,6 +909,24 @@ function NewProjectDialog({
   const [submitting, setSubmitting] = useState(false);
 
   // Client list + inline "add new client" now live in <ClientSelect />.
+
+  // Templates fed to the picker below — the reusable "typical event" lists,
+  // now carrying quantities, days and starting costs rather than just names.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/doz/event-templates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setTemplates(d.templates ?? []);
+      })
+      .catch(() => {
+        /* non-fatal — "Start blank" still works */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Reset form fields whenever the dialog closes.
   useEffect(() => {
@@ -921,6 +941,7 @@ function NewProjectDialog({
       setBudget("");
       setRevenue("");
       setServices(new Set());
+      setTemplateId("");
     }
   }, [open]);
 
@@ -964,6 +985,7 @@ function NewProjectDialog({
         payload.revenue = revenueNum;
       }
       if (services.size > 0) payload.serviceNames = [...services];
+      if (templateId) payload.templateId = templateId;
       if (accountId) payload.accountId = accountId;
       if (eventDate) payload.eventDate = eventDate;
       if (venue.trim()) payload.venue = venue.trim();
@@ -1108,6 +1130,34 @@ function NewProjectDialog({
                 onChange={(e) => setVenue(e.target.value)}
                 placeholder="e.g. Eko Hotel Convention Center"
               />
+            </div>
+
+            {/* Template — seeds the cost sheet with the sections, quantities,
+                day counts and starting costs a typical job of this shape
+                needs. Shown to everyone, including a proposing PM: they are
+                building the Base Price, which is exactly what a template seeds. */}
+            <div className="space-y-1.5 border-t border-border/60 pt-4">
+              <Label htmlFor="np-template">Start from a template</Label>
+              <Select
+                value={templateId || "blank"}
+                onValueChange={(v) => setTemplateId(v === "blank" ? "" : v)}
+              >
+                <SelectTrigger id="np-template">
+                  <SelectValue placeholder="Start blank" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="blank">Start blank</SelectItem>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} · {t.count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                A template fills in the usual lines for this kind of job. You can
+                change everything afterwards.
+              </p>
             </div>
 
             {/* Services — the tick list. Shown to everyone; it's how a
