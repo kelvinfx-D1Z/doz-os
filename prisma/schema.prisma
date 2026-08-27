@@ -382,6 +382,15 @@ model Project {
   @@index([accountId])
   @@index([status])
   @@index([eventDate])
+
+  // BASE while the production manager builds the cost sheet; OFFICIAL once the
+  // founder has priced it and taken the project over. The stage is what locks
+  // the cost sheet against further PM edits — see src/lib/pricing.ts.
+  pricingStage String   @default("BASE") // BASE | OFFICIAL
+  convertedToOfficialAt DateTime?
+  convertedById String?
+  /** Which EventTemplate seeded this project's cost sheet, for reference. */
+  templateId   String?
 }
 
 model Milestone {
