@@ -508,27 +508,33 @@ export async function POST(req: Request) {
       },
     });
 
-    // Services picked at creation become the opening cost sheet, unpriced.
-    // This is the point of the picker: the PM starts from a real list rather
-    // than an empty project they then have to populate line by line.
+    // Services picked at creation and a chosen template both feed the same
+    // opening cost sheet. They are keyed identically (category + service
+    // name, trimmed and case-folded) and merged into one map before a single
+    // insert, so ticking "Conference" in the saved-list chips *and* picking
+    // the "Conference" template in the dropdown produces each line once —
+    // not a priced line plus a flat duplicate. The template wins on overlap:
+    // it carries a real quantity, day count and cost where the checkbox path
+    // can only ever produce a flat, unpriced line.
     const picked: string[] = Array.isArray(body.serviceNames) ? body.serviceNames : [];
-    if (picked.length > 0) {
-      await db.projectService.createMany({
-        data: picked.slice(0, 200).map((entry) => {
-          const [category, ...rest] = String(entry).split("::");
-          const serviceName = rest.join("::") || category;
-          return {
-            projectId: created.id,
-            serviceName: serviceName.trim(),
-            category: rest.length ? category.trim() : "Other",
-            quantity: 1,
-            days: 1,
-            unitPrice: 0,
-            totalPrice: 0,
-            status: "LISTED",
-            createdBy: user.id,
-          };
-        }),
+    const seedKey = (category: string, name: string) =>
+      `${category.trim().toLowerCase()}::${name.trim().toLowerCase()}`;
+    const seedLines = new Map<
+      string,
+      { serviceName: string; category: string; quantity: number; days: number; unitPrice: number; totalPrice: number }
+    >();
+
+    for (const entry of picked.slice(0, 200)) {
+      const [category, ...rest] = String(entry).split("::");
+      const serviceName = (rest.join("::") || category).trim();
+      const cat = rest.length ? category.trim() : "Other";
+      seedLines.set(seedKey(cat, serviceName), {
+        serviceName,
+        category: cat,
+        quantity: 1,
+        days: 1,
+        unitPrice: 0,
+        totalPrice: 0,
       });
     }
 
@@ -536,34 +542,42 @@ export async function POST(req: Request) {
     // sections, the line names, and the quantities and day counts that
     // usually apply. Costs come through only where the template carries a
     // real one — an unpriced line is honest, an invented one is not.
+    let tpl: Prisma.EventTemplateGetPayload<{ include: { items: true } }> | null = null;
     if (typeof body.templateId === "string" && body.templateId) {
-      const tpl = await db.eventTemplate.findUnique({
+      tpl = await db.eventTemplate.findUnique({
         where: { id: body.templateId },
         include: { items: { orderBy: [{ sortOrder: "asc" }, { section: "asc" }] } },
       });
       if (tpl) {
-        const enabled = tpl.items.filter((i) => i.enabledByDefault);
-        if (enabled.length > 0) {
-          await db.projectService.createMany({
-            data: enabled.map((i) => ({
-              projectId: created.id,
-              serviceName: i.name,
-              category: i.section,
+        for (const i of tpl.items.filter((i) => i.enabledByDefault)) {
+          seedLines.set(seedKey(i.section, i.name), {
+            serviceName: i.name,
+            category: i.section,
+            quantity: i.defaultQuantity,
+            days: i.defaultDays,
+            unitPrice: i.defaultUnitCost ?? 0,
+            totalPrice: lineTotal({
               quantity: i.defaultQuantity,
               days: i.defaultDays,
-              unitPrice: i.defaultUnitCost ?? 0,
-              totalPrice: lineTotal({
-                quantity: i.defaultQuantity,
-                days: i.defaultDays,
-                price: i.defaultUnitCost ?? 0,
-              }),
-              status: "LISTED",
-              createdBy: user.id,
-            })),
+              price: i.defaultUnitCost ?? 0,
+            }),
           });
         }
-        await db.project.update({ where: { id: created.id }, data: { templateId: tpl.id } });
       }
+    }
+
+    if (seedLines.size > 0) {
+      await db.projectService.createMany({
+        data: [...seedLines.values()].map((line) => ({
+          projectId: created.id,
+          ...line,
+          status: "LISTED",
+          createdBy: user.id,
+        })),
+      });
+    }
+    if (tpl) {
+      await db.project.update({ where: { id: created.id }, data: { templateId: tpl.id } });
     }
 
     try {

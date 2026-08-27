@@ -1155,13 +1155,21 @@ function NewProjectDialog({
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                A template fills in the usual lines for this kind of job. You can
-                change everything afterwards.
+                A template fills in the usual lines for this kind of job, with
+                quantities and starting costs. You can change everything
+                afterwards.
               </p>
             </div>
 
             {/* Services — the tick list. Shown to everyone; it's how a
-                project starts life as a cost sheet rather than an empty shell. */}
+                project starts life as a cost sheet rather than an empty shell.
+                A saved list here can name the same services as the template
+                above — that's expected, not a mistake to route around: the
+                server merges them into one line each, and the template's
+                quantity/days/cost always win over the flat 1/1/0 a checkbox
+                alone can produce. The note only needs to appear once a
+                template is actually selected, since that's the only moment
+                the overlap can happen. */}
             <div className="space-y-2 border-t border-border/60 pt-4">
               <div>
                 <Label>Services needed</Label>
@@ -1169,6 +1177,14 @@ function NewProjectDialog({
                   Tick everything this job needs. Load a saved list to start from a
                   standard setup, or save this selection to reuse next time.
                 </p>
+                {templateId && (
+                  <p className="text-[11px] text-amber-500">
+                    A template is selected above. If a saved list here names the
+                    same service, it won&apos;t double up — the template&apos;s
+                    quantity, days and cost win. Anything else you tick is added
+                    as its own line.
+                  </p>
+                )}
               </div>
               <ServicePicker selected={services} onChange={setServices} />
             </div>
