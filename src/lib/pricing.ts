@@ -24,7 +24,7 @@ export const DEFAULT_MARKUP = 2.0;
  */
 const RULES: { markup: number; keywords: string[] }[] = [
   { markup: 1.3, keywords: ["personnel", "crew", "staff", "operations", "logistics", "management", "labour", "labor"] },
-  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor"] },
+  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction", "booth", "exhibit"] },
 ];
 
 function safe(n: number | null | undefined): number {
@@ -56,7 +56,7 @@ export function suggestOfficialPrice(basePrice: number, section: string | null |
  */
 export function lineTotal(l: { quantity: number; days: number; price: number }): number {
   const q = Math.max(0, safe(l.quantity));
-  const d = Math.max(1, safe(l.days) || 1);
+  const d = Math.max(1, safe(l.days));
   return q * d * Math.max(0, safe(l.price));
 }
 

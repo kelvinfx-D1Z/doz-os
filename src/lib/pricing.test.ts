@@ -36,6 +36,15 @@ test("equipment takes the default", () => {
   assert.equal(markupFor("EQUIPMENT RENTAL"), 2.0);
 });
 
+test("all six real D1Z departments map to their expected markup", () => {
+  assert.equal(markupFor("Audiovisual & Technical Production"), 2.0);
+  assert.equal(markupFor("Scenic Design & Stage Production"), 3.5);
+  assert.equal(markupFor("Trade Show Exhibition & Booth Construction"), 3.5);
+  assert.equal(markupFor("Event Branding & Signage"), 3.5);
+  assert.equal(markupFor("Event Technology & Registration"), 2.0);
+  assert.equal(markupFor("Operations, Logistics & Management"), 1.3);
+});
+
 test("an unknown or empty section falls back to the default rather than throwing", () => {
   assert.equal(markupFor("Something we have never sold"), DEFAULT_MARKUP);
   assert.equal(markupFor(null), DEFAULT_MARKUP);
