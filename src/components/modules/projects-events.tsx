@@ -54,6 +54,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ServicePicker } from "@/components/modules/projects/service-picker";
+import { MarkupPanel } from "@/components/modules/projects/markup-panel";
 import {
   StatCard,
   StatusBadge,
@@ -123,6 +124,10 @@ interface Project {
   balance: number;
   profit: number;
   margin: number;
+  // BASE | OFFICIAL — not money, so visible to every role. Lets a non-founder
+  // viewer of the Services List know the cost sheet is closed without ever
+  // calling the founder-only pricing endpoint.
+  pricingStage: string;
 }
 interface ProjectsData {
   stats: {
@@ -1828,7 +1833,16 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
         <EquipmentSection projectId={p.id} isPM={isPM} />
 
         {/* Services List — production services with vendor attachment */}
-        <ServicesSection projectId={p.id} isPM={isPM} />
+        <ServicesSection projectId={p.id} isPM={isPM} pricingStage={p.pricingStage} />
+
+        {/* Founder-only: turns the cost sheet's Base Price into the
+            client-facing Official Price, with live margin. */}
+        {isFounder && (
+          <MarkupPanel
+            projectId={p.id}
+            onChanged={() => setTimeout(() => window.location.reload(), 800)}
+          />
+        )}
 
         {/* PM: Total budget summary at the bottom (pro-forma total) */}
         {isPM && <PMBudgetTotal projectId={p.id} />}
@@ -3363,11 +3377,16 @@ interface ProjectSvc {
 }
 interface SvcPayload { categories: SvcCategory[]; projectServices: ProjectSvc[]; totals: { items: number; totalValue: number; priced: number; approved: number }; canManage: boolean; canApprove: boolean; }
 
-function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean }) {
+function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string; isPM: boolean; pricingStage: string }) {
   const { user } = useCurrentUser();
   // Company money is FOUNDER-only, separate from isPM (which scopes what a
   // production manager sees of their own budget).
   const showMoney = user?.role === "FOUNDER";
+  // Once the founder converts a project to OFFICIAL they have taken the cost
+  // sheet over — everyone else loses add/edit, and must be told why rather
+  // than handed dead buttons. The founder keeps full control regardless of
+  // stage (they can still edit, and can reopen it).
+  const sheetClosed = pricingStage === "OFFICIAL" && !showMoney;
   const [data, setData] = useState<SvcPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -3406,12 +3425,20 @@ function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean
           <h4 className="text-sm font-semibold">Services List</h4>
           {isPM && <Badge variant="outline" className="text-[9px]">Your Budget</Badge>}
         </div>
-        {canManage && (
+        {canManage && !sheetClosed && (
           <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => { setEditing(null); setShowAdd(true); }}>
             <Plus className="h-3 w-3" /> Add Service
           </Button>
         )}
       </div>
+
+      {/* The founder has taken this project over — do not leave a PM staring
+          at silently-disabled buttons with no explanation. */}
+      {sheetClosed && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          This project has been priced and closed. Ask the founder to reopen it if something needs adding.
+        </p>
+      )}
 
       {/* PM Budget Summary — shows only their costs */}
       {isPM && (
@@ -3480,7 +3507,7 @@ function ServicesSection({ projectId, isPM }: { projectId: string; isPM: boolean
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Badge className={`text-[9px] ${item.status === "APPROVED" ? "bg-emerald-500/15 text-emerald-400" : item.status === "BUDGET_SUBMITTED" ? "bg-amber-500/15 text-amber-400" : "bg-muted text-muted-foreground"}`}>{item.status.replace(/_/g," ")}</Badge>
-                  {canManage && <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditing(item); setShowAdd(true); }}><Pencil className="h-3 w-3" /></Button>}
+                  {canManage && !sheetClosed && <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditing(item); setShowAdd(true); }}><Pencil className="h-3 w-3" /></Button>}
                 </div>
               </div>
             </div>

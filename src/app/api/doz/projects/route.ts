@@ -206,6 +206,11 @@ export async function GET(req: Request) {
       status: p.status,
       eventDate: p.eventDate,
       venue: p.venue,
+      // BASE | OFFICIAL — not money, visible to every role. Lets a
+      // non-founder viewer of a project's Services List know the cost sheet
+      // has been priced and closed without calling the founder-only
+      // /api/doz/projects/pricing endpoint.
+      pricingStage: p.pricingStage,
       // FREELANCERs (PMs) do NOT see company financials (revenue, budget,
       // profit, margin, received, balance). They only see their project's
       // expenses (their budget) — not what the client paid.
