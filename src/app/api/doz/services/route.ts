@@ -3,6 +3,31 @@ import { db } from "@/lib/db";
 import { getSessionUser, isProjectManagerRole, canBuildBudget } from "@/lib/auth";
 import { lineTotal } from "@/lib/pricing";
 
+// Shapes a ProjectService row for an API response, for every route that
+// returns one (GET's list, add_service, update_service). clientPrice is OP —
+// founder-only, dropped (not just falsy) from the JSON payload otherwise.
+// Centralising this is what stops a future POST handler from returning a raw
+// Prisma row and leaking it, the way add_service/update_service used to.
+function shapeService(s: {
+  id: string; projectId: string; serviceName: string; category: string;
+  quantity: number; days: number; unitPrice: number; clientPrice: number | null;
+  vendorId: string | null; vendorName: string | null; vendorContact: string | null;
+  vendorPhone: string | null; vendorEmail: string | null; vendorBankDetails: string | null;
+  status: string; notes: string | null; createdBy: string; createdAt: Date;
+}, role: string) {
+  return {
+    id: s.id, projectId: s.projectId, serviceName: s.serviceName, category: s.category,
+    quantity: s.quantity,
+    days: s.days,
+    unitPrice: s.unitPrice,
+    totalPrice: lineTotal({ quantity: s.quantity, days: s.days, price: s.unitPrice }),
+    clientPrice: role === "FOUNDER" ? s.clientPrice : undefined,
+    vendorId: s.vendorId, vendorName: s.vendorName, vendorContact: s.vendorContact,
+    vendorPhone: s.vendorPhone, vendorEmail: s.vendorEmail, vendorBankDetails: s.vendorBankDetails,
+    status: s.status, notes: s.notes, createdBy: s.createdBy, createdAt: s.createdAt,
+  };
+}
+
 // GET — service library + project services
 export async function GET(req: Request) {
   const user = await getSessionUser();
@@ -18,7 +43,7 @@ export async function GET(req: Request) {
 
   const totals = projectServices.length > 0 ? {
     items: projectServices.length,
-    totalValue: projectServices.reduce((s, e) => s + (e.totalPrice || e.unitPrice * e.quantity), 0),
+    totalValue: projectServices.reduce((s, e) => s + lineTotal({ quantity: e.quantity, days: e.days, price: e.unitPrice }), 0),
     priced: projectServices.filter(e => e.unitPrice > 0).length,
     approved: projectServices.filter(e => e.status === "APPROVED").length,
   } : { items: 0, totalValue: 0, priced: 0, approved: 0 };
@@ -28,20 +53,7 @@ export async function GET(req: Request) {
       id: c.id, name: c.name, icon: c.icon,
       items: c.items.map(i => ({ id: i.id, name: i.name, isCustom: i.isCustom })),
     })),
-    projectServices: projectServices.map(s => ({
-      id: s.id, projectId: s.projectId, serviceName: s.serviceName, category: s.category,
-      quantity: s.quantity,
-      // `days` was on the model but never returned, so the UI could not show it
-      // and totalPrice silently ignored it. A 3-day LED hire read as 1 day.
-      days: s.days,
-      unitPrice: s.unitPrice,
-      totalPrice: lineTotal({ quantity: s.quantity, days: s.days, price: s.unitPrice }),
-      // OP is founder-only. Not "hidden in the UI" — absent from the payload.
-      clientPrice: user.role === "FOUNDER" ? s.clientPrice : undefined,
-      vendorId: s.vendorId, vendorName: s.vendorName, vendorContact: s.vendorContact,
-      vendorPhone: s.vendorPhone, vendorEmail: s.vendorEmail, vendorBankDetails: s.vendorBankDetails,
-      status: s.status, notes: s.notes, createdBy: s.createdBy, createdAt: s.createdAt,
-    })),
+    projectServices: projectServices.map(s => shapeService(s, user.role)),
     totals,
     canManage: true,
     canApprove: user.role === "FOUNDER" || user.role === "STAFF",
@@ -68,15 +80,26 @@ export async function POST(req: Request) {
   // over: the cost sheet is closed to everyone else. The founder can still
   // edit, and can reopen the project to BASE to let the PM add a late item.
   //
-  // `update_service` and `delete_service` carry `serviceId`, not `projectId`
-  // — the project has to be resolved through the ProjectService row itself,
-  // or the guard would never fire for those two actions.
+  // `update_service` and `delete_service` act purely on `serviceId` — the
+  // handlers below never read `body.projectId` for those two actions, so it
+  // is inert to them. It MUST be inert here too: trusting a client-supplied
+  // `projectId` would let a caller point the guard at an unrelated BASE
+  // project while `serviceId` still targets a line on a real OFFICIAL one,
+  // sailing straight through. So for these two actions the project is only
+  // ever resolved by following `serviceId` to its actual row — never from
+  // the body — and if that resolution fails to find anything, the guard
+  // does not run and the action falls through to the handler's own
+  // "not found" check, which fails closed on the same missing row.
   const SHEET_MUTATIONS = ["add_service", "update_service", "delete_service", "submit_budget", "add_custom_item"];
   if (SHEET_MUTATIONS.includes(body.action) && user.role !== "FOUNDER") {
-    let guardProjectId: string | undefined = body.projectId || undefined;
-    if (!guardProjectId && (body.action === "update_service" || body.action === "delete_service") && body.serviceId) {
-      const svc = await db.projectService.findUnique({ where: { id: body.serviceId }, select: { projectId: true } });
-      guardProjectId = svc?.projectId;
+    let guardProjectId: string | undefined;
+    if (body.action === "update_service" || body.action === "delete_service") {
+      if (body.serviceId) {
+        const svc = await db.projectService.findUnique({ where: { id: body.serviceId }, select: { projectId: true } });
+        guardProjectId = svc?.projectId;
+      }
+    } else {
+      guardProjectId = body.projectId || undefined;
     }
     if (guardProjectId) {
       const proj = await db.project.findUnique({
@@ -96,14 +119,17 @@ export async function POST(req: Request) {
     if (!body.projectId || !body.serviceName) return NextResponse.json({ error: "projectId and serviceName required" }, { status: 400 });
     let vendorName = body.vendorName || null, vendorContact = body.vendorContact || null, vendorPhone = body.vendorPhone || null, vendorEmail = body.vendorEmail || null, vendorBankDetails = body.vendorBankDetails || null;
     if (body.vendorId) { const v = await db.vendor.findUnique({ where: { id: body.vendorId } }); if (v) { vendorName = v.name; vendorContact = v.contactName; vendorPhone = v.phone; vendorEmail = v.email; vendorBankDetails = v.bankAccount; } }
+    const quantity = Number(body.quantity) || 1;
+    const days = Number(body.days) || 1;
+    const unitPrice = Number(body.unitPrice) || 0;
     const created = await db.projectService.create({
       data: { projectId: body.projectId, serviceName: body.serviceName, category: body.category || "Other",
-        quantity: Number(body.quantity) || 1, unitPrice: Number(body.unitPrice) || 0,
-        totalPrice: (Number(body.unitPrice) || 0) * (Number(body.quantity) || 1),
+        quantity, days, unitPrice,
+        totalPrice: lineTotal({ quantity, days, price: unitPrice }),
         vendorId: body.vendorId || null, vendorName, vendorContact, vendorPhone, vendorEmail, vendorBankDetails,
         status: "LISTED", notes: body.notes || null, createdBy: user.id },
     });
-    return NextResponse.json({ ok: true, service: created }, { status: 201 });
+    return NextResponse.json({ ok: true, service: shapeService(created, user.role) }, { status: 201 });
   }
 
   if (body.action === "update_service") {
@@ -112,8 +138,20 @@ export async function POST(req: Request) {
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (isProjectManagerRole(user.role) && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_edit_submitted" }, { status: 403 });
     const data: any = {};
-    if (body.quantity !== undefined) { data.quantity = Number(body.quantity); data.totalPrice = (Number(body.unitPrice) || existing.unitPrice) * data.quantity; }
-    if (body.unitPrice !== undefined) { data.unitPrice = Number(body.unitPrice); data.totalPrice = data.unitPrice * (existing.quantity || 1); }
+    if (body.quantity !== undefined) data.quantity = Number(body.quantity);
+    if (body.days !== undefined) data.days = Number(body.days) || 1;
+    if (body.unitPrice !== undefined) data.unitPrice = Number(body.unitPrice);
+    if (data.quantity !== undefined || data.days !== undefined || data.unitPrice !== undefined) {
+      // Recompute from the full resulting line, not just whichever field
+      // changed — a quantity-only edit must still carry the row's existing
+      // `days` into the total, or a multi-day line silently collapses back
+      // to a single day (and approve_budget then underpays the vendor).
+      data.totalPrice = lineTotal({
+        quantity: data.quantity ?? existing.quantity,
+        days: data.days ?? existing.days,
+        price: data.unitPrice ?? existing.unitPrice,
+      });
+    }
     if (body.vendorId !== undefined) { data.vendorId = body.vendorId || null; if (body.vendorId) { const v = await db.vendor.findUnique({ where: { id: body.vendorId } }); if (v) { data.vendorName = v.name; data.vendorContact = v.contactName; data.vendorPhone = v.phone; data.vendorEmail = v.email; data.vendorBankDetails = v.bankAccount; } } }
     if (body.vendorName !== undefined) data.vendorName = body.vendorName;
     if (body.vendorContact !== undefined) data.vendorContact = body.vendorContact;
@@ -123,7 +161,7 @@ export async function POST(req: Request) {
     if (body.notes !== undefined) data.notes = body.notes;
     if (body.status !== undefined) data.status = body.status;
     const updated = await db.projectService.update({ where: { id: body.serviceId }, data });
-    return NextResponse.json({ ok: true, service: updated });
+    return NextResponse.json({ ok: true, service: shapeService(updated, user.role) });
   }
 
   if (body.action === "delete_service") {
