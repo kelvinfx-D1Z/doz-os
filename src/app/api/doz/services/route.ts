@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, isProjectManagerRole, canBuildBudget } from "@/lib/auth";
+import { lineTotal } from "@/lib/pricing";
 
 // GET — service library + project services
 export async function GET(req: Request) {
@@ -29,7 +30,14 @@ export async function GET(req: Request) {
     })),
     projectServices: projectServices.map(s => ({
       id: s.id, projectId: s.projectId, serviceName: s.serviceName, category: s.category,
-      quantity: s.quantity, unitPrice: s.unitPrice, totalPrice: s.totalPrice || s.unitPrice * s.quantity,
+      quantity: s.quantity,
+      // `days` was on the model but never returned, so the UI could not show it
+      // and totalPrice silently ignored it. A 3-day LED hire read as 1 day.
+      days: s.days,
+      unitPrice: s.unitPrice,
+      totalPrice: lineTotal({ quantity: s.quantity, days: s.days, price: s.unitPrice }),
+      // OP is founder-only. Not "hidden in the UI" — absent from the payload.
+      clientPrice: user.role === "FOUNDER" ? s.clientPrice : undefined,
       vendorId: s.vendorId, vendorName: s.vendorName, vendorContact: s.vendorContact,
       vendorPhone: s.vendorPhone, vendorEmail: s.vendorEmail, vendorBankDetails: s.vendorBankDetails,
       status: s.status, notes: s.notes, createdBy: s.createdBy, createdAt: s.createdAt,
@@ -54,6 +62,34 @@ export async function POST(req: Request) {
   const BUDGET_ACTIONS = ["add_service", "update_service", "delete_service", "submit_budget", "add_custom_item"];
   if (BUDGET_ACTIONS.includes(body.action) && !canBuildBudget(user.role)) {
     return NextResponse.json({ error: "forbidden — you cannot edit this project budget" }, { status: 403 });
+  }
+
+  // Once the founder has converted a project to OFFICIAL they have taken it
+  // over: the cost sheet is closed to everyone else. The founder can still
+  // edit, and can reopen the project to BASE to let the PM add a late item.
+  //
+  // `update_service` and `delete_service` carry `serviceId`, not `projectId`
+  // — the project has to be resolved through the ProjectService row itself,
+  // or the guard would never fire for those two actions.
+  const SHEET_MUTATIONS = ["add_service", "update_service", "delete_service", "submit_budget", "add_custom_item"];
+  if (SHEET_MUTATIONS.includes(body.action) && user.role !== "FOUNDER") {
+    let guardProjectId: string | undefined = body.projectId || undefined;
+    if (!guardProjectId && (body.action === "update_service" || body.action === "delete_service") && body.serviceId) {
+      const svc = await db.projectService.findUnique({ where: { id: body.serviceId }, select: { projectId: true } });
+      guardProjectId = svc?.projectId;
+    }
+    if (guardProjectId) {
+      const proj = await db.project.findUnique({
+        where: { id: guardProjectId },
+        select: { pricingStage: true, name: true },
+      });
+      if (proj?.pricingStage === "OFFICIAL") {
+        return NextResponse.json(
+          { error: `"${proj.name}" has been priced and closed. Ask the founder to reopen it if something needs adding.` },
+          { status: 409 },
+        );
+      }
+    }
   }
 
   if (body.action === "add_service") {
