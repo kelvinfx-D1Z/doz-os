@@ -3,6 +3,24 @@ import { db } from "@/lib/db";
 import { getSessionUser, isProjectManagerRole, canBuildBudget } from "@/lib/auth";
 import { lineTotal } from "@/lib/pricing";
 
+// Floors to a whole number >= `min`; falls back to `fallback` when the input
+// is missing or not a finite number (undefined, NaN, a non-numeric string).
+// Used for `quantity` and `days` — both must be whole so the stored `days`
+// and the stored `totalPrice` (computed via lineTotal, which itself floors
+// days at 1) can never describe different jobs: e.g. `days: -3` stored
+// unclamped alongside a total computed as 1 day silently underpays a vendor.
+function clampInt(n: unknown, min: number, fallback: number): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.max(min, Math.floor(v)) : fallback;
+}
+
+// Same fallback rule as clampInt but for money — `unitPrice` may be
+// fractional (kobo), so it is floored at `min` without rounding to an int.
+function clampMoney(n: unknown, min: number, fallback: number): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.max(min, v) : fallback;
+}
+
 // Shapes a ProjectService row for an API response, for every route that
 // returns one (GET's list, add_service, update_service). clientPrice is OP —
 // founder-only, dropped (not just falsy) from the JSON payload otherwise.
@@ -119,9 +137,14 @@ export async function POST(req: Request) {
     if (!body.projectId || !body.serviceName) return NextResponse.json({ error: "projectId and serviceName required" }, { status: 400 });
     let vendorName = body.vendorName || null, vendorContact = body.vendorContact || null, vendorPhone = body.vendorPhone || null, vendorEmail = body.vendorEmail || null, vendorBankDetails = body.vendorBankDetails || null;
     if (body.vendorId) { const v = await db.vendor.findUnique({ where: { id: body.vendorId } }); if (v) { vendorName = v.name; vendorContact = v.contactName; vendorPhone = v.phone; vendorEmail = v.email; vendorBankDetails = v.bankAccount; } }
-    const quantity = Number(body.quantity) || 1;
-    const days = Number(body.days) || 1;
-    const unitPrice = Number(body.unitPrice) || 0;
+    // Missing/invalid falls back to the prior defaults (1, 1, 0); an
+    // explicit value is clamped, not merely defaulted — `x || 1` lets a
+    // negative or fractional number straight through, which is the bug
+    // this replaces. quantity/days must be whole; unitPrice >= 0 (0 is a
+    // legitimate complimentary line, negative is not).
+    const quantity = clampInt(body.quantity, 0, 1);
+    const days = clampInt(body.days, 1, 1);
+    const unitPrice = clampMoney(body.unitPrice, 0, 0);
     const created = await db.projectService.create({
       data: { projectId: body.projectId, serviceName: body.serviceName, category: body.category || "Other",
         quantity, days, unitPrice,
@@ -138,9 +161,12 @@ export async function POST(req: Request) {
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (isProjectManagerRole(user.role) && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_edit_submitted" }, { status: 403 });
     const data: any = {};
-    if (body.quantity !== undefined) data.quantity = Number(body.quantity);
-    if (body.days !== undefined) data.days = Number(body.days) || 1;
-    if (body.unitPrice !== undefined) data.unitPrice = Number(body.unitPrice);
+    // Same clamp as add_service: whole quantity/days, unitPrice >= 0. When
+    // the supplied value is invalid (not a finite number) the existing
+    // stored value is kept rather than silently zeroing/defaulting it.
+    if (body.quantity !== undefined) data.quantity = clampInt(body.quantity, 0, existing.quantity);
+    if (body.days !== undefined) data.days = clampInt(body.days, 1, existing.days);
+    if (body.unitPrice !== undefined) data.unitPrice = clampMoney(body.unitPrice, 0, existing.unitPrice);
     if (data.quantity !== undefined || data.days !== undefined || data.unitPrice !== undefined) {
       // Recompute from the full resulting line, not just whichever field
       // changed — a quantity-only edit must still carry the row's existing
