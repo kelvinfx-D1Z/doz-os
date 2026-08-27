@@ -55,6 +55,24 @@ interface ProjectOption {
   name: string;
 }
 
+// The shape this builder actually reads from GET /api/doz/projects/pricing.
+// Deliberately missing `unitPrice` (the cost/BP field the API also returns)
+// — this component has no legitimate use for it, so it isn't even given a
+// name to reach for. The only per-line price this type exposes is
+// `clientPrice`, the Official Price.
+interface ProjectPricingLine {
+  serviceName: string;
+  section: string | null;
+  quantity: number;
+  days: number;
+  clientPrice: number | null;
+}
+
+interface ProjectPricingResponse {
+  stage: "BASE" | "OFFICIAL";
+  lines: ProjectPricingLine[];
+}
+
 const NO_PROJECT = "__none__";
 
 export function DocumentBuilder({
@@ -83,6 +101,14 @@ export function DocumentBuilder({
   const [discount, setDiscount] = useState("");
   const [vatRate, setVatRate] = useState(String(VAT_RATE));
   const [saving, setSaving] = useState(false);
+  // Keyed by the projectId it was fetched for, so a project change never
+  // needs a synchronous "clear the old value" setState inside the effect
+  // body — stale data is simply ignored by the `projectId` check below
+  // wherever this is read.
+  const [projectPricing, setProjectPricing] = useState<{
+    projectId: string;
+    data: ProjectPricingResponse | null;
+  } | null>(null);
 
   // Loaded once on mount, like ClientSelect's own account fetch — this
   // component stays mounted (only <DialogContent> hides), so a plain effect
@@ -124,6 +150,80 @@ export function DocumentBuilder({
       cancelled = true;
     };
   }, []);
+
+  // Refetches whenever the chosen project changes — this is how the builder
+  // knows the project's pricing stage (to show the button vs. the plain
+  // sentence) and, if OFFICIAL, holds the priced lines the button will load.
+  // No project selected means nothing to fetch, so the effect returns with
+  // no setState at all; every setState call below happens inside a
+  // .then()/.catch() continuation, never synchronously in the effect body.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    fetch(`/api/doz/projects/pricing?projectId=${encodeURIComponent(projectId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: ProjectPricingResponse | null) => {
+        if (cancelled) return;
+        setProjectPricing({ projectId, data: d });
+      })
+      .catch(() => {
+        if (!cancelled) setProjectPricing({ projectId, data: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  // Ignore any pricing payload that was fetched for a different project —
+  // this is what makes clearing the picker or switching projects safe
+  // without an extra setState to "reset" anything.
+  const currentPricing =
+    projectPricing && projectPricing.projectId === projectId ? projectPricing.data : null;
+  const pricingLoading = projectId !== "" && (!projectPricing || projectPricing.projectId !== projectId);
+
+  function loadFromProject() {
+    if (!currentPricing || currentPricing.stage !== "OFFICIAL") return;
+
+    const priced = currentPricing.lines.filter((l) => l.clientPrice !== null);
+    const skipped = currentPricing.lines.length - priced.length;
+    const nextLines: BuilderLine[] = priced.map((l) => ({
+      key: Math.random().toString(36).slice(2),
+      section: l.section ?? "",
+      description: l.serviceName,
+      subDescription: "",
+      quantity: String(l.quantity),
+      days: String(l.days),
+      // The Official Price — what the client is charged. This is the ONLY
+      // field on the fetched line that may ever reach a document's
+      // unitPrice; the project's cost (unitPrice/BP) is never read here.
+      unitPrice: String(l.clientPrice),
+    }));
+
+    const apply = () => {
+      setLines(nextLines.length > 0 ? nextLines : [emptyLine()]);
+      toast.success(
+        `Loaded ${nextLines.length} priced line(s) from the project`,
+        skipped > 0
+          ? { description: `${skipped} line(s) skipped — not priced yet (added since this project was reopened)` }
+          : undefined,
+      );
+    };
+
+    const hasTypedWork = lines.some(
+      (l) =>
+        l.description.trim() !== "" ||
+        l.subDescription.trim() !== "" ||
+        l.section.trim() !== "" ||
+        l.unitPrice.trim() !== "",
+    );
+    if (hasTypedWork) {
+      const ok = window.confirm(
+        "This replaces the current line items with the project's priced lines. Continue?",
+      );
+      if (!ok) return;
+    }
+    apply();
+  }
 
   function updateLine(key: string, patch: Partial<BuilderLine>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -316,6 +416,17 @@ export function DocumentBuilder({
               <Input id="doc-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
             </div>
           </div>
+
+          {projectId && !pricingLoading && currentPricing?.stage === "OFFICIAL" && (
+            <Button type="button" size="sm" variant="outline" onClick={loadFromProject}>
+              Load priced lines from this project
+            </Button>
+          )}
+          {projectId && !pricingLoading && currentPricing?.stage === "BASE" && (
+            <p className="text-xs text-muted-foreground">
+              This project hasn&apos;t been priced yet. Price it from the project&apos;s markup panel first.
+            </p>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
