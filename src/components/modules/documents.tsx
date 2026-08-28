@@ -19,6 +19,7 @@ import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
+import { RateCard } from "@/components/modules/documents/rate-card";
 
 // Documents — quotations, invoices and receipts for clients. Reads/writes the
 // same Invoice rows Finance and the client portal already use; this is not a
@@ -249,6 +250,7 @@ export function DocumentsModule() {
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
           <TabsTrigger value="receipts">Receipts</TabsTrigger>
           {isFounder && <TabsTrigger value="catalogue">Catalogue</TabsTrigger>}
+          {isFounder && <TabsTrigger value="rate-card">Rate Card</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="quotations">
@@ -302,6 +304,12 @@ export function DocumentsModule() {
         {isFounder && (
           <TabsContent value="catalogue">
             <CatalogueEditor />
+          </TabsContent>
+        )}
+
+        {isFounder && (
+          <TabsContent value="rate-card">
+            <RateCard />
           </TabsContent>
         )}
       </Tabs>
