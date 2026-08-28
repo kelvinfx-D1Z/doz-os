@@ -707,6 +707,10 @@ model EventTemplateItem {
   enabledByDefault Boolean @default(true)
   sortOrder   Int      @default(0)
 
+  // Where a template line is a catalogue service, its rates come from the
+  // catalogue rather than a copy that goes stale.
+  serviceItemId String?
+
   @@index([templateId])
 }
 
@@ -1454,6 +1458,17 @@ model ServiceItem {
   name        String
   isCustom    Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  // The company rate card. BP is what the job costs D1Z; CP is what the client
+  // is charged. Both are nullable: an unpriced line is honest, an invented one
+  // is not, and many services genuinely vary per job.
+  standardCost       Float?    // BP — Budget Rate / Basic Rate
+  standardClientRate Float?    // CP — Official / Client / Corporate Rate
+  // A LABEL for the founder ("per sqm", "per person"). NEVER a multiplier —
+  // a line's amount is always quantity x days x unitPrice.
+  unit               String    @default("UNIT")
+  costUpdatedAt      DateTime?
+  rateUpdatedAt      DateTime?
 }
 
 model ProjectService {
