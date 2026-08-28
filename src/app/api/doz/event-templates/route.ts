@@ -30,7 +30,12 @@ export async function GET() {
       // "CATEGORY::Service name" — the same encoding the picker and the project
       // create endpoint use, so a template round-trips without translation.
       services: t.items.map((i) => `${i.section}::${i.name}`),
-      count: t.items.length,
+      // What this template will ACTUALLY seed onto a new project's cost
+      // sheet — /api/doz/projects filters on enabledByDefault when creating
+      // from a template, so a raw items.length here can promise more lines
+      // than land (a disabled complimentary line has no UI to turn back on
+      // once the dropdown undercounts it).
+      count: t.items.filter((i) => i.enabledByDefault).length,
     })),
   });
 }
