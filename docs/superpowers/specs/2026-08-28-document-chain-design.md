@@ -75,6 +75,23 @@ Receipt         TO THE CLIENT — one per payment
 A budget never leaves the company. If a client is to see a priced document, it is a
 quotation, and it carries markup.
 
+### The two rates, and what to call them
+
+The founder's own words, and the terms the app should use everywhere:
+
+| | Also called | What it is | Who sees it |
+|---|---|---|---|
+| **BP** | Budget Rate, Basic Rate | What the job costs D1Z — vendor hire, crew day rates, transport | Founder, staff, and the PM building it |
+| **CP** | Official Rate, Client Rate, Corporate Rate | What the client is charged | Founder only, until it reaches a quotation |
+
+Earlier specs in this series called the second one **OP** (Official Price). **CP is
+the term from here on**, because it is the founder's, and because "client rate" says
+plainly whose number it is.
+
+The schema already agrees: `ProjectService.clientPrice` is CP, and `unitPrice` is BP.
+Only the wording in the interface and in the earlier specs needs to follow.
+
+
 ## Design
 
 ### 1. The budget is a document, not a hidden panel
@@ -128,10 +145,10 @@ category and no price, so there is nothing for a budget line to pull a rate from
 ```prisma
 // ServiceItem
 standardCost  Float?     // BP — what D1Z pays. Null where it always varies.
-standardRate  Float?     // OP — the published client rate. Null where unpriced.
+standardClientRate Float? // CP — the published client rate. Null where unpriced.
 unit          String    @default("UNIT") // UNIT, DAY, SQM, PERSON — a LABEL only
 costUpdatedAt DateTime?
-rateUpdatedAt DateTime?
+rateUpdatedAt DateTime?  // when the client rate last changed
 ```
 
 **Two figures, not one.** The founder's own rate card insists on this separation:
@@ -142,9 +159,8 @@ rateUpdatedAt DateTime?
 > → Rate → Amount, rather than your supplier costs."
 
 A camera **costs** ₦30,000 and is **charged** at ₦45,000. Storing only one of those
-would either lose the margin or expose the cost. `standardCost` is founder-and-team
-visible under the existing cost-sheet rule; `standardRate` is what reaches a
-quotation.
+would either lose the margin or expose the cost. `standardCost` (BP) is founder-and-team visible under the
+existing cost-sheet rule; `standardClientRate` (CP) is what reaches a quotation.
 
 `unit` tells the founder what they are pricing ("per sqm", "per person"). **It never
 enters a calculation.** The amount is always `quantity × days × unitPrice`, with no
@@ -215,7 +231,7 @@ real figures in it, which is what "starting a budget from a template" means.
 
 ### 1c. The rate card prices a job; the multiplier is only a fallback
 
-**A published rate beats a formula.** Where a service carries a `standardRate`, the
+**A published rate beats a formula.** Where a service carries a `standardClientRate`, the
 markup panel pre-fills that figure directly — no arithmetic, no guessing. The section
 multiplier is used only for a service with no published rate yet.
 
@@ -388,7 +404,7 @@ the block hides itself.
 2. **Correct the shipped markup multipliers** — a few lines in `pricing.ts` plus its
    tests. Do this FIRST within the rate-card work: the live 3.5× fabrication default
    overprices a stage nearly threefold, and every later step assumes sane fallbacks.
-3. **Rate card** — `standardCost` and `standardRate` on the catalogue, the rebuilt
+3. **Rate card** — `standardCost` and `standardClientRate` on the catalogue, the rebuilt
    type-based departments, pre-fill on a new cost line, rate-card-first pricing in the
    markup panel, save-back on override, and seeding. This is what makes "start a
    budget from a template" mean anything; without it a template supplies line names
