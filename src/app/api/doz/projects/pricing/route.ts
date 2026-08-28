@@ -56,17 +56,70 @@ export async function GET(req: Request) {
   const base = baseTotal(lines);
   const official = officialTotal(lines);
 
+  // ============================================================
+  // A published rate beats the section-multiplier formula: a stage does
+  // not mark up like a camera, and some services are sold as a fixed
+  // package rather than as a multiple of what they cost. Where the
+  // catalogue has a standardClientRate for this line's service, that wins;
+  // otherwise fall back to suggestOfficialPrice's cost x section-markup.
+  //
+  // ProjectService.serviceName/category are plain text, entered by a human
+  // (typed or picked from the catalogue, which then copies the words in —
+  // see the "safety property" comment in services/route.ts). Matching
+  // against ServiceItem.name/ServiceCategory.name is therefore
+  // case-insensitive and ignores leading/trailing whitespace, but nothing
+  // fuzzier than that: a near-miss falls back to MARKUP rather than
+  // guessing, because a wrong match would price a line off some other
+  // service's rate — worse than the formula.
+  //
+  // One query for every line: the distinct (name, category) pairs used on
+  // this budget are collected first and fetched together, rather than
+  // querying per line (this route renders every line of a budget, so a
+  // per-line query would be a real N+1).
+  // ============================================================
+  const distinctNames = [...new Set(rows.map((r) => r.serviceName.trim()).filter(Boolean))];
+  const distinctCategories = [...new Set(rows.map((r) => r.category.trim()).filter(Boolean))];
+
+  const rateCardItems = distinctNames.length > 0 && distinctCategories.length > 0
+    ? await db.serviceItem.findMany({
+        where: {
+          name: { in: distinctNames, mode: "insensitive" },
+          category: { name: { in: distinctCategories, mode: "insensitive" } },
+        },
+        select: { name: true, standardClientRate: true, category: { select: { name: true } } },
+      })
+    : [];
+
+  const rateKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toLowerCase()}`;
+
+  const rateCardMap = new Map<string, number | null>();
+  for (const item of rateCardItems) {
+    rateCardMap.set(rateKey(item.name, item.category.name), item.standardClientRate);
+  }
+
   return NextResponse.json({
     stage: project.pricingStage,
     convertedAt: project.convertedToOfficialAt,
-    lines: rows.map((r) => ({
-      id: r.id, serviceName: r.serviceName, section: r.category,
-      quantity: r.quantity, days: r.days, status: r.status,
-      unitPrice: r.unitPrice, clientPrice: r.clientPrice,
-      // A starting point, recomputed on every read so a changed cost is
-      // reflected. Never written unless the founder confirms it.
-      suggested: suggestOfficialPrice(r.unitPrice, r.category),
-    })),
+    lines: rows.map((r) => {
+      const publishedRate = rateCardMap.get(rateKey(r.serviceName, r.category));
+      // A published rate of 0 is a deliberate complimentary price (see
+      // src/lib/rate-card.ts), not an absent one — checking !== null &&
+      // !== undefined (never truthiness) is what keeps a real free line
+      // from being quietly marked up to a formula price.
+      const hasPublishedRate = publishedRate !== null && publishedRate !== undefined;
+      const suggested = hasPublishedRate ? publishedRate : suggestOfficialPrice(r.unitPrice, r.category);
+      const suggestedSource: "RATE_CARD" | "MARKUP" = hasPublishedRate ? "RATE_CARD" : "MARKUP";
+      return {
+        id: r.id, serviceName: r.serviceName, section: r.category,
+        quantity: r.quantity, days: r.days, status: r.status,
+        unitPrice: r.unitPrice, clientPrice: r.clientPrice,
+        // A starting point, recomputed on every read so a changed cost (or
+        // a newly published rate) is reflected. Never written unless the
+        // founder confirms it.
+        suggested,
+        suggestedSource,
+      };
+    }),
     baseTotal: base,
     officialTotal: official,
     margin: marginFor(base, official),

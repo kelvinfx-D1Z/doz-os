@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
-import { lineTotal, marginFor } from "@/lib/pricing";
+import { lineTotal, marginFor, markupFor } from "@/lib/pricing";
 
 // ============================================================
 // Markup Panel — the one screen in the app that shows a job's cost (Base
@@ -37,8 +37,14 @@ interface PricingLine {
   unitPrice: number;
   /** OP — what the client is charged. Null means not yet priced. */
   clientPrice: number | null;
-  /** The section-markup starting point, recomputed on every fetch. */
+  /** The starting point offered for OP, recomputed on every fetch. */
   suggested: number;
+  /**
+   * Where `suggested` came from: a published rate-card price ("RATE_CARD")
+   * or the section-multiplier formula ("MARKUP") — the founder should never
+   * have to wonder which one a number is.
+   */
+  suggestedSource: "RATE_CARD" | "MARKUP";
 }
 
 interface PricingPayload {
@@ -285,6 +291,14 @@ export function MarkupPanel({
                         onChange={(e) => setPrice(l.id, e.target.value)}
                         className="ml-auto h-7 w-28 text-right font-mono text-xs"
                       />
+                      {/* One is a decision the founder already made, the
+                          other is a guess the app is offering — never leave
+                          it ambiguous which one filled the field above. */}
+                      <p className="mt-0.5 text-right text-[9px] text-muted-foreground">
+                        {l.suggestedSource === "RATE_CARD"
+                          ? "Rate card"
+                          : `×${markupFor(l.section)} markup`}
+                      </p>
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs font-semibold">
                       {cp === null ? "—" : formatNGN(lineTotal({ quantity: l.quantity, days: l.days, price: cp }))}
