@@ -157,6 +157,44 @@ genuine cost document, unlike the three client invoices behind the templates. On
 lines with a real known cost are seeded; the rest stay null, because an unpriced line
 is honest and an invented one is not.
 
+#### The catalogue is rebuilt around how D1Z actually costs
+
+> "Can we merge them together? For instance under Displays would be LED screens,
+> Standing Monitors, Floor Monitors, Control room Monitors, Stage Timer. We need the
+> list to be extensive and we need to be able to add to it."
+
+The existing six departments are business-facing groupings — "Audiovisual & Technical
+Production" — under which sit 31 generic services. The founder costs by **equipment
+type**, which is finer and more useful at the point a budget line is added.
+
+The catalogue is therefore rebuilt: the founder's cost-sheet lines and the existing
+generic services are merged into type-based departments, each holding an extensive
+list. Displays, Cameras & Capture, Sound, Lighting, Streaming & Broadcast, Stage &
+Scenic, Branding & Print, Furniture, Personnel, and Logistics & Welfare.
+
+Every line the founder budgets with survives, including ones the generic list had no
+home for — Bucket chairs, Workmanship, Lunch for crew. Nothing is dropped to keep the
+list tidy; a rate card that omits what you actually spend money on is worse than the
+spreadsheet it replaces.
+
+Lines the founder named but for which no rate is known — Standing Monitors, Floor
+Monitors, Control room Monitors, Stage Timer — are seeded **with no cost**. They
+appear in the dropdowns and the founder fills the rate in the first time one is used,
+or in the Catalogue tab, which already supports adding, renaming and removing.
+
+#### Where the sheet disagrees with itself
+
+Several lines carry two rates on the same sheet — lighting at ₦200,000 and ₦180,000,
+the mixer at ₦30,000 and ₦20,000, transport at ₦50,000 and ₦30,000.
+
+> "It varies per project; the average for light is 180,000."
+
+So a standing rate is a **representative average**, not a ceiling or a floor, and it
+is expected to be adjusted per project — which is exactly what the per-project
+override in this section is for. Lighting seeds at **₦180,000** on the founder's
+direct instruction. Any other split rate is seeded at its midpoint and flagged for
+the founder to correct, rather than a figure being picked silently.
+
 This is why the three seeded templates currently have no costs. Once the rate card
 exists, a template that links its lines to catalogue services produces a budget with
 real figures in it, which is what "starting a budget from a template" means.
