@@ -56,6 +56,32 @@ test("section matching ignores case and surrounding words", () => {
   assert.equal(markupFor("Stage Fabrication & Build"), 3.5);
 });
 
+test("a section matching BOTH rules takes the fabrication markup, not the personnel one", () => {
+  // Each of these carries a personnel word (crew / logistics / management)
+  // alongside a fabrication word. First-match-wins scored them all at 1.3x:
+  // a 2,000,000 stage build suggested 2,600,000 instead of 7,000,000.
+  assert.equal(markupFor("Stage Fabrication & Crew"), 3.5);
+  assert.equal(markupFor("Branding & Logistics"), 3.5);
+  assert.equal(markupFor("Fabrication Management"), 3.5);
+  assert.equal(markupFor("Scenic Build Crew"), 3.5);
+  assert.equal(suggestOfficialPrice(2_000_000, "Stage Fabrication & Crew"), 7_000_000);
+});
+
+test("pure personnel sections stay at 1.3x — the highest-rule wins does not sweep them up", () => {
+  // The founder's ruling: operations/logistics/management is pass-through.
+  assert.equal(markupFor("Operations, Logistics & Management"), 1.3);
+  assert.equal(markupFor("Production Personnel"), 1.3);
+  assert.equal(markupFor("Crew"), 1.3);
+  assert.equal(markupFor("Labour"), 1.3);
+});
+
+test("equipment and venue hire that merely mention a booth or exhibition stay at 2.0x", () => {
+  assert.equal(markupFor("Photo Booth Rental"), 2.0);
+  assert.equal(markupFor("Exhibition Space Rental"), 2.0);
+  // ...while real booth construction still marks up as fabrication.
+  assert.equal(markupFor("Trade Show Exhibition & Booth Construction"), 3.5);
+});
+
 // ---- suggestOfficialPrice ------------------------------------------------
 
 test("suggested price applies the section markup to the cost", () => {
@@ -69,6 +95,21 @@ test("a zero cost suggests zero, not a markup of nothing", () => {
 
 test("a negative or invalid cost is floored at zero", () => {
   assert.equal(suggestOfficialPrice(-5, "Personnel"), 0);
+});
+
+test("the suggestion is rounded to kobo, not left as a binary-float tail", () => {
+  // 10_001 * 1.3 === 13001.300000000001 in IEEE-754. That value prefilled the
+  // founder's input, was stored as clientPrice and stringified onto a document.
+  assert.equal(suggestOfficialPrice(10_001, "Personnel"), 13_001.3);
+  assert.equal(suggestOfficialPrice(0.145, "Personnel"), 0.19);
+  // A whole-naira suggestion is unchanged by the rounding.
+  assert.equal(suggestOfficialPrice(250_000, "Audiovisual"), 500_000);
+  for (const cost of [1, 7, 33, 10_001, 123_457, 999_999]) {
+    for (const section of ["Personnel", "Audiovisual", "Stage Fabrication"]) {
+      const v = suggestOfficialPrice(cost, section);
+      assert.equal(v, Math.round(v * 100) / 100, `${cost} @ ${section} kept a float tail`);
+    }
+  }
 });
 
 // ---- lineTotal ------------------------------------------------------------

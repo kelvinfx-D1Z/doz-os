@@ -19,12 +19,26 @@ export const DEFAULT_MARKUP = 2.0;
 /**
  * Sections are free text typed by whoever built the sheet ("PERSONNEL",
  * "Operations, Logistics & Management", "BRANDING (FABRICATION + PRINTING)"),
- * so match on keywords rather than exact names. Order matters: the first
- * matching rule wins.
+ * so match on keywords rather than exact names.
+ *
+ * A real section name often matches TWO rules at once — "Stage Fabrication &
+ * Crew", "Branding & Logistics", "Fabrication Management" all carry both a
+ * fabrication word and a personnel word. Taking the first matching rule made
+ * the order of this array decide the price, and the personnel rule sat first:
+ * a 2,000,000 stage build suggested 2,600,000 instead of 7,000,000. So every
+ * rule is scored and the HIGHEST markup wins. That is order-independent, and
+ * it errs upward — a suggestion the founder talks down is recoverable, one
+ * that quietly underprices a fabrication job is not.
+ *
+ * "booth" and "exhibit" are deliberately NOT keywords: "Photo Booth Rental"
+ * and "Exhibition Space Rental" are equipment and venue hire, not carpentry.
+ * The founder's ruling that booth construction prices at 3.5x is carried by
+ * "construction", which still matches "Trade Show Exhibition & Booth
+ * Construction".
  */
 const RULES: { markup: number; keywords: string[] }[] = [
   { markup: 1.3, keywords: ["personnel", "crew", "staff", "operations", "logistics", "management", "labour", "labor"] },
-  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction", "booth", "exhibit"] },
+  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction"] },
 ];
 
 function safe(n: number | null | undefined): number {
@@ -34,16 +48,26 @@ function safe(n: number | null | undefined): number {
 export function markupFor(section: string | null | undefined): number {
   const s = (section ?? "").trim().toLowerCase();
   if (!s) return DEFAULT_MARKUP;
+  let best: number | null = null;
   for (const rule of RULES) {
-    if (rule.keywords.some((k) => s.includes(k))) return rule.markup;
+    if (rule.keywords.some((k) => s.includes(k))) {
+      best = best === null ? rule.markup : Math.max(best, rule.markup);
+    }
   }
-  return DEFAULT_MARKUP;
+  return best ?? DEFAULT_MARKUP;
 }
 
-/** The founder's starting point for a line's client price. Never a floor or a cap. */
+/**
+ * The founder's starting point for a line's client price. Never a floor or a cap.
+ *
+ * Rounded to kobo: 10,001 x 1.3 is 13001.300000000001 in binary floating point,
+ * and this value prefills the founder's input, is stored as clientPrice and is
+ * stringified straight into a client document. Twelve decimal places on an
+ * invoice line is not a rounding error, it is a typo the founder did not make.
+ */
 export function suggestOfficialPrice(basePrice: number, section: string | null | undefined): number {
   const cost = Math.max(0, safe(basePrice));
-  return cost * markupFor(section);
+  return Math.round(cost * markupFor(section) * 100) / 100;
 }
 
 /**
