@@ -80,24 +80,31 @@ test("section matching ignores case and surrounding words", () => {
 });
 
 test("a section matching two rules takes the higher markup", () => {
-  // On the founder's own table, crew/personnel (1.40) sits slightly above
-  // fabrication (1.35) — "Stage Fabrication & Crew" carries both a
-  // fabrication word ("stage", "fabricat") and a personnel word ("crew"),
-  // and highest-wins now resolves it to 1.40, not 1.35. That is exactly the
-  // top of fabrication's own 25-40% band and the middle of crew's 30-50%
-  // band: defensible under either reading, and it errs high, which is the
-  // safe direction — a quote can be discounted, but one already sent cannot
-  // be un-underpriced. This guards the scoring MECHANISM (every rule is
-  // scored and the numerically highest wins, so the array's order can never
-  // decide the price) rather than any fixed "fabrication beats personnel"
-  // rank order, which the founder's own rates no longer support.
+  // RULES is ordered [1.5 post, 1.4 personnel, 1.25 branding, 1.35
+  // fabrication]. The first three assertions below demonstrate the outcome
+  // of an overlap, but none of them distinguish highest-wins from
+  // first-match-wins: in each case the higher-valued rule also happens to
+  // sit earlier in the array, so a regression back to first-match would
+  // still pass all three.
+  //
+  // "Stage Fabrication & Crew" carries a personnel word ("crew", 1.40) and a
+  // fabrication word ("stage"/"fabricat", 1.35); personnel is both higher
+  // AND earlier in the array.
   assert.equal(markupFor("Stage Fabrication & Crew"), 1.4);
   // Both keywords here sit in the same 1.25 rule, so the result is
   // unambiguous regardless of which keyword is checked first.
   assert.equal(markupFor("Branding & Logistics"), 1.25);
   // Carries both "fabricat" (1.35) and the "production management" phrase
-  // (1.40) — the higher of the two wins.
+  // (1.40); personnel is again higher AND earlier.
   assert.equal(markupFor("Fabrication & Production Management"), 1.4);
+  //
+  // This next case is the actual regression guard. "branding" (1.25) sits
+  // BEFORE "fabricat" (1.35) in the array, so it is the one input in this
+  // table where first-match and highest-match disagree: first-match would
+  // stop at branding and return 1.25, highest-match correctly returns 1.35.
+  // If markupFor is ever reverted to first-match-wins, this is the
+  // assertion that fails.
+  assert.equal(markupFor("BRANDING (FABRICATION + PRINTING)"), 1.35);
 });
 
 test("pure personnel sections mark up at 1.4x — the highest-rule wins does not sweep them up", () => {

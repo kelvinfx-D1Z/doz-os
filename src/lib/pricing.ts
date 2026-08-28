@@ -32,11 +32,8 @@ export const DEFAULT_MARKUP = 1.35;
  * so the order of this array never decides the price. On the founder's own
  * table crew/personnel (30-50%, 1.40) sits slightly above fabrication
  * (25-40%, 1.35) — that is the founder's stated position, not an artefact of
- * this table, so a mixed section like that one now resolves to 1.40. That is
- * exactly the top of fabrication's own band and the middle of crew's:
- * defensible under either reading, and it errs high, which is the safe
- * direction — a quote can be discounted, but one already sent cannot be
- * un-underpriced.
+ * this table, so a mixed section like that one now resolves to 1.40, the
+ * top of fabrication's own band and the middle of crew's.
  */
 const RULES: { markup: number; keywords: string[] }[] = [
   { markup: 1.5, keywords: ["post-production", "post production", "grading", "grade", "motion graphic", "animation", "creative", "consultancy", "editing"] },
