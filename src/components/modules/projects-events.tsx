@@ -3438,7 +3438,15 @@ function EquipmentFormDialog({ projectId, categories, vendors, editing, onClose,
 // ============================================================
 interface SvcCategory { id: string; name: string; icon: string | null; items: { id: string; name: string; isCustom: boolean }[]; }
 interface ProjectSvc {
-  id: string; serviceName: string; category: string; quantity: number; unitPrice: number; totalPrice: number;
+  id: string; serviceName: string; category: string; quantity: number;
+  // Whether a line multiplies by event days is decided PER LINE, and a
+  // template can seed it at 3 while nothing on this screen ever showed it.
+  // The stored total is quantity x days x unitPrice, so leaving `days` out
+  // of the type made the row display three numbers that did not reconcile —
+  // and made a wrong day count uncorrectable, because it also reaches the
+  // vendor's PaymentRequest on approval.
+  days: number;
+  unitPrice: number; totalPrice: number;
   vendorName: string | null; vendorPhone: string | null; status: string; notes: string | null;
 }
 interface SvcPayload { categories: SvcCategory[]; projectServices: ProjectSvc[]; totals: { items: number; totalValue: number; priced: number; approved: number }; canManage: boolean; canApprove: boolean; }
@@ -3565,7 +3573,7 @@ function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string;
                     <Badge variant="outline" className="text-[9px] shrink-0">{item.category}</Badge>
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span>Qty: {item.quantity}</span>
+                    <span>Qty: {item.quantity}{item.days > 1 && ` × ${item.days} days`}</span>
                     {item.unitPrice > 0 && <span>₦{item.unitPrice.toLocaleString()}/unit</span>}
                     {item.totalPrice > 0 && <span className="font-semibold text-foreground">Total: ₦{item.totalPrice.toLocaleString()}</span>}
                   </div>
@@ -3597,6 +3605,7 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
   const [selectedCat, setSelectedCat] = useState(editing?.category || "");
   const [serviceName, setServiceName] = useState(editing?.serviceName || "");
   const [quantity, setQuantity] = useState(String(editing?.quantity || 1));
+  const [days, setDays] = useState(String(editing?.days || 1));
   const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice || ""));
   const [vendorId, setVendorId] = useState("");
   const [vendorName, setVendorName] = useState(editing?.vendorName || "");
@@ -3614,7 +3623,7 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
       const body: any = {
         action: editing ? "update_service" : "add_service",
         projectId, serviceName, category: selectedCat || "Other",
-        quantity: Number(quantity) || 1, unitPrice: Number(unitPrice) || 0,
+        quantity: Number(quantity) || 1, days: Number(days) || 1, unitPrice: Number(unitPrice) || 0,
         vendorId: vendorId || null, vendorName: vendorId ? undefined : (vendorName || undefined),
         vendorPhone: vendorPhone || undefined, notes: notes || undefined,
       };
@@ -3681,8 +3690,15 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
               )}
             </div>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div><Label className="text-xs">Quantity</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} min="1" /></div>
+            <div>
+              <Label className="text-xs">Days</Label>
+              <Input type="number" value={days} onChange={e => setDays(e.target.value)} min="1" />
+              {/* Total = quantity x days x unit price — a template can seed this above 1,
+                  and it flows straight into the vendor's PaymentRequest on approval, so it
+                  must be visible and correctable here, not just on the wire. */}
+            </div>
             <div><Label className="text-xs">Unit Price (₦)</Label><Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0" /></div>
           </div>
           <div className="rounded-lg border border-border p-3 space-y-2">
