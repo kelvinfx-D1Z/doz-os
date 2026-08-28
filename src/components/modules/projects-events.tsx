@@ -3543,9 +3543,10 @@ function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string;
       )}
 
       {/* Budget submission buttons */}
-      {canManage && items.length > 0 && budgetStatus === "DRAFT" && (
+      {canManage && !sheetClosed && items.length > 0 && budgetStatus === "DRAFT" && (
         <Button size="sm" className="mb-2 w-full" onClick={async () => {
-          await fetch("/api/doz/services", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action: "submit_budget", projectId }) });
+          const res = await fetch("/api/doz/services", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action: "submit_budget", projectId }) });
+          if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to submit budget"); return; }
           toast.success("Services budget submitted for approval"); load();
         }}>Submit Services Budget for Approval</Button>
       )}
@@ -3640,7 +3641,8 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
     if (!editing) return;
     if (!confirm("Delete this service?")) return;
     try {
-      await fetch("/api/doz/services", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action: "delete_service", serviceId: editing.id }) });
+      const res = await fetch("/api/doz/services", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ action: "delete_service", serviceId: editing.id }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast.error(d.error || "Failed to delete"); return; }
       toast.success("Service deleted"); onSaved(); onClose();
     } catch { toast.error("Failed to delete"); }
   }
