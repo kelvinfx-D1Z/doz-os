@@ -27,6 +27,17 @@
 // complimentary price; null is "unpriced", not "free". In the table below,
 // `null` means the founder's sheet did not give a figure for that side —
 // never coerce it to 0, never write 0 for "unknown".
+//
+// This script only ever CREATES, never UPDATES. A row that already exists
+// (department + name) is left exactly as it is, on purpose — that is what
+// stops a re-run from clobbering a correction the founder has since made in
+// the Catalogue tab. The direct consequence: editing a figure in CATALOGUE
+// below and re-running this script does NOTHING to an already-seeded row —
+// it will print "already present, skipped", not "updated". This matters
+// because three figures below are explicitly flagged as awaiting the
+// founder's confirmation (see FLAGS): once seeded, changing them here has
+// no effect. A seeded rate is changed on the founder's rate card page, not
+// by editing this file and re-running it.
 import { PrismaClient } from "@prisma/client";
 const db = new PrismaClient();
 
@@ -207,10 +218,19 @@ async function seedCatalogue() {
 // case-insensitively after trimming. Never renamed or loosened to raise the
 // match count — an unmatched line is a real signal the catalogue is
 // missing that service, and the founder needs to see it.
+//
+// EventTemplateItem.serviceItemId carries no database foreign key (bare
+// String?), and the Catalogue tab allows a founder to delete a ServiceItem.
+// So a link made by an earlier run can go stale: the id is still on the
+// row, but no ServiceItem with that id exists any more. Every run
+// re-verifies every existing link actually resolves — a stale one is
+// reported as a BROKEN LINK, its own category, not silently counted as
+// matched and not silently re-resolved into some other candidate.
 async function linkTemplates() {
   console.log("\nLinking template lines to the catalogue...");
 
   const allServices = await db.serviceItem.findMany({ select: { id: true, name: true } });
+  const serviceIds = new Set(allServices.map((s) => s.id));
   // Case-insensitive, trimmed lookup. Collect every service under a given
   // fold so an ambiguous fold (matches more than one distinct service) is
   // reported rather than silently resolved by picking one.
@@ -226,21 +246,31 @@ async function linkTemplates() {
     orderBy: [{ templateId: "asc" }, { sortOrder: "asc" }],
   });
 
-  let matched = 0, alreadyLinked = 0, ambiguous = 0;
-  const unmatched = [];
+  // These four counts partition templateItems.length exactly — every line
+  // falls into exactly one category, so none is counted twice.
+  let matched = 0, alreadyLinked = 0, brokenLinks = 0, ambiguous = 0;
+  const brokenList = [];
+  const ambiguousList = [];
+  const unmatchedList = [];
 
   for (const item of templateItems) {
-    const fold = item.name.trim().toLowerCase();
-    const candidates = byFold.get(fold) ?? [];
-
     if (item.serviceItemId) {
-      // Already linked from a previous run — leave it, but only count it as
-      // matched if it still resolves to exactly one candidate (idempotency
-      // check, not a re-decision).
-      alreadyLinked++;
-      matched++;
+      // Previously linked. Re-verify the id still resolves to a real
+      // ServiceItem rather than trusting the stored id at face value.
+      if (serviceIds.has(item.serviceItemId)) {
+        alreadyLinked++;
+        matched++;
+      } else {
+        brokenLinks++;
+        brokenList.push(
+          `[${item.template.name}] "${item.name}" -> serviceItemId ${item.serviceItemId} no longer exists (service was deleted)`
+        );
+      }
       continue;
     }
+
+    const fold = item.name.trim().toLowerCase();
+    const candidates = byFold.get(fold) ?? [];
 
     if (candidates.length === 1) {
       await db.eventTemplateItem.update({
@@ -251,20 +281,28 @@ async function linkTemplates() {
       console.log(`  - [${item.template.name}] "${item.name}" -> "${candidates[0].name}" (id ${candidates[0].id})`);
     } else if (candidates.length > 1) {
       ambiguous++;
-      unmatched.push(`[${item.template.name}] "${item.name}" (ambiguous: matches ${candidates.length} services)`);
+      ambiguousList.push(`[${item.template.name}] "${item.name}" (ambiguous: matches ${candidates.length} services)`);
     } else {
-      unmatched.push(`[${item.template.name}] "${item.name}"`);
+      unmatchedList.push(`[${item.template.name}] "${item.name}"`);
     }
   }
 
   console.log(
     `\nTemplate link summary: ${templateItems.length} line(s) total, ${matched} matched ` +
-    `(${alreadyLinked} already linked from a previous run), ${ambiguous} ambiguous, ` +
-    `${unmatched.length} unmatched.`
+    `(${alreadyLinked} already linked from a previous run), ${brokenLinks} broken link(s), ` +
+    `${ambiguous} ambiguous, ${unmatchedList.length} unmatched.`
   );
-  if (unmatched.length > 0) {
+  if (brokenList.length > 0) {
+    console.log("Broken links (previously linked to a catalogue service that no longer exists):");
+    for (const b of brokenList) console.log(`  - ${b}`);
+  }
+  if (ambiguousList.length > 0) {
+    console.log("Ambiguous template lines (name matches more than one catalogue service):");
+    for (const a of ambiguousList) console.log(`  - ${a}`);
+  }
+  if (unmatchedList.length > 0) {
     console.log("Unmatched template lines (no catalogue service behind them yet):");
-    for (const u of unmatched) console.log(`  - ${u}`);
+    for (const u of unmatchedList) console.log(`  - ${u}`);
   }
 }
 

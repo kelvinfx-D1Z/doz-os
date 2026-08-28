@@ -568,11 +568,28 @@ export async function POST(req: Request) {
         const costByServiceId = new Map(linkedServices.map((s) => [s.id, s.standardCost]));
 
         for (const i of tpl.items.filter((i) => i.enabledByDefault)) {
-          const linkedCost = i.serviceItemId ? costByServiceId.get(i.serviceItemId) : undefined;
-          const unitPrice =
-            linkedCost !== null && linkedCost !== undefined
-              ? linkedCost
-              : i.defaultUnitCost ?? 0;
+          // A deleted catalogue service (Catalogue tab allows delete; this
+          // field carries no DB foreign key) must not degrade silently to
+          // the same "no link at all" path — that would quietly re-price a
+          // line the founder deliberately linked down to defaultUnitCost/0
+          // with nothing to say why. Distinguish "never linked" from
+          // "linked, but the service is gone" before falling back.
+          let unitPrice: number;
+          if (i.serviceItemId) {
+            if (costByServiceId.has(i.serviceItemId)) {
+              const linkedCost = costByServiceId.get(i.serviceItemId);
+              // Presence check, not truthiness — a linked service's
+              // standardCost of a real 0 must still seed 0.
+              unitPrice = linkedCost !== null && linkedCost !== undefined ? linkedCost : i.defaultUnitCost ?? 0;
+            } else {
+              console.warn(
+                `[projects] template item "${i.name}" (${i.id}) is linked to serviceItemId ${i.serviceItemId}, which no longer resolves to a ServiceItem — falling back to defaultUnitCost.`
+              );
+              unitPrice = i.defaultUnitCost ?? 0;
+            }
+          } else {
+            unitPrice = i.defaultUnitCost ?? 0;
+          }
           seedLines.set(seedKey(i.section, i.name), {
             serviceName: i.name,
             category: i.section,
