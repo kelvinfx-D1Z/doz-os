@@ -291,13 +291,19 @@ export function MarkupPanel({
                         onChange={(e) => setPrice(l.id, e.target.value)}
                         className="ml-auto h-7 w-28 text-right font-mono text-xs"
                       />
-                      {/* One is a decision the founder already made, the
-                          other is a guess the app is offering — never leave
-                          it ambiguous which one filled the field above. */}
+                      {/* Always names AND shows the figure it describes
+                          (l.suggested, not the field above — which holds
+                          clientPrice once the founder has overridden the
+                          suggestion, so the two can differ). Captioning the
+                          field's own value with a provenance it doesn't
+                          have is exactly the bug this replaces: a founder
+                          who negotiated a price away from the rate card
+                          must never see their own number relabelled
+                          "Rate card". */}
                       <p className="mt-0.5 text-right text-[9px] text-muted-foreground">
                         {l.suggestedSource === "RATE_CARD"
-                          ? "Rate card"
-                          : `×${markupFor(l.section)} markup`}
+                          ? `Rate card ${formatNGN(l.suggested)}`
+                          : `×${markupFor(l.section).toFixed(2)} markup ${formatNGN(l.suggested)}`}
                       </p>
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs font-semibold">

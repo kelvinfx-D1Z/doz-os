@@ -72,42 +72,74 @@ export async function GET(req: Request) {
   // guessing, because a wrong match would price a line off some other
   // service's rate — worse than the formula.
   //
-  // One query for every line: the distinct (name, category) pairs used on
-  // this budget are collected first and fetched together, rather than
-  // querying per line (this route renders every line of a budget, so a
-  // per-line query would be a real N+1).
+  // The SQL filter below only narrows on CATEGORY (case-insensitive) —
+  // never on name. catalogue_add_department (founder-only) always trims a
+  // category name before saving, so filtering categories in SQL against an
+  // already-trimmed search term is safe. ServiceItem.name is NOT safe to
+  // filter the same way: catalogue_add_item (founder-only) trims, but
+  // add_custom_item (STAFF/PRODUCTION_MANAGER, reachable straight from a
+  // project's budget — see services/route.ts BUDGET_ACTIONS) does not, so a
+  // stored name can carry stray whitespace an equality/IN filter would
+  // never match. Filtering by category alone and doing every name
+  // comparison in JS via the trimmed, lower-cased rateKey below is what
+  // keeps that asymmetry from silently losing a published rate. The
+  // catalogue is small (~31 services today) and a budget's category set is
+  // smaller still, so this stays one query without needing the name filter.
+  //
+  // One query for every line: the distinct categories used on this budget
+  // are collected first and fetched together, rather than querying per
+  // line (this route renders every line of a budget, so a per-line query
+  // would be a real N+1).
   // ============================================================
-  const distinctNames = [...new Set(rows.map((r) => r.serviceName.trim()).filter(Boolean))];
   const distinctCategories = [...new Set(rows.map((r) => r.category.trim()).filter(Boolean))];
 
-  const rateCardItems = distinctNames.length > 0 && distinctCategories.length > 0
+  const rateCardItems = distinctCategories.length > 0
     ? await db.serviceItem.findMany({
-        where: {
-          name: { in: distinctNames, mode: "insensitive" },
-          category: { name: { in: distinctCategories, mode: "insensitive" } },
-        },
+        where: { category: { name: { in: distinctCategories, mode: "insensitive" } } },
         select: { name: true, standardClientRate: true, category: { select: { name: true } } },
       })
     : [];
 
   const rateKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toLowerCase()}`;
 
-  const rateCardMap = new Map<string, number | null>();
+  // ServiceItem carries no DB-level uniqueness on (categoryId, name), and
+  // add_custom_item (unlike the founder-only catalogue_add_item) never
+  // checks for a duplicate before creating one — so two rows can share a
+  // (name, category) pair, e.g. a founder-priced catalogue entry shadowed
+  // by an unpriced ad-hoc line a PM added because they couldn't find the
+  // real one in the picker. Picking whichever row Postgres happens to
+  // return last would make the price nondeterministic (it could differ
+  // between two page loads). Resolve deterministically instead, by intent:
+  //   - no candidate for this key has a published (non-null) rate -> MARKUP
+  //   - every candidate that HAS one agrees on the same rate -> use it —
+  //     however many rows say so, there is no real ambiguity
+  //   - candidates disagree (two different published rates) -> MARKUP;
+  //     choosing between two conflicting published prices is guessing, and
+  //     a near-miss must fall back rather than guess (same rule as the
+  //     name/category match above).
+  const ratesByKey = new Map<string, Set<number>>();
   for (const item of rateCardItems) {
-    rateCardMap.set(rateKey(item.name, item.category.name), item.standardClientRate);
+    // A published rate of 0 is a deliberate complimentary price (see
+    // src/lib/rate-card.ts), not an absent one — checking !== null &&
+    // !== undefined (never truthiness) is what keeps a real free line from
+    // being quietly marked up to a formula price.
+    if (item.standardClientRate === null || item.standardClientRate === undefined) continue;
+    const key = rateKey(item.name, item.category.name);
+    if (!ratesByKey.has(key)) ratesByKey.set(key, new Set());
+    ratesByKey.get(key)!.add(item.standardClientRate);
   }
 
   return NextResponse.json({
     stage: project.pricingStage,
     convertedAt: project.convertedToOfficialAt,
     lines: rows.map((r) => {
-      const publishedRate = rateCardMap.get(rateKey(r.serviceName, r.category));
-      // A published rate of 0 is a deliberate complimentary price (see
-      // src/lib/rate-card.ts), not an absent one — checking !== null &&
-      // !== undefined (never truthiness) is what keeps a real free line
-      // from being quietly marked up to a formula price.
-      const hasPublishedRate = publishedRate !== null && publishedRate !== undefined;
-      const suggested = hasPublishedRate ? publishedRate : suggestOfficialPrice(r.unitPrice, r.category);
+      const candidates = ratesByKey.get(rateKey(r.serviceName, r.category));
+      // Exactly one distinct published rate for this key -> use it. Zero
+      // candidates (unmatched, or matched rows all unpriced) and two-or-more
+      // DIFFERENT rates both fall back to MARKUP — see the comment above.
+      const hasPublishedRate = candidates !== undefined && candidates.size === 1;
+      const publishedRate = hasPublishedRate ? [...candidates!][0] : undefined;
+      const suggested = hasPublishedRate ? publishedRate! : suggestOfficialPrice(r.unitPrice, r.category);
       const suggestedSource: "RATE_CARD" | "MARKUP" = hasPublishedRate ? "RATE_CARD" : "MARKUP";
       return {
         id: r.id, serviceName: r.serviceName, section: r.category,
