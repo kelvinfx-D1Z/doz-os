@@ -56,6 +56,25 @@ retiring what it replaced: **the New Project form still asks for "Project Cost
 markup panel compute both. The app asks for figures it also derives, and nothing
 reconciles the two answers.
 
+## The chain, and who each link is for
+
+```
+Budget          INTERNAL — cost from our vendors, put together by the team and
+   │                       production managers
+   │  mark up
+   ▼
+Quotation       TO THE CLIENT — revisable through negotiation
+   │  agree
+   ▼
+Invoice         TO THE CLIENT
+   │  part or full payment
+   ▼
+Receipt         TO THE CLIENT — one per payment
+```
+
+A budget never leaves the company. If a client is to see a priced document, it is a
+quotation, and it carries markup.
+
 ## Design
 
 ### 1. The budget is a document, not a hidden panel
@@ -96,6 +115,51 @@ The budget's print view is therefore marked **INTERNAL — NOT FOR CLIENT
 CIRCULATION** and does not use the D1Z client letterhead. Its access follows the
 cost sheet exactly: founder and staff on any project, a production manager or
 freelancer on projects they manage, nobody else. An intern never sees it.
+
+### 1b. The company rate card
+
+> "We should have a cost sheet of all our services, which can be modified per
+> project. So starting a budget fee can be done from a template."
+
+Today every cost is typed from scratch on every project. `ServiceItem` — the 31-line
+service catalogue behind the Section and Description dropdowns — holds a name and a
+category and no price, so there is nothing for a budget line to pull a rate from.
+
+```prisma
+// ServiceItem
+standardCost  Float?     // cost for ONE unit for ONE day; null where it always varies
+unit          String    @default("UNIT") // UNIT, DAY, SQM, PERSON — a LABEL only
+costUpdatedAt DateTime?
+```
+
+`unit` tells the founder what they are pricing ("per sqm", "per person"). **It never
+enters a calculation.** The amount is always `quantity × days × unitPrice`, with no
+second multiplier anywhere.
+
+**How a rate reaches a budget line.** Adding a service to a cost sheet pre-fills
+`unitPrice` from `standardCost`. The production manager can override it for that
+project — a vendor quoted differently this time, or the venue is further out. The
+override lives on that project's line and changes nothing company-wide.
+
+**The rate card is maintained by using it.** When a line's cost is overridden, an
+optional "save as the new standard rate" action writes it back to `ServiceItem` and
+stamps `costUpdatedAt`. Nobody has to remember to maintain a price list; it drifts
+toward reality as jobs are priced.
+
+**Templates carry rates by reference, not by copy.** `EventTemplateItem` gains an
+optional `serviceItemId`. Where a template line is linked to a catalogue service, its
+cost comes from that service's `standardCost` at seeding time, so raising the camera
+rate once updates every future budget. `defaultUnitCost` remains, but only as a
+deliberate per-template override for a line that is not in the catalogue.
+
+**Seeding.** The rate card is seeded from D1Z's own equipment-rental cost sheet — a
+genuine cost document, unlike the three client invoices behind the templates. Only
+lines with a real known cost are seeded; the rest stay null, because an unpriced line
+is honest and an invented one is not.
+
+This is why the three seeded templates currently have no costs. Once the rate card
+exists, a template that links its lines to catalogue services produces a budget with
+real figures in it, which is what "starting a budget from a template" means.
 
 ### 2. A quotation becomes a thread of revisions
 
@@ -199,15 +263,18 @@ the block hides itself.
 ## Build order
 
 1. **Budgets tab** — the founder's immediate gap; needs nothing new in the schema.
-2. **Quotation revisions** — schema plus the revise action.
-3. **Acceptance write-back** — needs `sourceServiceId`, which the Budgets tab's
+2. **Rate card** — `standardCost` on the catalogue, pre-fill on a new cost line,
+   save-back on override, and seeding from the equipment-rental sheet. This is what
+   makes "start a budget from a template" mean anything; without it a template
+   supplies line names and day counts but every cost is still typed by hand.
+3. **Quotation revisions** — schema plus the revise action.
+4. **Acceptance write-back** — needs `sourceServiceId`, which the Budgets tab's
    "Create quotation" action should set from the start.
-4. **Derive budget and revenue** — only once 3 populates them.
-5. **Dashboard approvals** — independent; can land any time after 1.
+5. **Derive budget and revenue** — only once 4 populates them.
+6. **Dashboard approvals** — independent; can land any time after 1.
 
 ## Deferred
 
-- A price list on `ServiceItem` so cost lines pre-fill from a maintained rate card.
 - Per-client rate agreements.
 - Sending a document by email from the app. The founder's chosen model is download
   and send it themselves.
