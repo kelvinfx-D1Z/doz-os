@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, isProjectManagerRole, canBuildBudget, canSeeFinancials } from "@/lib/auth";
 import { lineTotal } from "@/lib/pricing";
+import { parseRate } from "@/lib/rate-card";
 
 // Floors to a whole number >= `min`; falls back to `fallback` when the input
 // is missing or not a finite number (undefined, NaN, a non-numeric string).
@@ -318,7 +319,19 @@ export async function POST(req: Request) {
   if (body.action === "add_custom_item") {
     if (!body.categoryId || !body.name) return NextResponse.json({ error: "categoryId and name required" }, { status: 400 });
     const created = await db.serviceItem.create({ data: { categoryId: body.categoryId, name: body.name, isCustom: true } });
-    return NextResponse.json({ ok: true, item: created }, { status: 201 });
+    // Explicit shape, not the raw row: this action is reachable by STAFF and
+    // PRODUCTION_MANAGER (canBuildBudget), and the row now also carries
+    // standardCost/standardClientRate/costUpdatedAt/rateUpdatedAt since Task
+    // 2 widened ServiceItem. A freshly created item always has those columns
+    // null today (create never sets them, and they have no @default), but
+    // returning the row as-is would still put the founder-only key
+    // `standardClientRate` in a non-founder's response body — the same
+    // raw-row-from-a-POST pattern shapeService exists to prevent elsewhere
+    // in this file. Match what GET gives this role instead.
+    return NextResponse.json(
+      { ok: true, item: { id: created.id, name: created.name, isCustom: created.isCustom } },
+      { status: 201 },
+    );
   }
 
   // ============================================================
@@ -434,22 +447,15 @@ export async function POST(req: Request) {
   }
 
   // The rate card. FOUNDER only (gated above via CATALOGUE_ACTIONS) — BP and
-  // CP are set here, independently of one another, and a rate of 0 is a real
-  // (complimentary) price: only an explicit null clears one. See parseRate.
+  // CP are set here, independently of one another. parseRate (from
+  // @/lib/rate-card, tested in src/lib/rate-card.test.ts) is what makes a
+  // rate of 0 a real, permanent complimentary price rather than "unset",
+  // and what stops whitespace/booleans/arrays from being coerced into one.
   if (body.action === "catalogue_set_rates") {
     const itemId = String(body.itemId ?? "").trim();
     if (!itemId) return NextResponse.json({ error: "itemId required" }, { status: 400 });
     const item = await db.serviceItem.findUnique({ where: { id: itemId }, select: { id: true } });
     if (!item) return NextResponse.json({ error: "Service not found" }, { status: 404 });
-
-    // A rate of 0 is a real price — a complimentary line. Only null clears one.
-    const parseRate = (v: unknown): number | null | undefined => {
-      if (v === undefined) return undefined;            // not being changed
-      if (v === null || v === "") return null;          // deliberately cleared
-      const n = Number(v);
-      if (!Number.isFinite(n) || n < 0) return undefined; // ignore nonsense
-      return n;
-    };
 
     const data: Record<string, unknown> = {};
     const cost = parseRate(body.standardCost);
