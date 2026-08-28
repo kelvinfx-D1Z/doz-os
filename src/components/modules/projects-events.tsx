@@ -44,6 +44,7 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -3453,7 +3454,13 @@ function EquipmentFormDialog({ projectId, categories, vendors, editing, onClose,
 // ============================================================
 // Services Section — production services with vendor attachment
 // ============================================================
-interface SvcCategory { id: string; name: string; icon: string | null; items: { id: string; name: string; isCustom: boolean }[]; }
+// `standardCost` mirrors GET's own three-state shape (see rate-card.ts):
+// absent (key missing — viewer's role can't see BP, e.g. FREELANCER/INTERN),
+// `null` (genuinely unpriced), or a real number including `0` (a deliberate
+// complimentary rate). ServiceFormDialog below must tell all three apart —
+// never coerce with `||` or a truthiness check, which would treat a real
+// `0` the same as "no rate at all".
+interface SvcCategory { id: string; name: string; icon: string | null; items: { id: string; name: string; isCustom: boolean; standardCost?: number | null }[]; }
 interface ProjectSvc {
   id: string; serviceName: string; category: string; quantity: number;
   // Whether a line multiplies by event days is decided PER LINE, and a
@@ -3632,6 +3639,34 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
   const [showCustom, setShowCustom] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [customItem, setCustomItem] = useState("");
+  // Founder-only offer to write this line's cost back to the catalogue as
+  // the new standard rate. Gated on the same FOUNDER check the rest of this
+  // file uses (see ServicesSection above) — the server refuses everyone
+  // else too, but the checkbox must never even render for a PM.
+  const { user } = useCurrentUser();
+  const isFounder = user?.role === "FOUNDER";
+  const [saveAsStandard, setSaveAsStandard] = useState(false);
+
+  const currentCat = categories.find(c => c.name === selectedCat);
+  // The catalogue item backing the currently-selected service, if any — a
+  // freshly-typed custom name (showCustom) has none. `standardCost` on it
+  // is the three-state value described on SvcCategory above: absent (role
+  // can't see BP), `null` (unpriced), or a real number including `0`.
+  const selectedItem = !showCustom ? currentCat?.items.find(i => i.name === serviceName) : undefined;
+  const standardCost = selectedItem?.standardCost;
+  const standardIsKnown = standardCost !== null && standardCost !== undefined;
+  const typedPrice = unitPrice.trim() === "" ? null : Number(unitPrice);
+  const typedIsValid = typedPrice !== null && Number.isFinite(typedPrice);
+  // The hint only ever means "this is exactly today's catalogue rate" — it
+  // must not appear merely because the box happens to read the same digits
+  // as an unpriced/inaccessible item (there is no standard to be "still").
+  const isStillStandard = typedIsValid && standardIsKnown && typedPrice === standardCost;
+  // Offer the save-back checkbox once the founder's typed price diverges
+  // from whatever the catalogue currently holds for this item — including
+  // diverging from "no standard yet" (null/absent), which is the common
+  // case today (all 31 services are unpriced) and exactly when a founder
+  // establishing a first price would want to save it back.
+  const differsFromStandard = isFounder && !!selectedItem && typedIsValid && (!standardIsKnown || typedPrice !== standardCost);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -3648,6 +3683,16 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
       if (editing) body.serviceId = editing.id;
       const res = await fetch("/api/doz/services", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
+      // The override lives on this project's line only. It reaches the
+      // company-wide rate card ONLY through this explicit, founder-only
+      // checkbox — never implicitly just because a cost was typed.
+      if (saveAsStandard && differsFromStandard && selectedItem) {
+        const rateRes = await fetch("/api/doz/services", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ action: "catalogue_set_rates", itemId: selectedItem.id, standardCost: typedPrice }),
+        });
+        if (!rateRes.ok) toast.error("Service saved, but the standard rate could not be updated");
+      }
       toast.success(editing ? "Service updated" : "Service added");
       onSaved(); onClose();
     } catch { toast.error("Failed to save service"); }
@@ -3670,13 +3715,20 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
     else setVendorName("");
   }
 
-  function onCategoryChange(catName: string) { setSelectedCat(catName); setServiceName(""); setShowCustom(false); }
+  function onCategoryChange(catName: string) { setSelectedCat(catName); setServiceName(""); setShowCustom(false); setSaveAsStandard(false); }
   function onItemSelect(name: string) {
-    if (name === "__custom__") { setShowCustom(true); setServiceName(""); }
-    else { setShowCustom(false); setServiceName(name); }
+    setSaveAsStandard(false);
+    if (name === "__custom__") { setShowCustom(true); setServiceName(""); return; }
+    setShowCustom(false);
+    setServiceName(name);
+    // Pre-fill from the rate card, but only for the two real states —
+    // absent (role can't see BP) and `null` (unpriced) both mean "leave
+    // this empty", and a genuine `0` (complimentary) must still pre-fill
+    // rather than be treated as falsy and skipped.
+    const item = currentCat?.items.find(i => i.name === name);
+    const sc = item?.standardCost;
+    setUnitPrice(sc !== null && sc !== undefined ? String(sc) : "");
   }
-
-  const currentCat = categories.find(c => c.name === selectedCat);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -3718,8 +3770,20 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
                   and it flows straight into the vendor's PaymentRequest on approval, so it
                   must be visible and correctable here, not just on the wire. */}
             </div>
-            <div><Label className="text-xs">Unit Price (₦)</Label><Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0" /></div>
+            <div>
+              <Label className="text-xs">Unit Price (₦)</Label>
+              <Input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} placeholder="0" />
+            </div>
           </div>
+          {isStillStandard && (
+            <p className="text-[10px] text-muted-foreground">Standard rate — change it if this vendor quoted differently.</p>
+          )}
+          {differsFromStandard && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox checked={saveAsStandard} onCheckedChange={v => setSaveAsStandard(!!v)} />
+              Save as the new standard rate
+            </label>
+          )}
           <div className="rounded-lg border border-border p-3 space-y-2">
             <p className="text-xs font-semibold text-muted-foreground">Vendor Details</p>
             <div>
