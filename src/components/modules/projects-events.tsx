@@ -1769,6 +1769,21 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
   // WHICH projects are listed — an intern must still see the list.
   const showMoney = user?.role === "FOUNDER";
   const isFounder = user?.role === "FOUNDER";
+  // Who may read a project's cost sheet, mirroring the server gate in
+  // /api/doz/services. An INTERN may not: they see project NAMES and their own
+  // work, never what a job costs. Role alone is enough here because the
+  // projects list already scopes a PM or freelancer to projects they manage.
+  //
+  // This gate is why the sections below are conditional at all. They used to
+  // render for everyone, so an intern with the `projects` module granted was
+  // fetching the full cost sheet — unit costs, totals and vendor bank details.
+  // The server now refuses that; without this, they would get an error toast
+  // where they should simply see no cost section.
+  const canSeeCostSheet =
+    user?.role === "FOUNDER" ||
+    user?.role === "STAFF" ||
+    user?.role === "PRODUCTION_MANAGER" ||
+    user?.role === "FREELANCER";
   const [teamMembers, setTeamMembers] = useState<{id:string;name:string;role:string}[]>([]);
   const [assigningPM, setAssigningPM] = useState(false);
 
@@ -1887,10 +1902,10 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
             </p>
           </div>
         </div>
-        ) : (
+        ) : canSeeCostSheet ? (
         /* PM Pro-Forma Budget Summary — shows only their costs */
         <PMBudgetSummary projectId={p.id} />
-        )}
+        ) : null}
 
         {/* Vendor Costs & Financials — hidden for PMs */}
         {showMoney && <VendorCostsSection projectId={p.id} revenue={p.revenue} />}
@@ -1899,7 +1914,9 @@ function ProjectDialog({ project: p, isPM = false }: { project: Project; isPM?: 
         <EquipmentSection projectId={p.id} isPM={isPM} />
 
         {/* Services List — production services with vendor attachment */}
-        <ServicesSection projectId={p.id} isPM={isPM} pricingStage={p.pricingStage} />
+        {canSeeCostSheet && (
+          <ServicesSection projectId={p.id} isPM={isPM} pricingStage={p.pricingStage} />
+        )}
 
         {/* Founder-only: turns the cost sheet's Base Price into the
             client-facing Official Price, with live margin. */}
