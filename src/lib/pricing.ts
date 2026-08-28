@@ -33,12 +33,16 @@ export const DEFAULT_MARKUP = 2.0;
  * "booth" and "exhibit" are deliberately NOT keywords: "Photo Booth Rental"
  * and "Exhibition Space Rental" are equipment and venue hire, not carpentry.
  * The founder's ruling that booth construction prices at 3.5x is carried by
- * "construction", which still matches "Trade Show Exhibition & Booth
- * Construction".
+ * "construction" (still matches "Trade Show Exhibition & Booth
+ * Construction") and "fabricat" (matches "Booth Fabrication"). "stand" is a
+ * keyword for the same reason: an exhibition STAND is a built structure —
+ * "Exhibition Stands" and "Custom Exhibition Stand Fabrication" are
+ * carpentry, not the rental covered by "Exhibition Space Rental" (that
+ * phrase has no "stand" in it, so it correctly stays at the default).
  */
 const RULES: { markup: number; keywords: string[] }[] = [
   { markup: 1.3, keywords: ["personnel", "crew", "staff", "operations", "logistics", "management", "labour", "labor"] },
-  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction"] },
+  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction", "stand"] },
 ];
 
 function safe(n: number | null | undefined): number {

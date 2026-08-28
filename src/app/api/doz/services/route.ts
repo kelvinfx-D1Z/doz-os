@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionUser, isProjectManagerRole, canBuildBudget } from "@/lib/auth";
+import { getSessionUser, isProjectManagerRole, canBuildBudget, canSeeFinancials } from "@/lib/auth";
 import { lineTotal } from "@/lib/pricing";
 
 // Floors to a whole number >= `min`; falls back to `fallback` when the input
@@ -26,13 +26,20 @@ function clampMoney(n: unknown, min: number, fallback: number): number {
 // founder-only, dropped (not just falsy) from the JSON payload otherwise.
 // Centralising this is what stops a future POST handler from returning a raw
 // Prisma row and leaking it, the way add_service/update_service used to.
+//
+// `canSeeVendorBank` has NO default. A defaulted `= true` here is exactly
+// how the POST handlers previously leaked vendor bank details: both call
+// sites passed only two arguments and silently got the (wrong) permissive
+// default. Making the parameter required forces every call site — present
+// and future — to compute and pass it explicitly; TypeScript refuses to
+// compile a call that forgets it.
 function shapeService(s: {
   id: string; projectId: string; serviceName: string; category: string;
   quantity: number; days: number; unitPrice: number; clientPrice: number | null;
   vendorId: string | null; vendorName: string | null; vendorContact: string | null;
   vendorPhone: string | null; vendorEmail: string | null; vendorBankDetails: string | null;
   status: string; notes: string | null; createdBy: string; createdAt: Date;
-}, role: string, canSeeVendorBank: boolean = true) {
+}, role: string, canSeeVendorBank: boolean) {
   return {
     id: s.id, projectId: s.projectId, serviceName: s.serviceName, category: s.category,
     quantity: s.quantity,
@@ -50,6 +57,44 @@ function shapeService(s: {
   };
 }
 
+// ============================================================
+// ACCESS RULE for a project's cost sheet — shared by GET (read) below and
+// every project-scoped POST mutation further down, so there is exactly one
+// definition of who may touch which project (mirrors /api/doz/projects'
+// managerId scoping — see isProjectManagerRole there):
+//   - FOUNDER, STAFF: any project. They run budget approval and release
+//     vendor payments.
+//   - PRODUCTION_MANAGER, FREELANCER (isProjectManagerRole): only a
+//     project they manage (Project.managerId === user.id) — the same
+//     project canBuildBudget already lets a PM edit.
+//   - Everyone else (INTERN, a PM/FREELANCER who does not manage this
+//     project): refused. No project id at all — the shared service
+//     catalogue only — is a separate concern the caller checks first; it
+//     stays open to any signed-in user, since it is reference data, not a
+//     project's money.
+//
+// Vendor bank details are a SEPARATE, stricter rule and this function has
+// no say over them: see canSeeFinancials in auth.ts — company money is
+// FOUNDER-only everywhere, "not staff, not interns, not freelancers", with
+// no carve-out for a PM/STAFF user who otherwise has full access to the
+// project. Every caller below computes canSeeVendorBank on its own via
+// canSeeFinancials(user.role), independent of what this function returns.
+// ============================================================
+async function requireProjectAccess(
+  user: { id: string; role: string },
+  projectId: string,
+): Promise<NextResponse | null> {
+  if (user.role === "FOUNDER" || user.role === "STAFF") return null;
+  if (isProjectManagerRole(user.role)) {
+    const proj = await db.project.findUnique({ where: { id: projectId }, select: { managerId: true } });
+    if (!proj || proj.managerId !== user.id) {
+      return NextResponse.json({ error: "forbidden — you do not manage this project" }, { status: 403 });
+    }
+    return null;
+  }
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
+}
+
 // GET — service library + project services
 export async function GET(req: Request) {
   const user = await getSessionUser();
@@ -58,37 +103,12 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
 
-  // ============================================================
-  // ACCESS RULE for a project's cost sheet (mirrors /api/doz/projects'
-  // managerId scoping — see isProjectManagerRole there):
-  //   - FOUNDER, STAFF: any project. They run budget approval and release
-  //     vendor payments, so they see everything including bank details.
-  //   - PRODUCTION_MANAGER: only a project they manage (Project.managerId
-  //     === user.id) — the same project canBuildBudget already lets them
-  //     edit. They see vendor bank details too: they are the one who
-  //     captures them while building the sheet, exactly the access
-  //     equipment/route.ts already grants for the identical relationship.
-  //   - FREELANCER: only a project they manage, but WITHOUT bank details —
-  //     canBuildBudget excludes FREELANCER from editing the sheet, so they
-  //     run the job without owning its vendor payments.
-  //   - Everyone else (INTERN, a PM/FREELANCER who does not manage this
-  //     project): 403. No project id at all — the shared service catalogue
-  //     only — stays open to any signed-in user; it is reference data, not
-  //     a project's money.
-  // ============================================================
   let canSeeVendorBank = false;
   if (projectId) {
-    if (user.role === "FOUNDER" || user.role === "STAFF") {
-      canSeeVendorBank = true;
-    } else if (isProjectManagerRole(user.role)) {
-      const proj = await db.project.findUnique({ where: { id: projectId }, select: { managerId: true } });
-      if (!proj || proj.managerId !== user.id) {
-        return NextResponse.json({ error: "forbidden — you do not manage this project" }, { status: 403 });
-      }
-      canSeeVendorBank = user.role === "PRODUCTION_MANAGER";
-    } else {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
+    const denied = await requireProjectAccess(user, projectId);
+    if (denied) return denied;
+    // FOUNDER-only, full stop — see requireProjectAccess's doc comment.
+    canSeeVendorBank = canSeeFinancials(user.role);
   }
 
   const [categories, projectServices] = await Promise.all([
@@ -145,6 +165,13 @@ export async function POST(req: Request) {
   // the body — and if that resolution fails to find anything, the guard
   // does not run and the action falls through to the handler's own
   // "not found" check, which fails closed on the same missing row.
+  //
+  // `add_custom_item` writes the global service catalogue (ServiceItem), not
+  // a project cost line, and carries no `projectId` at all — the `else`
+  // branch below leaves `guardProjectId` undefined for it, so neither this
+  // stage lock nor the managed-project scoping just below ever runs for it.
+  // A PRODUCTION_MANAGER may add a custom catalogue item regardless of which
+  // project (if any) they manage.
   const SHEET_MUTATIONS = ["add_service", "update_service", "delete_service", "submit_budget", "add_custom_item"];
   if (SHEET_MUTATIONS.includes(body.action) && user.role !== "FOUNDER") {
     let guardProjectId: string | undefined;
@@ -153,10 +180,20 @@ export async function POST(req: Request) {
         const svc = await db.projectService.findUnique({ where: { id: body.serviceId }, select: { projectId: true } });
         guardProjectId = svc?.projectId;
       }
-    } else {
+    } else if (body.action !== "add_custom_item") {
       guardProjectId = body.projectId || undefined;
     }
     if (guardProjectId) {
+      // Managed-project scoping: the exact rule GET enforces, reused (not
+      // re-implemented) via requireProjectAccess. By this point BUDGET_ACTIONS
+      // has already confined `user.role` to FOUNDER/STAFF/PRODUCTION_MANAGER
+      // (canBuildBudget excludes FREELANCER/INTERN entirely), and FOUNDER is
+      // excluded from this whole block, so only STAFF (unrestricted) and
+      // PRODUCTION_MANAGER (must own the project) can still be here.
+      if (isProjectManagerRole(user.role)) {
+        const denied = await requireProjectAccess(user, guardProjectId);
+        if (denied) return denied;
+      }
       const proj = await db.project.findUnique({
         where: { id: guardProjectId },
         select: { pricingStage: true, name: true },
@@ -189,7 +226,7 @@ export async function POST(req: Request) {
         vendorId: body.vendorId || null, vendorName, vendorContact, vendorPhone, vendorEmail, vendorBankDetails,
         status: "LISTED", notes: body.notes || null, createdBy: user.id },
     });
-    return NextResponse.json({ ok: true, service: shapeService(created, user.role) }, { status: 201 });
+    return NextResponse.json({ ok: true, service: shapeService(created, user.role, canSeeFinancials(user.role)) }, { status: 201 });
   }
 
   if (body.action === "update_service") {
@@ -224,7 +261,7 @@ export async function POST(req: Request) {
     if (body.notes !== undefined) data.notes = body.notes;
     if (body.status !== undefined) data.status = body.status;
     const updated = await db.projectService.update({ where: { id: body.serviceId }, data });
-    return NextResponse.json({ ok: true, service: shapeService(updated, user.role) });
+    return NextResponse.json({ ok: true, service: shapeService(updated, user.role, canSeeFinancials(user.role)) });
   }
 
   if (body.action === "delete_service") {

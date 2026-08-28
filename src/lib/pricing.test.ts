@@ -82,6 +82,26 @@ test("equipment and venue hire that merely mention a booth or exhibition stay at
   assert.equal(markupFor("Trade Show Exhibition & Booth Construction"), 3.5);
 });
 
+test("a genuine exhibition stand or booth fabrication line marks up as fabrication, not equipment hire", () => {
+  // Narrowing the keyword set to drop "booth"/"exhibit" (so rentals stop
+  // over-pricing) must not also catch real carpentry in its net — the
+  // underpricing direction is the dangerous one.
+  assert.equal(markupFor("Exhibition Stands"), 3.5);
+  assert.equal(markupFor("Booth Fabrication"), 3.5);
+  // ...while the rentals that motivated the narrowing stay at 2.0x.
+  assert.equal(markupFor("Photo Booth Rental"), 2.0);
+  assert.equal(markupFor("Exhibition Space Rental"), 2.0);
+});
+
+test("the six real D1Z departments still map to their expected markup after the keyword fix", () => {
+  assert.equal(markupFor("Audiovisual & Technical Production"), 2.0);
+  assert.equal(markupFor("Scenic Design & Stage Production"), 3.5);
+  assert.equal(markupFor("Trade Show Exhibition & Booth Construction"), 3.5);
+  assert.equal(markupFor("Event Branding & Signage"), 3.5);
+  assert.equal(markupFor("Event Technology & Registration"), 2.0);
+  assert.equal(markupFor("Operations, Logistics & Management"), 1.3);
+});
+
 // ---- suggestOfficialPrice ------------------------------------------------
 
 test("suggested price applies the section markup to the cost", () => {
