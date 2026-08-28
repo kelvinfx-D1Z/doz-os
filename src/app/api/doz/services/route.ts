@@ -250,7 +250,12 @@ export async function POST(req: Request) {
     let paymentsCreated = 0;
     for (const item of items) {
       if (item.vendorName && item.totalPrice > 0) {
-        const existing = await db.paymentRequest.findFirst({ where: { description: { contains: item.serviceName }, amount: item.totalPrice } });
+        // Scoped to THIS project. Templates guarantee byte-identical service
+        // names, quantities and day counts across projects, so an unscoped
+        // description+amount match treats two different conferences' "Complete
+        // Audio System" line as the same payment and silently skips the
+        // second project's vendor payment request.
+        const existing = await db.paymentRequest.findFirst({ where: { projectId: body.projectId, description: { contains: item.serviceName }, amount: item.totalPrice } });
         if (!existing) {
           await db.paymentRequest.create({ data: { code: `PR-SV-${Date.now().toString().slice(-6)}`, projectId: body.projectId, amount: item.totalPrice, description: `${item.serviceName} — ${item.vendorName}${item.vendorBankDetails ? ` (Bank: ${item.vendorBankDetails})` : ""}`, status: "PENDING", requesterId: user.id } });
           paymentsCreated++;
