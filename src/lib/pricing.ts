@@ -5,44 +5,44 @@
 // The production manager builds it. OP is what the CLIENT is charged; only
 // the founder ever sees or sets it.
 //
-// The markups below are starting points to argue with, not a formula. They
-// come from D1Z's own invoices: a videographer costs 30,000/day and bills at
-// 40,000 (1.33x), while fabrication and branding carry far more risk, waste
-// and workmanship and mark up several times over.
+// The markups below are the midpoints of the founder's own published 2026
+// rate card, not a formula and not a guess taken from one invoice.
 // ============================================================
 
 import { MONEY_EPSILON } from "./received-allocation.ts";
 
-/** Applied to any section we do not recognise. */
-export const DEFAULT_MARKUP = 2.0;
+/**
+ * Applied to any section we do not recognise. The midpoint of the founder's
+ * own equipment-rental band (25-40%).
+ */
+export const DEFAULT_MARKUP = 1.35;
 
 /**
- * Sections are free text typed by whoever built the sheet ("PERSONNEL",
- * "Operations, Logistics & Management", "BRANDING (FABRICATION + PRINTING)"),
- * so match on keywords rather than exact names.
+ * The founder's category table, at the midpoint of each stated range.
  *
- * A real section name often matches TWO rules at once — "Stage Fabrication &
- * Crew", "Branding & Logistics", "Fabrication Management" all carry both a
- * fabrication word and a personnel word. Taking the first matching rule made
- * the order of this array decide the price, and the personnel rule sat first:
- * a 2,000,000 stage build suggested 2,600,000 instead of 7,000,000. So every
- * rule is scored and the HIGHEST markup wins. That is order-independent, and
- * it errs upward — a suggestion the founder talks down is recoverable, one
- * that quietly underprices a fabrication job is not.
+ * These replace an earlier guess of 2.0x equipment and 3.5x fabrication, taken
+ * from a single invoice where fabrication happened to mark up several times.
+ * As a default that was badly wrong: it quoted a 390,000 stage at 1,365,000
+ * where the founder's own rate card says 500,000 — a lost job with no
+ * explanation. Real cost-to-rate pairs in that card cluster at 1.2x-1.5x.
  *
- * "booth" and "exhibit" are deliberately NOT keywords: "Photo Booth Rental"
- * and "Exhibition Space Rental" are equipment and venue hire, not carpentry.
- * The founder's ruling that booth construction prices at 3.5x is carried by
- * "construction" (still matches "Trade Show Exhibition & Booth
- * Construction") and "fabricat" (matches "Booth Fabrication"). "stand" is a
- * keyword for the same reason: an exhibition STAND is a built structure —
- * "Exhibition Stands" and "Custom Exhibition Stand Fabrication" are
- * carpentry, not the rental covered by "Exhibition Space Rental" (that
- * phrase has no "stand" in it, so it correctly stays at the default).
+ * A real section name can still match TWO rules at once — "Stage Fabrication
+ * & Crew" carries both a fabrication word ("stage", "fabricat") and a
+ * personnel word ("crew"). Every rule is scored and the HIGHEST markup wins,
+ * so the order of this array never decides the price. On the founder's own
+ * table crew/personnel (30-50%, 1.40) sits slightly above fabrication
+ * (25-40%, 1.35) — that is the founder's stated position, not an artefact of
+ * this table, so a mixed section like that one now resolves to 1.40. That is
+ * exactly the top of fabrication's own band and the middle of crew's:
+ * defensible under either reading, and it errs high, which is the safe
+ * direction — a quote can be discounted, but one already sent cannot be
+ * un-underpriced.
  */
 const RULES: { markup: number; keywords: string[] }[] = [
-  { markup: 1.3, keywords: ["personnel", "crew", "staff", "operations", "logistics", "management", "labour", "labor"] },
-  { markup: 3.5, keywords: ["fabricat", "scenic", "stage", "branding", "signage", "print", "build", "carpentry", "decor", "construction", "stand"] },
+  { markup: 1.5, keywords: ["post-production", "post production", "grading", "grade", "motion graphic", "animation", "creative", "consultancy", "editing"] },
+  { markup: 1.4, keywords: ["personnel", "crew", "staff", "videographer", "photographer", "production management", "producer", "director", "technician", "operator", "labour", "labor"] },
+  { markup: 1.25, keywords: ["branding", "signage", "print", "logistics", "transport", "catering", "welfare"] },
+  { markup: 1.35, keywords: ["fabricat", "scenic", "stage", "build", "carpentry", "decor", "construction", "booth", "exhibit", "stand"] },
 ];
 
 function safe(n: number | null | undefined): number {
