@@ -549,17 +549,40 @@ export async function POST(req: Request) {
         include: { items: { orderBy: [{ sortOrder: "asc" }, { section: "asc" }] } },
       });
       if (tpl) {
+        // A template line linked to a catalogue service (Task 2's
+        // serviceItemId) draws its cost from there rather than the
+        // template's own copy, which goes stale. Preference order: the
+        // linked service's standardCost, then the template's own
+        // defaultUnitCost, then 0. standardCost is checked for presence
+        // (!== null/undefined), never truthiness — 0 is a real,
+        // complimentary rate, not "no rate" (src/lib/rate-card.ts).
+        const linkedIds = tpl.items
+          .map((i) => i.serviceItemId)
+          .filter((id): id is string => !!id);
+        const linkedServices = linkedIds.length
+          ? await db.serviceItem.findMany({
+              where: { id: { in: linkedIds } },
+              select: { id: true, standardCost: true },
+            })
+          : [];
+        const costByServiceId = new Map(linkedServices.map((s) => [s.id, s.standardCost]));
+
         for (const i of tpl.items.filter((i) => i.enabledByDefault)) {
+          const linkedCost = i.serviceItemId ? costByServiceId.get(i.serviceItemId) : undefined;
+          const unitPrice =
+            linkedCost !== null && linkedCost !== undefined
+              ? linkedCost
+              : i.defaultUnitCost ?? 0;
           seedLines.set(seedKey(i.section, i.name), {
             serviceName: i.name,
             category: i.section,
             quantity: i.defaultQuantity,
             days: i.defaultDays,
-            unitPrice: i.defaultUnitCost ?? 0,
+            unitPrice,
             totalPrice: lineTotal({
               quantity: i.defaultQuantity,
               days: i.defaultDays,
-              price: i.defaultUnitCost ?? 0,
+              price: unitPrice,
             }),
           });
         }
