@@ -33,6 +33,12 @@ const AV = "AUDIO VISUAL";
 const BRANDING = "BRANDING";
 const PERSONNEL = "PERSONNEL";
 const CONTENT = "CONTENT CREATION";
+// markupFor() (src/lib/pricing.ts) keys on the SECTION string, not the line
+// name — a construction line filed under AUDIO VISUAL prices as equipment
+// hire (2.0x default) instead of the founder's fabrication ruling (3.5x).
+// This section name carries the keywords "stage"/"fabricat" so it scores
+// the fabrication rule regardless of rule ordering.
+const FABRICATION = "STAGE & SCENIC FABRICATION";
 
 const templates = [
   {
@@ -48,10 +54,15 @@ const templates = [
       item(AV, "Stage Lights and Audience Light with Truss Stand"),
       item(PERSONNEL, "Production Personnel", { qty: 6 }),
       item(PERSONNEL, "Photography"),
-      // Complimentary on the reference invoice — listed at Unit Price 0.
-      item(AV, "65 Inch TV with Stands", { enabled: false }),
-      item(AV, "Goose Mic — Panellist Microphones", { qty: 10, enabled: false }),
-      item(AV, "Background Lights", { qty: 6, enabled: false }),
+      // Complimentary on the reference invoice — Official Price 0 on the
+      // client invoice, but D1Z still hires and pays for these. They must
+      // seed as real cost-sheet lines (enabled, unpriced like every other
+      // line here) so a vendor cost and payment request can exist; the
+      // founder sets Official Price to 0 when converting, not the absence
+      // of a line.
+      item(AV, "65 Inch TV with Stands"),
+      item(AV, "Goose Mic — Panellist Microphones", { qty: 10 }),
+      item(AV, "Background Lights", { qty: 6 }),
       item(PERSONNEL, "Professional Fees"),
     ],
   },
@@ -60,7 +71,7 @@ const templates = [
     description:
       "From D1Z's SciBiz invoice: a three-day conference with branding and decoration.",
     items: [
-      item(AV, "LED Screen + Riser", { qty: 2, days: 3 }),
+      item(FABRICATION, "LED Screen + Riser", { qty: 2, days: 3 }),
       item(AV, "Stage TV Monitor & Stand", { qty: 2, days: 3 }),
       item(AV, "Stage Timer Stand & Attendant", { days: 3 }),
       item(AV, "Live Streaming", { days: 3 }),
@@ -85,11 +96,11 @@ const templates = [
       "From D1Z's SPE invoice: a lecture-series production with content creation and external branding.",
     items: [
       item(AV, "HD Camera Chain", { qty: 3 }),
-      item(AV, "Stage and Conference Platform Construction"),
+      item(FABRICATION, "Stage and Conference Platform Construction"),
       item(AV, "Video Mixer / Technical Presentation / Recorder and Playback"),
       item(AV, "50 Inch Stage Monitor with Stand", { qty: 2 }),
       item(AV, "50 Inch Timer"),
-      item(AV, "LED Screen + Riser", { qty: 4 }),
+      item(FABRICATION, "LED Screen + Riser", { qty: 4 }),
       item(AV, "Complete PA System including Speakers and Panellist Mics"),
       item(AV, "Streaming Equipment"),
       item(AV, "Programme Slides / Animation"),
