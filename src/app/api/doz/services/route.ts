@@ -103,6 +103,14 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
 
+  // BP is visible to the people who build budgets. CP is founder-only, the same
+  // rule as ProjectService.clientPrice. The catalogue itself stays readable by
+  // everyone signed in, because the Section and Description pickers need the
+  // names — but an intern must never read the rate card off the back of them.
+  const canSeeBP =
+    user.role === "FOUNDER" || user.role === "STAFF" || user.role === "PRODUCTION_MANAGER";
+  const canSeeCP = canSeeFinancials(user.role); // FOUNDER only
+
   let canSeeVendorBank = false;
   if (projectId) {
     const denied = await requireProjectAccess(user, projectId);
@@ -126,7 +134,12 @@ export async function GET(req: Request) {
   return NextResponse.json({
     categories: categories.map(c => ({
       id: c.id, name: c.name, icon: c.icon,
-      items: c.items.map(i => ({ id: i.id, name: i.name, isCustom: i.isCustom })),
+      items: c.items.map(i => ({
+        id: i.id, name: i.name, isCustom: i.isCustom,
+        standardCost: canSeeBP ? i.standardCost : undefined,
+        standardClientRate: canSeeCP ? i.standardClientRate : undefined,
+        unit: i.unit,
+      })),
     })),
     projectServices: projectServices.map(s => shapeService(s, user.role, canSeeVendorBank)),
     totals,
@@ -330,6 +343,7 @@ export async function POST(req: Request) {
   const CATALOGUE_ACTIONS = [
     "catalogue_add_department", "catalogue_rename_department", "catalogue_delete_department",
     "catalogue_add_item", "catalogue_rename_item", "catalogue_delete_item",
+    "catalogue_set_rates",
   ];
   if (CATALOGUE_ACTIONS.includes(body.action) && user.role !== "FOUNDER") {
     return NextResponse.json({ error: "forbidden — only the founder can edit the catalogue" }, { status: 403 });
@@ -417,6 +431,44 @@ export async function POST(req: Request) {
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
     await db.serviceItem.delete({ where: { id: body.itemId } });
     return NextResponse.json({ ok: true });
+  }
+
+  // The rate card. FOUNDER only (gated above via CATALOGUE_ACTIONS) — BP and
+  // CP are set here, independently of one another, and a rate of 0 is a real
+  // (complimentary) price: only an explicit null clears one. See parseRate.
+  if (body.action === "catalogue_set_rates") {
+    const itemId = String(body.itemId ?? "").trim();
+    if (!itemId) return NextResponse.json({ error: "itemId required" }, { status: 400 });
+    const item = await db.serviceItem.findUnique({ where: { id: itemId }, select: { id: true } });
+    if (!item) return NextResponse.json({ error: "Service not found" }, { status: 404 });
+
+    // A rate of 0 is a real price — a complimentary line. Only null clears one.
+    const parseRate = (v: unknown): number | null | undefined => {
+      if (v === undefined) return undefined;            // not being changed
+      if (v === null || v === "") return null;          // deliberately cleared
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) return undefined; // ignore nonsense
+      return n;
+    };
+
+    const data: Record<string, unknown> = {};
+    const cost = parseRate(body.standardCost);
+    const rate = parseRate(body.standardClientRate);
+    if (cost !== undefined) { data.standardCost = cost; data.costUpdatedAt = new Date(); }
+    if (rate !== undefined) { data.standardClientRate = rate; data.rateUpdatedAt = new Date(); }
+    if (typeof body.unit === "string" && body.unit.trim()) data.unit = body.unit.trim();
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: "Nothing to change" }, { status: 400 });
+    }
+    const updated = await db.serviceItem.update({ where: { id: itemId }, data });
+    return NextResponse.json({
+      ok: true,
+      item: {
+        id: updated.id, name: updated.name, unit: updated.unit,
+        standardCost: updated.standardCost, standardClientRate: updated.standardClientRate,
+      },
+    });
   }
 
   return NextResponse.json({ error: "invalid action" }, { status: 400 });
