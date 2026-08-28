@@ -10,7 +10,7 @@ import {
 import { SectionHeader, EmptyState } from "@/components/doz/ui-primitives";
 import { Wallet, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { marginFor, markupFor } from "@/lib/pricing";
+import { marginFor, suggestOfficialPrice } from "@/lib/pricing";
 import { formatNGN, formatPct } from "@/lib/format";
 
 // The founder's own request, verbatim: "make sure that the founder has a
@@ -109,6 +109,7 @@ export function RateCard() {
             }))
           : prev,
       );
+      toast.success(field === "standardCost" ? "BP saved" : "CP saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save rate", { duration: 8000 });
       // Revert the box to the last known-good server value.
@@ -222,7 +223,7 @@ function DepartmentRates({
                 const cp = cpVal === undefined ? null : cpVal;
                 const margin = bp !== null && cp !== null ? marginFor(bp, cp) : null;
                 const isLoss = margin !== null && margin.profit < 0;
-                const suggested = Math.round((bp ?? 0) * markupFor(cat.name) * 100) / 100;
+                const suggested = bp !== null ? suggestOfficialPrice(bp, cat.name) : null;
                 const rowBusy = !!busy[item.id];
 
                 return (
@@ -264,7 +265,7 @@ function DepartmentRates({
                           placeholder="—"
                           className="ml-auto h-7 w-28 text-right font-mono text-xs"
                         />
-                        {cp === null && (
+                        {cp === null && suggested !== null && (
                           <button
                             type="button"
                             disabled={rowBusy}
