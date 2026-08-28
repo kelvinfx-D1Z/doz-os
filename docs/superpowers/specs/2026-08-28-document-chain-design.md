@@ -127,10 +127,24 @@ category and no price, so there is nothing for a budget line to pull a rate from
 
 ```prisma
 // ServiceItem
-standardCost  Float?     // cost for ONE unit for ONE day; null where it always varies
+standardCost  Float?     // BP — what D1Z pays. Null where it always varies.
+standardRate  Float?     // OP — the published client rate. Null where unpriced.
 unit          String    @default("UNIT") // UNIT, DAY, SQM, PERSON — a LABEL only
 costUpdatedAt DateTime?
+rateUpdatedAt DateTime?
 ```
+
+**Two figures, not one.** The founder's own rate card insists on this separation:
+
+> "I strongly recommend that the actual internal costing sheet and client rate card
+> remain separate. Your internal sheet should contain: Actual Cost → Markup →
+> Selling Price → Gross Margin. The client should normally see: Service → Quantity
+> → Rate → Amount, rather than your supplier costs."
+
+A camera **costs** ₦30,000 and is **charged** at ₦45,000. Storing only one of those
+would either lose the margin or expose the cost. `standardCost` is founder-and-team
+visible under the existing cost-sheet rule; `standardRate` is what reaches a
+quotation.
 
 `unit` tells the founder what they are pricing ("per sqm", "per person"). **It never
 enters a calculation.** The amount is always `quantity × days × unitPrice`, with no
@@ -198,6 +212,76 @@ the founder to correct, rather than a figure being picked silently.
 This is why the three seeded templates currently have no costs. Once the rate card
 exists, a template that links its lines to catalogue services produces a budget with
 real figures in it, which is what "starting a budget from a template" means.
+
+### 1c. The rate card prices a job; the multiplier is only a fallback
+
+**A published rate beats a formula.** Where a service carries a `standardRate`, the
+markup panel pre-fills that figure directly — no arithmetic, no guessing. The section
+multiplier is used only for a service with no published rate yet.
+
+This matters because a formula cannot express what a real rate card does: a stage
+does not mark up like a camera, and some services are priced by package rather than
+as a multiple of cost.
+
+The founder's margin is then whatever the rate card actually earns, shown honestly,
+rather than assumed by a multiplier nobody checked.
+
+#### The shipped multipliers are wrong and must be corrected
+
+`src/lib/pricing.ts` currently ships:
+
+| | In the code | The founder's own rate card (§25) |
+|---|---|---|
+| Equipment | **2.0×** | 25–40% → 1.25–1.40× |
+| Fabrication | **3.5×** | 25–40% → 1.25–1.40× |
+| Personnel | 1.3× | 30–50% → 1.30–1.50× |
+
+Checked against real cost-and-rate pairs in that document, actual markups cluster at
+**1.2×–1.5×**: camera ₦30,000 → ₦45,000 (1.50×), LED 6sqm ₦150,000 → ₦225,000
+(1.50×), stage ₦390,000 → ₦500,000 (1.28×), production manager ₦250,000 → ₦325,000
+(1.30×), photography ₦100,000 → ₦120,000 (1.20×).
+
+**The 3.5× fabrication multiplier would quote a ₦390,000 stage at ₦1,365,000, where
+the founder's own rate card says ₦500,000** — nearly three times too high, and a lost
+job with no explanation. The 3.5× came from analysing a single earlier invoice where
+fabrication genuinely did mark up several times; that may have been true of that job,
+but it is plainly wrong as a default.
+
+Replace the three rules with the founder's own category table, using the midpoint of
+each stated range:
+
+| Category | Stated range | Fallback multiplier |
+|---|---|---|
+| Equipment rental | 25–40% | 1.35× |
+| Crew / personnel | 30–50% | 1.40× |
+| Production management | 30–50% | 1.40× |
+| Branding materials | 20–30% | 1.25× |
+| Printing | 20–30% | 1.25× |
+| Fabrication | 25–40% | 1.35× |
+| Exhibition stands | 25–40% | 1.35× |
+| Logistics | 20–30% | 1.25× |
+| Post-production | 40–60% | 1.50× |
+| Motion graphics | 50%+ | 1.50× |
+| Colour grading | 50%+ | 1.50× |
+| Creative / consultancy | 50%+ | 1.50× |
+| Anything unmatched | — | 1.35× |
+
+**Priority.** This code is live. No quotation has been raised and no cost line
+exists, so nothing has been mispriced yet — but it is a landmine under the first real
+job, and it should be corrected before the rate card is seeded rather than after.
+
+#### Scope of the seed
+
+The founder's rate card runs to roughly 200 lines across 30 sections. **Per-service
+lines are seeded**: camera and video equipment, LED and display, lighting, sound,
+livestreaming, photography, crew, production management, stage, branding and print,
+furniture, flags, exhibition stands, booth and walkway, drone, post-production,
+colour grading, motion graphics, content production, data, transport and catering.
+
+**Packages, overtime rates, multi-day discount bands, the minimum project charge and
+payment terms are deliberately not catalogue lines.** They are pricing policy, not
+services, and a package's cost has to be derived from its components or it silently
+breaks the margin. They get their own treatment later.
 
 ### 2. A quotation becomes a thread of revisions
 
@@ -301,15 +385,19 @@ the block hides itself.
 ## Build order
 
 1. **Budgets tab** — the founder's immediate gap; needs nothing new in the schema.
-2. **Rate card** — `standardCost` on the catalogue, pre-fill on a new cost line,
-   save-back on override, and seeding from the equipment-rental sheet. This is what
-   makes "start a budget from a template" mean anything; without it a template
-   supplies line names and day counts but every cost is still typed by hand.
-3. **Quotation revisions** — schema plus the revise action.
-4. **Acceptance write-back** — needs `sourceServiceId`, which the Budgets tab's
+2. **Correct the shipped markup multipliers** — a few lines in `pricing.ts` plus its
+   tests. Do this FIRST within the rate-card work: the live 3.5× fabrication default
+   overprices a stage nearly threefold, and every later step assumes sane fallbacks.
+3. **Rate card** — `standardCost` and `standardRate` on the catalogue, the rebuilt
+   type-based departments, pre-fill on a new cost line, rate-card-first pricing in the
+   markup panel, save-back on override, and seeding. This is what makes "start a
+   budget from a template" mean anything; without it a template supplies line names
+   and day counts but every figure is still typed by hand.
+4. **Quotation revisions** — schema plus the revise action.
+5. **Acceptance write-back** — needs `sourceServiceId`, which the Budgets tab's
    "Create quotation" action should set from the start.
-5. **Derive budget and revenue** — only once 4 populates them.
-6. **Dashboard approvals** — independent; can land any time after 1.
+6. **Derive budget and revenue** — only once 5 populates them.
+7. **Dashboard approvals** — independent; can land any time after 1.
 
 ## Deferred
 
