@@ -32,7 +32,7 @@ function shapeService(s: {
   vendorId: string | null; vendorName: string | null; vendorContact: string | null;
   vendorPhone: string | null; vendorEmail: string | null; vendorBankDetails: string | null;
   status: string; notes: string | null; createdBy: string; createdAt: Date;
-}, role: string) {
+}, role: string, canSeeVendorBank: boolean = true) {
   return {
     id: s.id, projectId: s.projectId, serviceName: s.serviceName, category: s.category,
     quantity: s.quantity,
@@ -41,7 +41,11 @@ function shapeService(s: {
     totalPrice: lineTotal({ quantity: s.quantity, days: s.days, price: s.unitPrice }),
     clientPrice: role === "FOUNDER" ? s.clientPrice : undefined,
     vendorId: s.vendorId, vendorName: s.vendorName, vendorContact: s.vendorContact,
-    vendorPhone: s.vendorPhone, vendorEmail: s.vendorEmail, vendorBankDetails: s.vendorBankDetails,
+    vendorPhone: s.vendorPhone, vendorEmail: s.vendorEmail,
+    // Bank account details are dropped (not just falsy) for anyone without a
+    // legitimate need to move money to this vendor — see the access rule in
+    // GET, below.
+    vendorBankDetails: canSeeVendorBank ? s.vendorBankDetails : undefined,
     status: s.status, notes: s.notes, createdBy: s.createdBy, createdAt: s.createdAt,
   };
 }
@@ -53,6 +57,39 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("projectId");
+
+  // ============================================================
+  // ACCESS RULE for a project's cost sheet (mirrors /api/doz/projects'
+  // managerId scoping — see isProjectManagerRole there):
+  //   - FOUNDER, STAFF: any project. They run budget approval and release
+  //     vendor payments, so they see everything including bank details.
+  //   - PRODUCTION_MANAGER: only a project they manage (Project.managerId
+  //     === user.id) — the same project canBuildBudget already lets them
+  //     edit. They see vendor bank details too: they are the one who
+  //     captures them while building the sheet, exactly the access
+  //     equipment/route.ts already grants for the identical relationship.
+  //   - FREELANCER: only a project they manage, but WITHOUT bank details —
+  //     canBuildBudget excludes FREELANCER from editing the sheet, so they
+  //     run the job without owning its vendor payments.
+  //   - Everyone else (INTERN, a PM/FREELANCER who does not manage this
+  //     project): 403. No project id at all — the shared service catalogue
+  //     only — stays open to any signed-in user; it is reference data, not
+  //     a project's money.
+  // ============================================================
+  let canSeeVendorBank = false;
+  if (projectId) {
+    if (user.role === "FOUNDER" || user.role === "STAFF") {
+      canSeeVendorBank = true;
+    } else if (isProjectManagerRole(user.role)) {
+      const proj = await db.project.findUnique({ where: { id: projectId }, select: { managerId: true } });
+      if (!proj || proj.managerId !== user.id) {
+        return NextResponse.json({ error: "forbidden — you do not manage this project" }, { status: 403 });
+      }
+      canSeeVendorBank = user.role === "PRODUCTION_MANAGER";
+    } else {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  }
 
   const [categories, projectServices] = await Promise.all([
     db.serviceCategory.findMany({ orderBy: { sortOrder: "asc" }, include: { items: { orderBy: { name: "asc" } } } }),
@@ -71,7 +108,7 @@ export async function GET(req: Request) {
       id: c.id, name: c.name, icon: c.icon,
       items: c.items.map(i => ({ id: i.id, name: i.name, isCustom: i.isCustom })),
     })),
-    projectServices: projectServices.map(s => shapeService(s, user.role)),
+    projectServices: projectServices.map(s => shapeService(s, user.role, canSeeVendorBank)),
     totals,
     canManage: true,
     canApprove: user.role === "FOUNDER" || user.role === "STAFF",
