@@ -75,11 +75,63 @@ interface ProjectPricingResponse {
 
 const NO_PROJECT = "__none__";
 
+/** ISO datetime (or plain date) string -> the "YYYY-MM-DD" a date input wants. */
+function toDateInputValue(iso: string | null | undefined): string {
+  return iso ? iso.slice(0, 10) : "";
+}
+
+/**
+ * The subset of a fetched Quotation the builder needs to reopen it for
+ * editing. Deliberately a structural shape rather than an import of
+ * documents.tsx's own `Quotation` — the two modules stay decoupled, and any
+ * object with these fields (a real quotation row) satisfies it.
+ */
+export interface EditableQuotation {
+  id: string;
+  code: string;
+  title: string | null;
+  eventStart: string | null;
+  eventEnd: string | null;
+  validUntil: string | null;
+  detailLevel: string;
+  discount: number;
+  vatRate: number;
+  whtRate: number;
+  vatWithheldAtSource: boolean;
+  targetNet: number | null;
+  account: { id: string } | null;
+  project: { id: string } | null;
+  lines: Array<{
+    section: string | null;
+    description: string;
+    subDescription: string | null;
+    quantity: number;
+    days: number;
+    unitPrice: number;
+  }>;
+}
+
+function linesFromQuotation(q: EditableQuotation): BuilderLine[] {
+  if (q.lines.length === 0) return [emptyLine()];
+  return q.lines.map((l) => ({
+    key: Math.random().toString(36).slice(2),
+    section: l.section ?? "",
+    description: l.description,
+    subDescription: l.subDescription ?? "",
+    quantity: String(l.quantity),
+    days: String(l.days),
+    // A real ₦0 unit price (a complimentary line) must survive the
+    // round-trip exactly as typed — String(0) is "0", not "".
+    unitPrice: String(l.unitPrice),
+  }));
+}
+
 export function DocumentBuilder({
   open,
   onOpenChange,
   onSaved,
   initialProjectId,
+  initialQuotation,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,27 +145,51 @@ export function DocumentBuilder({
    * builder behaves exactly as before.
    */
   initialProjectId?: string;
+  /**
+   * Reopens the builder on an existing DRAFT quotation instead of a blank
+   * one: every field seeded from it, and saving PATCHes that same
+   * quotation rather than POSTing a new one. The caller (documents.tsx)
+   * forces a fresh mount per quotation via a `key`, exactly like
+   * `initialProjectId` above — seeded once at construction, never synced
+   * in later via an effect.
+   */
+  initialQuotation?: EditableQuotation | null;
 }) {
+  const isEditing = !!initialQuotation;
   const [docType, setDocType] = useState<DocType>("QUOTATION");
-  const [accountId, setAccountId] = useState("");
-  // Seeded from `initialProjectId` at construction time only. The caller
-  // (documents.tsx) forces a fresh mount for a new preselection by keying
-  // this component on the project id, so there is no later prop-to-state
-  // sync to do here — no effect calling setProjectId, just an initializer.
-  const [projectId, setProjectId] = useState(initialProjectId ?? "");
+  const [accountId, setAccountId] = useState(initialQuotation?.account?.id ?? "");
+  // Seeded from `initialProjectId` (new document) or the edited quotation's
+  // own project (edit) at construction time only. The caller forces a
+  // fresh mount for a new preselection/quotation by keying this component,
+  // so there is no later prop-to-state sync to do here — no effect calling
+  // setProjectId, just an initializer.
+  const [projectId, setProjectId] = useState(initialQuotation?.project?.id ?? initialProjectId ?? "");
   const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [title, setTitle] = useState("");
-  const [eventStart, setEventStart] = useState("");
-  const [eventEnd, setEventEnd] = useState("");
+  const [title, setTitle] = useState(initialQuotation?.title ?? "");
+  const [eventStart, setEventStart] = useState(toDateInputValue(initialQuotation?.eventStart));
+  const [eventEnd, setEventEnd] = useState(toDateInputValue(initialQuotation?.eventEnd));
   const [dueDate, setDueDate] = useState("");
-  const [validUntil, setValidUntil] = useState("");
-  const [lines, setLines] = useState<BuilderLine[]>([emptyLine()]);
+  const [validUntil, setValidUntil] = useState(toDateInputValue(initialQuotation?.validUntil));
+  const [lines, setLines] = useState<BuilderLine[]>(
+    initialQuotation ? linesFromQuotation(initialQuotation) : [emptyLine()],
+  );
   const [serviceCatalogue, setServiceCatalogue] = useState<ServiceCatalogueCategory[] | null>(null);
-  const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">("SUMMARY");
-  const [government, setGovernment] = useState(false);
-  const [grossUpTarget, setGrossUpTarget] = useState("");
-  const [discount, setDiscount] = useState("");
-  const [vatRate, setVatRate] = useState(String(VAT_RATE));
+  const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">(
+    initialQuotation?.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
+  );
+  const [government, setGovernment] = useState(initialQuotation?.vatWithheldAtSource ?? false);
+  const [grossUpTarget, setGrossUpTarget] = useState(
+    initialQuotation?.targetNet != null ? String(initialQuotation.targetNet) : "",
+  );
+  // discount/vatRate are read with `??`, not `||` — a real 0% VAT or ₦0
+  // discount on the edited quotation must not fall back to the create
+  // defaults.
+  const [discount, setDiscount] = useState(
+    initialQuotation ? String(initialQuotation.discount ?? 0) : "",
+  );
+  const [vatRate, setVatRate] = useState(
+    initialQuotation ? String(initialQuotation.vatRate ?? VAT_RATE) : String(VAT_RATE),
+  );
   const [saving, setSaving] = useState(false);
   // Keyed by the projectId it was fetched for, so a project change never
   // needs a synchronous "clear the old value" setState inside the effect
@@ -253,6 +329,10 @@ export function DocumentBuilder({
       autoLoadedRef.current = null;
       return;
     }
+    // Never applies while editing an existing quotation — its lines came
+    // from the quotation itself, not from a project hand-off, and must not
+    // be silently replaced by the project's current pricing.
+    if (isEditing) return;
     if (!initialProjectId || projectId !== initialProjectId) return;
     if (autoLoadedRef.current === initialProjectId) return;
     if (currentPricing?.stage === "OFFICIAL") {
@@ -366,35 +446,60 @@ export function DocumentBuilder({
         vatWithheldAtSource: government,
         targetNet: government && targetNetNum > 0 ? targetNetNum : undefined,
       };
-      if (docType === "QUOTATION") {
-        body.validUntil = validUntil || undefined;
-      } else {
-        body.dueDate = dueDate || undefined;
-      }
 
-      const endpoint =
-        docType === "QUOTATION" ? "/api/doz/documents/quotations" : "/api/doz/documents/invoices";
-      const r = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let r: Response;
+      if (isEditing && initialQuotation) {
+        // Editing always means a quotation, in DRAFT, PATCHed back onto
+        // itself — same code, same id, no new document minted. The server
+        // mirrors POST's own validation and tax computation for this body;
+        // it refuses the write if the quotation is no longer DRAFT.
+        body.quotationId = initialQuotation.id;
+        body.validUntil = validUntil || undefined;
+        r = await fetch("/api/doz/documents/quotations", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } else {
+        if (docType === "QUOTATION") {
+          body.validUntil = validUntil || undefined;
+        } else {
+          body.dueDate = dueDate || undefined;
+        }
+        const endpoint =
+          docType === "QUOTATION" ? "/api/doz/documents/quotations" : "/api/doz/documents/invoices";
+        r = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      }
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
-      const code = docType === "QUOTATION" ? j.quotation?.code : j.invoice?.code;
-      const label = docType === "QUOTATION" ? "Quotation" : "Invoice";
-      // The POST already returns the authoritative expectedCash it stored; the
-      // builder used to discard it. Echoing it back closes the loop — the
-      // founder sees the real cash-landing figure from the server, not just
-      // the client-side preview of it. Internal only: WHT and cash landing
-      // never appear on a rendered client document.
+
+      // The server always returns the authoritative expectedCash it stored;
+      // the builder used to discard it on create. Echoing it back closes
+      // the loop — the founder sees the real cash-landing figure from the
+      // server, not just the client-side preview of it. Internal only: WHT
+      // and cash landing never appear on a rendered client document.
       const landed = typeof j.expectedCash === "number" ? j.expectedCash : null;
-      toast.success(
-        `${label} ${code ?? ""} created`.trim(),
-        government && landed !== null
-          ? { description: `Cash landing ${naira(landed)} (internal — not printed)` }
-          : undefined,
-      );
+      if (isEditing && initialQuotation) {
+        toast.success(
+          `${initialQuotation.code} updated`,
+          government && landed !== null
+            ? { description: `Cash landing ${naira(landed)} (internal — not printed)` }
+            : undefined,
+        );
+      } else {
+        const code = docType === "QUOTATION" ? j.quotation?.code : j.invoice?.code;
+        const label = docType === "QUOTATION" ? "Quotation" : "Invoice";
+        toast.success(
+          `${label} ${code ?? ""} created`.trim(),
+          government && landed !== null
+            ? { description: `Cash landing ${naira(landed)} (internal — not printed)` }
+            : undefined,
+        );
+      }
       reset();
       onOpenChange(false);
       onSaved();
@@ -409,15 +514,19 @@ export function DocumentBuilder({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[760px]">
         <DialogHeader>
-          <DialogTitle>New document</DialogTitle>
-          <DialogDescription>Build a quotation or invoice — the numbers here are exactly what gets stored.</DialogDescription>
+          <DialogTitle>{isEditing ? `Edit ${initialQuotation?.code}` : "New document"}</DialogTitle>
+          <DialogDescription>
+            {isEditing
+              ? "Still a DRAFT — change anything below and save. The code stays the same."
+              : "Build a quotation or invoice — the numbers here are exactly what gets stored."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="doc-type">Document type</Label>
-              <Select value={docType} onValueChange={(v) => setDocType(v as DocType)}>
+              <Select value={docType} onValueChange={(v) => setDocType(v as DocType)} disabled={isEditing}>
                 <SelectTrigger id="doc-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="QUOTATION">Quotation</SelectItem>
@@ -700,7 +809,7 @@ export function DocumentBuilder({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="button" onClick={submit} disabled={saving} className="gap-1.5">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {docType === "QUOTATION" ? "Create quotation" : "Create invoice"}
+            {isEditing ? "Save changes" : docType === "QUOTATION" ? "Create quotation" : "Create invoice"}
           </Button>
         </DialogFooter>
       </DialogContent>

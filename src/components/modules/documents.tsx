@@ -15,7 +15,7 @@ import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-prim
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
-import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon } from "lucide-react";
+import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
@@ -48,6 +48,8 @@ export interface Quotation {
   code: string;
   status: string;
   title: string | null;
+  eventStart: string | null;
+  eventEnd: string | null;
   total: number;
   subtotal: number;
   discount: number;
@@ -55,6 +57,7 @@ export interface Quotation {
   tax: number;
   whtRate: number;
   vatWithheldAtSource: boolean;
+  targetNet: number | null;
   detailLevel: string;
   validUntil: string | null;
   convertedInvoiceId: string | null;
@@ -120,6 +123,11 @@ export function DocumentsModule() {
   // with that project already chosen. Cleared whenever the builder closes,
   // so the plain "New document" button never inherits a stale preselection.
   const [quotationProjectId, setQuotationProjectId] = useState<string | undefined>(undefined);
+  // Set only by a DRAFT quotation's own "Edit" action. Mutually exclusive
+  // with quotationProjectId in practice (Edit opens on an existing
+  // quotation, not a fresh one), and cleared the same way: whenever the
+  // builder closes.
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
 
   const loadAll = useCallback(() => {
     return Promise.all([
@@ -151,6 +159,16 @@ export function DocumentsModule() {
   // chosen, rather than an empty picker he has to remember to fill in.
   function openQuotationBuilderFor(projectId: string) {
     setQuotationProjectId(projectId);
+    setBuilderOpen(true);
+  }
+
+  // The founder's own request: "i can't edit the quotation... i need to
+  // edit it before sending." Reopens the same builder, prefilled from this
+  // quotation, saving back to it (PATCH) instead of minting a new one. Only
+  // ever called for a DRAFT — QuotationRow doesn't render the action
+  // otherwise, and the server refuses the content edit regardless.
+  function openEditQuotation(q: Quotation) {
+    setEditingQuotation(q);
     setBuilderOpen(true);
   }
 
@@ -293,6 +311,7 @@ export function DocumentsModule() {
                   onConvert={() => convertToInvoice(q)}
                   onDelete={() => deleteQuotation(q)}
                   onMarkSent={() => markSent("quotation", q.id, q.code)}
+                  onEdit={() => openEditQuotation(q)}
                 />
               ))
             )}
@@ -342,23 +361,28 @@ export function DocumentsModule() {
       </Tabs>
 
       <DocumentBuilder
-        // Forces a fresh mount whenever the preselected project changes (or
-        // clears), so DocumentBuilder can seed its `projectId` state once at
-        // construction — via useState's initializer — instead of an effect
-        // syncing a prop into state after the fact. The plain "New document"
-        // flow never changes this key, so it keeps behaving exactly as
-        // before: one persistent instance across repeated opens.
-        key={quotationProjectId ?? "__manual__"}
+        // Forces a fresh mount whenever the preselected project changes, or
+        // a different quotation is opened for editing, so DocumentBuilder
+        // can seed all of its state once at construction — via useState
+        // initializers — instead of effects syncing props into state after
+        // the fact. The plain "New document" flow never changes this key,
+        // so it keeps behaving exactly as before: one persistent instance
+        // across repeated opens.
+        key={editingQuotation ? `edit-${editingQuotation.id}` : (quotationProjectId ?? "__manual__")}
         open={builderOpen}
         onOpenChange={(open) => {
           setBuilderOpen(open);
-          if (!open) setQuotationProjectId(undefined);
+          if (!open) {
+            setQuotationProjectId(undefined);
+            setEditingQuotation(null);
+          }
         }}
         onSaved={() => {
           loadAll().catch(() => {});
           setActiveTab("quotations");
         }}
         initialProjectId={quotationProjectId}
+        initialQuotation={editingQuotation}
       />
       <RecordPaymentDialog
         invoice={paymentTarget}
@@ -370,8 +394,15 @@ export function DocumentsModule() {
 }
 
 function QuotationRow({
-  q, busy, onConvert, onDelete, onMarkSent,
-}: { q: Quotation; busy: boolean; onConvert: () => void; onDelete: () => void; onMarkSent: () => void }) {
+  q, busy, onConvert, onDelete, onMarkSent, onEdit,
+}: {
+  q: Quotation;
+  busy: boolean;
+  onConvert: () => void;
+  onDelete: () => void;
+  onMarkSent: () => void;
+  onEdit: () => void;
+}) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -397,6 +428,15 @@ function QuotationRow({
         <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => openDocument("quotation", q.id)}>
           <ExternalLink className="h-3.5 w-3.5" /> Open
         </Button>
+        {q.status === "DRAFT" ? (
+          <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </Button>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">
+            Sent — create a new quotation to change it.
+          </span>
+        )}
         {q.status === "DRAFT" && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onMarkSent}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent
