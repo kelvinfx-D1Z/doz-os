@@ -3239,7 +3239,7 @@ function EquipmentFormDialog({ projectId, categories, vendors, editing, onClose,
   const [selectedCat, setSelectedCat] = useState(editing?.category || "");
   const [itemName, setItemName] = useState(editing?.itemName || "");
   const [quantity, setQuantity] = useState(String(editing?.quantity || 1));
-  const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice || ""));
+  const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice ?? ""));
   const [vendorId, setVendorId] = useState(editing?.vendorId || "");
   const [vendorName, setVendorName] = useState(editing?.vendorName || "");
   const [vendorContact, setVendorContact] = useState(editing?.vendorContact || "");
@@ -3460,7 +3460,7 @@ function EquipmentFormDialog({ projectId, categories, vendors, editing, onClose,
 // complimentary rate). ServiceFormDialog below must tell all three apart —
 // never coerce with `||` or a truthiness check, which would treat a real
 // `0` the same as "no rate at all".
-interface SvcCategory { id: string; name: string; icon: string | null; items: { id: string; name: string; isCustom: boolean; standardCost?: number | null }[]; }
+interface SvcCategory { id: string; name: string; icon: string | null; items: { id: string; name: string; isCustom: boolean; standardCost?: number | null; unit: string }[]; }
 interface ProjectSvc {
   id: string; serviceName: string; category: string; quantity: number;
   // Whether a line multiplies by event days is decided PER LINE, and a
@@ -3664,7 +3664,7 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
   const [serviceName, setServiceName] = useState(editing?.serviceName || "");
   const [quantity, setQuantity] = useState(String(editing?.quantity || 1));
   const [days, setDays] = useState(String(editing?.days || 1));
-  const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice || ""));
+  const [unitPrice, setUnitPrice] = useState(String(editing?.unitPrice ?? ""));
   const [vendorId, setVendorId] = useState("");
   const [vendorName, setVendorName] = useState(editing?.vendorName || "");
   const [vendorPhone, setVendorPhone] = useState(editing?.vendorPhone || "");
@@ -3694,6 +3694,13 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
   // must not appear merely because the box happens to read the same digits
   // as an unpriced/inaccessible item (there is no standard to be "still").
   const isStillStandard = typedIsValid && standardIsKnown && typedPrice === standardCost;
+  // The catalogue's unit is a LABEL, never a multiplier — the amount is
+  // always quantity x days x unitPrice (see SvcCategory above) — but a
+  // per-day rate pre-filled from the catalogue means nothing without
+  // telling the founder that Days is what makes it right: "LED screen
+  // (6sqm)" pre-fills 150,000, a per-DAY rate, and a 4-day line entered as
+  // 1 day is a real, invisible error this surfaces before it is saved.
+  const standardUnit = selectedItem?.unit;
   // Offer the save-back checkbox once the founder's typed price diverges
   // from whatever the catalogue currently holds for this item — including
   // diverging from "no standard yet" (null/absent), which is the common
@@ -3809,7 +3816,10 @@ function ServiceFormDialog({ projectId, categories, vendors, editing, onClose, o
             </div>
           </div>
           {isStillStandard && (
-            <p className="text-[10px] text-muted-foreground">Standard rate — change it if this vendor quoted differently.</p>
+            <p className="text-[10px] text-muted-foreground">
+              Standard rate{standardUnit ? ` — per ${standardUnit.toLowerCase()}` : ""} — change it if this vendor quoted differently
+              {standardUnit === "DAY" ? ", and check Days if this runs more than one" : ""}.
+            </p>
           )}
           {differsFromStandard && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">

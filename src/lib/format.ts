@@ -99,6 +99,12 @@ export const STATUS_STYLES: Record<string, string> = {
   PENDING: "bg-amber-500/15 text-amber-400",
   APPROVED: "bg-chart-5/15 text-chart-5",
   REJECTED: "bg-destructive/15 text-destructive",
+  // budget (Budgets tab — see BudgetState in projects-events.tsx). DRAFT
+  // shares the invoice DRAFT entry above (nothing has happened yet, same
+  // muted grey) and APPROVED shares the payment entry above; SUBMITTED and
+  // PRICED are the two states with no other domain to borrow a colour from.
+  SUBMITTED: "bg-amber-500/15 text-amber-400",
+  PRICED: "bg-primary/15 text-primary",
 };
 
 export function statusStyle(status: string): string {

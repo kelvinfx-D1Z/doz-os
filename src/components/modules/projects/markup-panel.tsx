@@ -259,8 +259,8 @@ export function MarkupPanel({
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Days</TableHead>
                 <TableHead className="text-right">BP (cost)</TableHead>
-                <TableHead className="text-right">OP (client)</TableHead>
-                <TableHead className="text-right">OP Total</TableHead>
+                <TableHead className="text-right">CP (client rate)</TableHead>
+                <TableHead className="text-right">CP Total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
