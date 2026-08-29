@@ -115,9 +115,32 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
         );
       })
       .then((built) => {
-        setRows(built.filter((r): r is BudgetRow => r !== null));
+        const next = built.filter((r): r is BudgetRow => r !== null);
+        setRows(next);
+        return next;
       });
   }, []);
+
+  // Re-fetches this project's own row after MarkupPanel converts or reopens
+  // it, and — critically — re-syncs `openProject` (a frozen snapshot taken
+  // when the dialog opened) so its `pricingStage` stops reading stale
+  // "BASE" the moment Convert succeeds. A targeted refetch rather than
+  // ProjectDialog's window.location.reload() idiom: this dialog's own data
+  // (the row list) is already a plain fetch-and-setState the component
+  // owns, so re-running it is no more fragile than the initial load and
+  // avoids losing the founder's place (open dialog, scroll position) for a
+  // change that only ever affects one project's own state.
+  const refreshOpenProject = useCallback(
+    (projectId: string) => {
+      load()
+        .then((next) => {
+          const updated = next.find((r) => r.project.id === projectId)?.project;
+          if (updated) setOpenProject(updated);
+        })
+        .catch(() => {});
+    },
+    [load],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -183,6 +206,7 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
         {openProject && (
           <BudgetDialog
             project={openProject}
+            onProjectChanged={() => refreshOpenProject(openProject.id)}
             onCreateQuotation={() => {
               const id = openProject.id;
               setOpenProject(null);
@@ -226,8 +250,8 @@ function BudgetRowCard({ row, onOpen }: { row: BudgetRow; onOpen: () => void }) 
 }
 
 function BudgetDialog({
-  project, onCreateQuotation,
-}: { project: ProjectLite; onCreateQuotation: () => void }) {
+  project, onProjectChanged, onCreateQuotation,
+}: { project: ProjectLite; onProjectChanged: () => void; onCreateQuotation: () => void }) {
   const { user } = useCurrentUser();
   const isFounder = user?.role === "FOUNDER";
   const isPM = user?.role === "FREELANCER" || user?.role === "PRODUCTION_MANAGER";
@@ -256,7 +280,7 @@ function BudgetDialog({
       {/* Price it — founder-only, exactly like Projects & Events. Never even
           attempts to render for anyone else (MarkupPanel enforces this
           itself), so a PM never sees client price alongside their cost. */}
-      {isFounder && <MarkupPanel projectId={project.id} />}
+      {isFounder && <MarkupPanel projectId={project.id} onChanged={onProjectChanged} />}
 
       <div className="mt-4 rounded-lg border border-border p-4">
         {project.pricingStage !== "OFFICIAL" ? (
