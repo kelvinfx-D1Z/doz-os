@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import {
-  suggestOfficialPrice, baseTotal, officialTotal, marginFor, unpricedLines,
-  type PricedLine,
+  baseTotal, officialTotal, marginFor, unpricedLines,
+  buildRateCardIndex, suggestPrice, resolveConvertPrice,
+  type PricedLine, type RateCardEntry,
 } from "@/lib/pricing";
 
 /**
@@ -62,15 +63,9 @@ export async function GET(req: Request) {
   // package rather than as a multiple of what they cost. Where the
   // catalogue has a standardClientRate for this line's service, that wins;
   // otherwise fall back to suggestOfficialPrice's cost x section-markup.
-  //
-  // ProjectService.serviceName/category are plain text, entered by a human
-  // (typed or picked from the catalogue, which then copies the words in —
-  // see the "safety property" comment in services/route.ts). Matching
-  // against ServiceItem.name/ServiceCategory.name is therefore
-  // case-insensitive and ignores leading/trailing whitespace, but nothing
-  // fuzzier than that: a near-miss falls back to MARKUP rather than
-  // guessing, because a wrong match would price a line off some other
-  // service's rate — worse than the formula.
+  // The matching and duplicate-resolution rules live in src/lib/pricing.ts
+  // (buildRateCardIndex / suggestPrice) — shared with POST convert below so
+  // one rule decides what a published CP is, everywhere it matters.
   //
   // The SQL filter below only narrows on CATEGORY (case-insensitive) —
   // never on name. catalogue_add_department (founder-only) always trims a
@@ -81,7 +76,7 @@ export async function GET(req: Request) {
   // project's budget — see services/route.ts BUDGET_ACTIONS) does not, so a
   // stored name can carry stray whitespace an equality/IN filter would
   // never match. Filtering by category alone and doing every name
-  // comparison in JS via the trimmed, lower-cased rateKey below is what
+  // comparison in JS via pricing.ts's trimmed, lower-cased rateKey is what
   // keeps that asymmetry from silently losing a published rate. The
   // catalogue is small (~31 services today) and a budget's category set is
   // smaller still, so this stays one query without needing the name filter.
@@ -100,54 +95,26 @@ export async function GET(req: Request) {
       })
     : [];
 
-  const rateKey = (name: string, category: string) => `${name.trim().toLowerCase()}|${category.trim().toLowerCase()}`;
-
-  // ServiceItem carries no DB-level uniqueness on (categoryId, name), and
-  // add_custom_item (unlike the founder-only catalogue_add_item) never
-  // checks for a duplicate before creating one — so two rows can share a
-  // (name, category) pair, e.g. a founder-priced catalogue entry shadowed
-  // by an unpriced ad-hoc line a PM added because they couldn't find the
-  // real one in the picker. Picking whichever row Postgres happens to
-  // return last would make the price nondeterministic (it could differ
-  // between two page loads). Resolve deterministically instead, by intent:
-  //   - no candidate for this key has a published (non-null) rate -> MARKUP
-  //   - every candidate that HAS one agrees on the same rate -> use it —
-  //     however many rows say so, there is no real ambiguity
-  //   - candidates disagree (two different published rates) -> MARKUP;
-  //     choosing between two conflicting published prices is guessing, and
-  //     a near-miss must fall back rather than guess (same rule as the
-  //     name/category match above).
-  const ratesByKey = new Map<string, Set<number>>();
-  for (const item of rateCardItems) {
-    // A published rate of 0 is a deliberate complimentary price (see
-    // src/lib/rate-card.ts), not an absent one — checking !== null &&
-    // !== undefined (never truthiness) is what keeps a real free line from
-    // being quietly marked up to a formula price.
-    if (item.standardClientRate === null || item.standardClientRate === undefined) continue;
-    const key = rateKey(item.name, item.category.name);
-    if (!ratesByKey.has(key)) ratesByKey.set(key, new Set());
-    ratesByKey.get(key)!.add(item.standardClientRate);
-  }
+  const rateIndex = buildRateCardIndex(
+    rateCardItems.map((item): RateCardEntry => ({
+      name: item.name, category: item.category.name, standardClientRate: item.standardClientRate,
+    })),
+  );
 
   return NextResponse.json({
     stage: project.pricingStage,
     convertedAt: project.convertedToOfficialAt,
     lines: rows.map((r) => {
-      const candidates = ratesByKey.get(rateKey(r.serviceName, r.category));
-      // Exactly one distinct published rate for this key -> use it. Zero
-      // candidates (unmatched, or matched rows all unpriced) and two-or-more
-      // DIFFERENT rates both fall back to MARKUP — see the comment above.
-      const hasPublishedRate = candidates !== undefined && candidates.size === 1;
-      const publishedRate = hasPublishedRate ? [...candidates!][0] : undefined;
-      const suggested = hasPublishedRate ? publishedRate! : suggestOfficialPrice(r.unitPrice, r.category);
-      const suggestedSource: "RATE_CARD" | "MARKUP" = hasPublishedRate ? "RATE_CARD" : "MARKUP";
+      // A starting point, recomputed on every read so a changed cost (or a
+      // newly published rate) is reflected. Never written unless the
+      // founder confirms it.
+      const { suggested, source: suggestedSource } = suggestPrice(rateIndex, {
+        serviceName: r.serviceName, category: r.category, unitPrice: r.unitPrice,
+      });
       return {
         id: r.id, serviceName: r.serviceName, section: r.category,
         quantity: r.quantity, days: r.days, status: r.status,
         unitPrice: r.unitPrice, clientPrice: r.clientPrice,
-        // A starting point, recomputed on every read so a changed cost (or
-        // a newly published rate) is reflected. Never written unless the
-        // founder confirms it.
         suggested,
         suggestedSource,
       };
@@ -233,13 +200,33 @@ export async function POST(req: Request) {
         );
       }
 
+      // The same rate-card fallback GET already showed the founder as
+      // "Rate card ₦X" — see resolveConvertPrice in src/lib/pricing.ts. A
+      // line he cleared (parsePrice("") -> omitted from `prices` by design)
+      // or one added to the sheet after the panel loaded (no entry in
+      // `prices` at all) must fall back to that published rate, not
+      // silently to the markup formula alone.
+      const distinctCategories = [...new Set(rows.map((r) => r.category.trim()).filter(Boolean))];
+      const rateCardItems = distinctCategories.length > 0
+        ? await tx.serviceItem.findMany({
+            where: { category: { name: { in: distinctCategories, mode: "insensitive" } } },
+            select: { name: true, standardClientRate: true, category: { select: { name: true } } },
+          })
+        : [];
+      const rateIndex = buildRateCardIndex(
+        rateCardItems.map((item): RateCardEntry => ({
+          name: item.name, category: item.category.name, standardClientRate: item.standardClientRate,
+        })),
+      );
+
       const prices: Record<string, unknown> = body.prices ?? {};
       const updates = rows.map((r) => {
         const raw = prices[r.id];
         const n = typeof raw === "string" ? Number(raw) : raw;
-        const price = typeof n === "number" && Number.isFinite(n) && n >= 0
-          ? n
-          : suggestOfficialPrice(r.unitPrice, r.category);
+        const explicit = typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : null;
+        const price = resolveConvertPrice(explicit, rateIndex, {
+          serviceName: r.serviceName, category: r.category, unitPrice: r.unitPrice,
+        });
         return { id: r.id, clientPrice: price };
       });
 

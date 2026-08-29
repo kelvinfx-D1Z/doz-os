@@ -10,7 +10,12 @@ import {
   marginFor,
   unpricedLines,
   isFullyPriced,
+  buildRateCardIndex,
+  resolvePublishedRate,
+  suggestPrice,
+  resolveConvertPrice,
   type PricedLine,
+  type RateCardEntry,
 } from "./pricing.ts";
 
 function line(over: Partial<PricedLine> = {}): PricedLine {
@@ -225,4 +230,104 @@ test("unpricedLines counts only nulls", () => {
 
 test("an empty sheet is not 'fully priced' — there is nothing to sell", () => {
   assert.equal(isFullyPriced([]), false);
+});
+
+// ---- rate-card resolution -------------------------------------------------
+//
+// The branch's most business-critical new arithmetic: what GET suggests and
+// what POST convert falls back to must be decided by exactly one rule. See
+// resolveConvertPrice's doc comment for why an explicit price beats the
+// published rate, which beats the markup formula.
+
+function rateCardEntry(over: Partial<RateCardEntry> = {}): RateCardEntry {
+  return { name: "Livestreaming", category: "Streaming & Broadcast", standardClientRate: 150_000, ...over };
+}
+
+function svcLine(over: { serviceName?: string; category?: string; unitPrice?: number } = {}) {
+  return { serviceName: "Livestreaming", category: "Streaming & Broadcast", unitPrice: 70_000, ...over };
+}
+
+test("a single published rate wins over the markup formula", () => {
+  const index = buildRateCardIndex([rateCardEntry()]);
+  assert.equal(resolvePublishedRate(index, "Livestreaming", "Streaming & Broadcast"), 150_000);
+  const { suggested, source } = suggestPrice(index, svcLine());
+  assert.equal(suggested, 150_000);
+  assert.equal(source, "RATE_CARD");
+});
+
+test("a published rate of 0 wins over the formula — it is a real complimentary price", () => {
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: 0 })]);
+  const { suggested, source } = suggestPrice(index, svcLine());
+  assert.equal(suggested, 0);
+  assert.equal(source, "RATE_CARD");
+});
+
+test("no candidate for the key falls back to the markup formula", () => {
+  const index = buildRateCardIndex([rateCardEntry({ name: "Some Other Service" })]);
+  assert.equal(resolvePublishedRate(index, "Livestreaming", "Streaming & Broadcast"), undefined);
+  const { suggested, source } = suggestPrice(index, svcLine());
+  assert.equal(suggested, suggestOfficialPrice(70_000, "Streaming & Broadcast"));
+  assert.equal(source, "MARKUP");
+});
+
+test("a rate published as null (unpriced) is not a candidate — falls back to the formula", () => {
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: null })]);
+  const { source } = suggestPrice(index, svcLine());
+  assert.equal(source, "MARKUP");
+});
+
+test("two duplicate catalogue rows agreeing on the same rate resolve to that rate", () => {
+  const index = buildRateCardIndex([
+    rateCardEntry({ standardClientRate: 150_000 }),
+    rateCardEntry({ standardClientRate: 150_000 }),
+  ]);
+  const { suggested, source } = suggestPrice(index, svcLine());
+  assert.equal(suggested, 150_000);
+  assert.equal(source, "RATE_CARD");
+});
+
+test("two duplicate catalogue rows with DIFFERENT rates fall back to the formula — no guessing", () => {
+  const index = buildRateCardIndex([
+    rateCardEntry({ standardClientRate: 150_000 }),
+    rateCardEntry({ standardClientRate: 175_000 }),
+  ]);
+  assert.equal(resolvePublishedRate(index, "Livestreaming", "Streaming & Broadcast"), undefined);
+  const { suggested, source } = suggestPrice(index, svcLine());
+  assert.equal(suggested, suggestOfficialPrice(70_000, "Streaming & Broadcast"));
+  assert.equal(source, "MARKUP");
+});
+
+test("matching ignores case and surrounding whitespace on both name and category", () => {
+  const index = buildRateCardIndex([rateCardEntry({ name: "  LIVESTREAMING  ", category: "streaming & broadcast" })]);
+  assert.equal(resolvePublishedRate(index, "Livestreaming", "Streaming & Broadcast"), 150_000);
+});
+
+test("resolveConvertPrice: an explicit founder price wins over a published rate", () => {
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: 150_000 })]);
+  assert.equal(resolveConvertPrice(94_500, index, svcLine()), 94_500);
+});
+
+test("resolveConvertPrice: an explicit founder price of 0 wins — a real complimentary override", () => {
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: 150_000 })]);
+  assert.equal(resolveConvertPrice(0, index, svcLine()), 0);
+});
+
+test("resolveConvertPrice: no explicit price falls back to the published rate — the bug this closes", () => {
+  // The concrete failure this guards: a line the founder cleared, or one
+  // added to the sheet after the panel loaded, has no entry in `prices` —
+  // POST must fall back to the SAME rate card GET already showed as
+  // "Rate card ₦150,000", not silently to the 70,000 x 1.35 formula alone.
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: 150_000 })]);
+  assert.equal(resolveConvertPrice(null, index, svcLine()), 150_000);
+  assert.equal(resolveConvertPrice(undefined, index, svcLine()), 150_000);
+});
+
+test("resolveConvertPrice: a published rate of 0, with no explicit price, still wins over the formula", () => {
+  const index = buildRateCardIndex([rateCardEntry({ standardClientRate: 0 })]);
+  assert.equal(resolveConvertPrice(null, index, svcLine()), 0);
+});
+
+test("resolveConvertPrice: no candidate and no explicit price falls back to the markup formula", () => {
+  const index = buildRateCardIndex([]);
+  assert.equal(resolveConvertPrice(null, index, svcLine()), suggestOfficialPrice(70_000, "Streaming & Broadcast"));
 });
