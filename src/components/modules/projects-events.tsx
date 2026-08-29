@@ -3475,7 +3475,11 @@ interface ProjectSvc {
 }
 interface SvcPayload { categories: SvcCategory[]; projectServices: ProjectSvc[]; totals: { items: number; totalValue: number; priced: number; approved: number }; canManage: boolean; canApprove: boolean; }
 
-function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string; isPM: boolean; pricingStage: string }) {
+// Exported so Budgets (documents/budgets.tsx) can reuse the exact same
+// cost-sheet editor rather than building a second one — a budget IS this
+// section's ProjectService rows, and two editors of the same money would
+// drift. Behaviour below is unchanged from the ProjectDialog-only version.
+export function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string; isPM: boolean; pricingStage: string }) {
   const { user } = useCurrentUser();
   // Company money is FOUNDER-only, separate from isPM (which scopes what a
   // production manager sees of their own budget).

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -79,14 +79,28 @@ export function DocumentBuilder({
   open,
   onOpenChange,
   onSaved,
+  initialProjectId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  /**
+   * Hands the builder a project already chosen — how Budgets' "Create
+   * quotation" action closes the founder's gap: he lands here with the
+   * project preselected and, once its pricing loads, its priced lines
+   * already in the grid rather than empty rows waiting to be typed. Every
+   * other caller (the plain "New document" button) omits this and the
+   * builder behaves exactly as before.
+   */
+  initialProjectId?: string;
 }) {
   const [docType, setDocType] = useState<DocType>("QUOTATION");
   const [accountId, setAccountId] = useState("");
-  const [projectId, setProjectId] = useState("");
+  // Seeded from `initialProjectId` at construction time only. The caller
+  // (documents.tsx) forces a fresh mount for a new preselection by keying
+  // this component on the project id, so there is no later prop-to-state
+  // sync to do here — no effect calling setProjectId, just an initializer.
+  const [projectId, setProjectId] = useState(initialProjectId ?? "");
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [title, setTitle] = useState("");
   const [eventStart, setEventStart] = useState("");
@@ -224,6 +238,28 @@ export function DocumentBuilder({
     }
     apply();
   }
+
+  // Drives `initialProjectId`: once the handed-over project's pricing has
+  // loaded and confirms it is OFFICIAL, loads its priced lines — exactly
+  // once per project, tracked by id rather than a plain boolean so a second
+  // "Create quotation" click for a *different* project (a fresh mount, see
+  // the `key` on this component in documents.tsx) auto-loads again. The
+  // project itself is never set here: it is seeded once at construction via
+  // `useState(initialProjectId ?? "")` above, so there is nothing to
+  // synchronise into state from this effect.
+  const autoLoadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      autoLoadedRef.current = null;
+      return;
+    }
+    if (!initialProjectId || projectId !== initialProjectId) return;
+    if (autoLoadedRef.current === initialProjectId) return;
+    if (currentPricing?.stage === "OFFICIAL") {
+      autoLoadedRef.current = initialProjectId;
+      loadFromProject();
+    }
+  }, [open, initialProjectId, projectId, currentPricing]);
 
   function updateLine(key: string, patch: Partial<BuilderLine>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));

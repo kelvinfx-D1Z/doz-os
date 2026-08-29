@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
 import { RateCard } from "@/components/modules/documents/rate-card";
+import { Budgets } from "@/components/modules/documents/budgets";
 
 // Documents — quotations, invoices and receipts for clients. Reads/writes the
 // same Invoice rows Finance and the client portal already use; this is not a
@@ -109,6 +110,11 @@ export function DocumentsModule() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Invoice | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("quotations");
+  // Set only by Budgets' "Create quotation" action, so the builder opens
+  // with that project already chosen. Cleared whenever the builder closes,
+  // so the plain "New document" button never inherits a stale preselection.
+  const [quotationProjectId, setQuotationProjectId] = useState<string | undefined>(undefined);
 
   const loadAll = useCallback(() => {
     return Promise.all([
@@ -134,6 +140,14 @@ export function DocumentsModule() {
       cancelled = true;
     };
   }, [loadAll]);
+
+  // Budgets' "Create quotation" hand-off — the step that closes the
+  // founder's gap: land in the document builder with the project already
+  // chosen, rather than an empty picker he has to remember to fill in.
+  function openQuotationBuilderFor(projectId: string) {
+    setQuotationProjectId(projectId);
+    setBuilderOpen(true);
+  }
 
   async function convertToInvoice(q: Quotation) {
     setBusyId(q.id);
@@ -244,14 +258,22 @@ export function DocumentsModule() {
         }
       />
 
-      <Tabs defaultValue="quotations">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          {/* First in the chain (Budget -> Quotation -> Invoice -> Receipt),
+              so it goes first here too. Not founder-only — a production
+              manager or freelancer needs to reach their own budgets. */}
+          <TabsTrigger value="budgets">Budgets</TabsTrigger>
           <TabsTrigger value="quotations">Quotations</TabsTrigger>
           <TabsTrigger value="invoices">Invoices</TabsTrigger>
           <TabsTrigger value="receipts">Receipts</TabsTrigger>
           {isFounder && <TabsTrigger value="catalogue">Catalogue</TabsTrigger>}
           {isFounder && <TabsTrigger value="rate-card">Rate Card</TabsTrigger>}
         </TabsList>
+
+        <TabsContent value="budgets">
+          <Budgets onCreateQuotation={openQuotationBuilderFor} />
+        </TabsContent>
 
         <TabsContent value="quotations">
           <div className="space-y-3">
@@ -314,7 +336,25 @@ export function DocumentsModule() {
         )}
       </Tabs>
 
-      <DocumentBuilder open={builderOpen} onOpenChange={setBuilderOpen} onSaved={() => loadAll().catch(() => {})} />
+      <DocumentBuilder
+        // Forces a fresh mount whenever the preselected project changes (or
+        // clears), so DocumentBuilder can seed its `projectId` state once at
+        // construction — via useState's initializer — instead of an effect
+        // syncing a prop into state after the fact. The plain "New document"
+        // flow never changes this key, so it keeps behaving exactly as
+        // before: one persistent instance across repeated opens.
+        key={quotationProjectId ?? "__manual__"}
+        open={builderOpen}
+        onOpenChange={(open) => {
+          setBuilderOpen(open);
+          if (!open) setQuotationProjectId(undefined);
+        }}
+        onSaved={() => {
+          loadAll().catch(() => {});
+          setActiveTab("quotations");
+        }}
+        initialProjectId={quotationProjectId}
+      />
       <RecordPaymentDialog
         invoice={paymentTarget}
         onOpenChange={(open) => { if (!open) setPaymentTarget(null); }}
