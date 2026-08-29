@@ -3475,10 +3475,43 @@ interface ProjectSvc {
 }
 interface SvcPayload { categories: SvcCategory[]; projectServices: ProjectSvc[]; totals: { items: number; totalValue: number; priced: number; approved: number }; canManage: boolean; canApprove: boolean; }
 
+export type BudgetState = "DRAFT" | "SUBMITTED" | "APPROVED" | "PRICED";
+
+/**
+ * Derives one of the four budget states from a project's cost-line statuses
+ * and its pricingStage — the ONE rule both this section's own "Status" tile
+ * and Budgets (documents/budgets.tsx) read off. There used to be two
+ * separate copies of this logic that disagreed on any line set beyond
+ * {LISTED, BUDGET_SUBMITTED, APPROVED} — e.g. [APPROVED, ORDERED], the
+ * normal state right after approve_budget moves a line downstream, read as
+ * APPROVED here and DRAFT there, which re-offered "Submit for approval" on
+ * an already-approved budget. Exported so there is exactly one place this
+ * can ever be wrong.
+ *
+ *   Draft     — lines still LISTED (the default, nothing submitted yet)
+ *   Submitted — any line BUDGET_SUBMITTED
+ *   Approved  — every line APPROVED or further along
+ *               (ORDERED/DELIVERED/PAID), project still BASE
+ *   Priced    — project.pricingStage === "OFFICIAL" (checked first — it
+ *               outranks whatever the lines individually say)
+ */
+export function deriveBudgetState(
+  lines: { status: string }[],
+  pricingStage: string,
+): BudgetState {
+  if (pricingStage === "OFFICIAL") return "PRICED";
+  const approvedOrBeyond = new Set(["APPROVED", "ORDERED", "DELIVERED", "PAID"]);
+  if (lines.length > 0 && lines.every((l) => approvedOrBeyond.has(l.status))) return "APPROVED";
+  if (lines.some((l) => l.status === "BUDGET_SUBMITTED")) return "SUBMITTED";
+  return "DRAFT";
+}
+
 // Exported so Budgets (documents/budgets.tsx) can reuse the exact same
 // cost-sheet editor rather than building a second one — a budget IS this
 // section's ProjectService rows, and two editors of the same money would
-// drift. Behaviour below is unchanged from the ProjectDialog-only version.
+// drift. Behaviour below is unchanged from the ProjectDialog-only version,
+// except budgetStatus now calls the shared deriveBudgetState above instead
+// of its own (buggy) copy of the rule — see that function's doc comment.
 export function ServicesSection({ projectId, isPM, pricingStage }: { projectId: string; isPM: boolean; pricingStage: string }) {
   const { user } = useCurrentUser();
   // Company money is FOUNDER-only, separate from isPM (which scopes what a
@@ -3513,11 +3546,7 @@ export function ServicesSection({ projectId, isPM, pricingStage }: { projectId: 
   if (!data) return null;
 
   const { projectServices: items, totals, categories, canManage, canApprove } = data;
-  const budgetStatus = items.length > 0
-    ? items.every(s => s.status === "BUDGET_SUBMITTED" || s.status === "APPROVED")
-      ? items.every(s => s.status === "APPROVED") ? "APPROVED" : "SUBMITTED"
-      : "DRAFT"
-    : "EMPTY";
+  const budgetStatus = deriveBudgetState(items, pricingStage);
 
   return (
     <div className="mt-4 rounded-lg border border-border p-4">

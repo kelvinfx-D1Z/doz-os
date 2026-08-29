@@ -9,7 +9,7 @@ import { EmptyState, StatusBadge } from "@/components/doz/ui-primitives";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN } from "@/lib/format";
 import { Wallet, FileText } from "lucide-react";
-import { ServicesSection } from "@/components/modules/projects-events";
+import { ServicesSection, deriveBudgetState, type BudgetState } from "@/components/modules/projects-events";
 import { MarkupPanel } from "@/components/modules/projects/markup-panel";
 
 // Budgets — the first document in the chain (Budget -> Quotation -> Invoice
@@ -41,8 +41,6 @@ interface ServiceLineLite {
   status: string;
 }
 
-type BudgetState = "DRAFT" | "SUBMITTED" | "APPROVED" | "PRICED";
-
 interface BudgetRow {
   project: ProjectLite;
   lineCount: number;
@@ -50,28 +48,14 @@ interface BudgetRow {
   state: BudgetState;
 }
 
-/**
- * Derives one of the four budget states from the project's cost-line
- * statuses and its pricingStage — never from a field of its own, because a
- * budget has none.
- *
- *   Draft     — lines still LISTED (the default, nothing submitted yet)
- *   Submitted — any line BUDGET_SUBMITTED
- *   Approved  — every line APPROVED or further along, project still BASE
- *   Priced    — project.pricingStage === "OFFICIAL" (checked first: once the
- *               founder has converted it, that outranks whatever the lines
- *               individually say)
- */
-function deriveBudgetState(lines: ServiceLineLite[], pricingStage: string): BudgetState {
-  if (pricingStage === "OFFICIAL") return "PRICED";
-  const approvedOrBeyond = new Set(["APPROVED", "ORDERED", "DELIVERED", "PAID"]);
-  if (lines.length > 0 && lines.every((l) => approvedOrBeyond.has(l.status))) return "APPROVED";
-  if (lines.some((l) => l.status === "BUDGET_SUBMITTED")) return "SUBMITTED";
-  return "DRAFT";
-}
+// deriveBudgetState lives in projects-events.tsx and is imported above — it
+// is the SAME rule ServicesSection's own "Status" tile now reads off, so a
+// row's badge here can never disagree with the dialog it opens onto. See
+// that function's doc comment for the four states and why this used to be
+// two copies that disagreed.
 
 export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: string) => void }) {
-  const { user } = useCurrentUser();
+  const { user, status } = useCurrentUser();
   // Same set /api/doz/services' requireProjectAccess grants read access to.
   // An INTERN reaching this tab (only possible if explicitly granted the
   // `documents` module) must see an explanation, not a 403 toast from a
@@ -138,14 +122,33 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
   useEffect(() => {
     let cancelled = false;
     if (canSeeCostSheet) {
-      load().catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load budgets");
-      });
+      load()
+        // A later successful load must win over a stale error from an
+        // earlier failed one — canSeeCostSheet can flip (e.g. the founder
+        // switching "view as"), re-running this effect. Cleared only on
+        // success, and only in a .then() continuation, never synchronously
+        // in this effect's own body.
+        .then(() => {
+          if (!cancelled) setError(null);
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load budgets");
+        });
     }
     return () => {
       cancelled = true;
     };
   }, [canSeeCostSheet, load]);
+
+  // The session resolving is its own state, distinct from "this role can't
+  // see budgets" — while `status` is "loading", `user` is null, and
+  // `canSeeCostSheet` would read as false for a FOUNDER too. Checked before
+  // the role gate below so a founder never sees the denial message flash on
+  // first paint (masked before Budgets was the default tab, since inactive
+  // TabsContent panes weren't mounted yet by the time the session resolved).
+  if (status === "loading") {
+    return <div className="space-y-3"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div>;
+  }
 
   if (!canSeeCostSheet) {
     return (
@@ -256,13 +259,23 @@ function BudgetDialog({
       {isFounder && <MarkupPanel projectId={project.id} />}
 
       <div className="mt-4 rounded-lg border border-border p-4">
-        {project.pricingStage === "OFFICIAL" ? (
+        {project.pricingStage !== "OFFICIAL" ? (
+          <p className="text-xs text-muted-foreground">
+            Price this budget first — the client price comes from the markup.
+          </p>
+        ) : isFounder ? (
           <Button className="w-full gap-1.5" onClick={onCreateQuotation}>
             <FileText className="h-4 w-4" /> Create quotation
           </Button>
         ) : (
+          // The document builder's auto-load depends on GET
+          // /api/doz/projects/pricing, which is founder-only and 403s for
+          // anyone else — showing the button here would land a STAFF/PM
+          // viewer (reachable only via an explicit `documents` grant) in a
+          // builder with no lines and no explanation. Refuse before that
+          // dead end rather than after it.
           <p className="text-xs text-muted-foreground">
-            Price this budget first — the client price comes from the markup.
+            This budget has been priced — ask the founder to create the quotation.
           </p>
         )}
       </div>

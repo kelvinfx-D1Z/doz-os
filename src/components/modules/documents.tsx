@@ -110,7 +110,12 @@ export function DocumentsModule() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Invoice | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("quotations");
+  // Budgets is first in the chain (Budget -> Quotation -> Invoice ->
+  // Receipt) and now the default view too — this whole tab exists because
+  // the founder opened Documents looking for his budget and it wasn't
+  // there; being first in the tab strip but not what loads would only half
+  // answer that.
+  const [activeTab, setActiveTab] = useState("budgets");
   // Set only by Budgets' "Create quotation" action, so the builder opens
   // with that project already chosen. Cleared whenever the builder closes,
   // so the plain "New document" button never inherits a stale preselection.
