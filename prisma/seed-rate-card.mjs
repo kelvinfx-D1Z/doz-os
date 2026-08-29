@@ -44,7 +44,17 @@ const db = new PrismaClient();
 // department, [ name, BP, CP, unit ][]
 const CATALOGUE = [
   ["Displays", [
-    ["LED screen (6sqm)", 150000, 225000, "DAY"],
+    // One screen is 3m x 2m (6sqm) — the founder's own term for it, so
+    // that is the name, not a separate "6sqm" descriptor. CP corrected to
+    // 250,000 per the founder's direct instruction (2026-08-29). This
+    // script is create-only (see the module comment above), so an
+    // already-seeded row does NOT pick up either change from a re-run —
+    // prisma/harmonise-templates.mjs carries the one-time explicit update
+    // for the row that predates this correction.
+    ["LED screen (3m x 2m)", 150000, 250000, "DAY"],
+    // One screen (above) divided by its 6sqm, so the two rows never
+    // disagree: 150000/6 = 25000, 250000/6 = 41666.67 rounded to the naira.
+    ["LED wall (per sqm)", 25000, 41667, "SQM"],
     ["TV + stand", 40000, 60000, "DAY"],
     ["TV display", 35000, 50000, "DAY"],
     ["Standing monitor", null, null, "DAY"],
