@@ -96,7 +96,13 @@ export interface EditableQuotation {
   detailLevel: string;
   discount: number;
   vatRate: number;
-  whtRate: number;
+  // Deliberately no `whtRate` here. The only writer of a quotation's
+  // whtRate anywhere in this codebase is this builder's own submit(),
+  // which always sends `government ? 5 : 0` — WHT_RATE tied 1:1 to the
+  // "client withholds tax at source" checkbox, never set independently.
+  // Seeding `government` from `vatWithheldAtSource` below already
+  // reconstructs the correct rate; adding an unread `whtRate` field would
+  // look load-bearing without doing anything.
   vatWithheldAtSource: boolean;
   targetNet: number | null;
   account: { id: string } | null;

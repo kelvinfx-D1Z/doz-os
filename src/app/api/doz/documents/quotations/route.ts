@@ -4,7 +4,19 @@ import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
-import { isContentEditable, CONTENT_LOCKED_MESSAGE } from "@/lib/document-editability";
+import {
+  isContentEditable,
+  canTransitionStatus,
+  CONTENT_LOCKED_MESSAGE,
+  BACKWARD_TO_DRAFT_MESSAGE,
+  QUOTATION_STATUSES,
+} from "@/lib/document-editability";
+
+// Thrown from inside a $transaction to abort it and report a 409 without
+// committing any of the transaction's writes — the same pattern
+// src/app/api/doz/projects/pricing/route.ts uses for its own conditional
+// updateMany-or-conflict transitions.
+class ContentLockedError extends Error {}
 
 /**
  * The company's own VAT registration, read once per document creation.
@@ -127,8 +139,28 @@ export async function PATCH(req: Request) {
   // detailLevel alone, notes, paymentTerms) is cosmetic or workflow state
   // and keeps working on a document in any status, exactly as before.
   if (Array.isArray(body.lines)) {
+    // Fast, cheap 409 for the common case — avoids doing any parsing or tax
+    // work for a document that is obviously already locked. This is NOT the
+    // safety net: `existing` was read before this request's transaction
+    // even started, so a status change racing in in between (another tab
+    // clicking "Mark as sent") would slip past a check that only ever looks
+    // at this stale read. The real guard is the conditional `updateMany`
+    // inside the transaction below, which re-checks status at the instant
+    // it writes.
     if (!isContentEditable(existing.status)) {
       return NextResponse.json({ error: CONTENT_LOCKED_MESSAGE }, { status: 409 });
+    }
+
+    // A content edit may also carry a new status (e.g. a future "save and
+    // send" action) — validated the same way the status-only branch below
+    // validates it, and applied inside the same conditional write so the
+    // transition lands atomically with the content, rather than the two
+    // silently disagreeing.
+    if (typeof body.status === "string" && !QUOTATION_STATUSES.includes(body.status)) {
+      return NextResponse.json(
+        { error: `Invalid status. One of: ${QUOTATION_STATUSES.join(", ")}` },
+        { status: 400 },
+      );
     }
 
     // Mirrors POST exactly: same parser, same tax module, same line-amount
@@ -144,74 +176,122 @@ export async function PATCH(req: Request) {
     const { lines, subtotal, discount, vatRate, whtRate, vatWithheldAtSource, grossUpRate, targetNet, tax } =
       parsed;
 
-    const updated = await db.$transaction(async (tx) => {
-      // Delete-then-recreate, both against the same transaction client, so
-      // a failure partway through cannot leave the quotation with half its
-      // old lines and half its new ones — the same pattern DELETE uses.
-      await tx.quotationLine.deleteMany({ where: { quotationId: body.quotationId } });
-      return tx.quotation.update({
-        where: { id: body.quotationId },
-        data: {
-          // Header fields are derived exactly the way POST derives them —
-          // same expressions, same falsy-to-null defaulting — because the
-          // builder always resubmits the complete form on an edit, so an
-          // absent/empty field here means the founder cleared it, not that
-          // it should be left alone.
-          projectId: body.projectId || null,
-          accountId: body.accountId || null,
-          title: body.title ? String(body.title).trim() : null,
-          eventStart: body.eventStart ? new Date(body.eventStart) : null,
-          eventEnd: body.eventEnd ? new Date(body.eventEnd) : null,
-          detailLevel: body.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
-          subtotal,
-          discount,
-          vatRate,
-          tax: tax.vat,
-          total: tax.total,
-          whtRate,
-          vatWithheldAtSource,
-          grossUpRate,
-          targetNet,
-          // Notes and payment terms are the two POST-accepted fields the
-          // document builder's form never collects at all, so — unlike the
-          // header fields above — their absence from a content-edit body
-          // means "not part of this form", not "cleared". Preserving them
-          // is what keeps an edit made through the builder from silently
-          // erasing terms or notes set some other way.
-          paymentTerms:
-            typeof body.paymentTerms === "string" ? body.paymentTerms.trim() || null : existing.paymentTerms,
-          notes: typeof body.notes === "string" ? body.notes.trim() || null : existing.notes,
-          validUntil: body.validUntil ? new Date(body.validUntil) : null,
-          // Never touched: `code` is minted once from a reserved sequence
-          // and must never move, skip or duplicate — see document-code.ts.
-          lines: {
-            create: lines.map((l, i) => ({
-              section: l.section,
-              description: l.description,
-              subDescription: l.subDescription ?? null,
-              days: l.days,
-              quantity: l.quantity,
-              unitPrice: l.unitPrice,
-              amount: lineAmount(l),
-              sortOrder: i,
-            })),
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        // The DRAFT guard and the write happen as one conditional statement
+        // against the DB, not a separate read followed by a write — closing
+        // the gap the fast check above cannot. Only a request that finds
+        // the row still DRAFT at this exact instant can match; a "Mark as
+        // sent" that commits first leaves nothing for this updateMany to
+        // match, and it reports zero rather than silently overwriting a
+        // quotation that is no longer a draft. Same pattern as
+        // src/app/api/doz/projects/pricing/route.ts's reopen/convert guards.
+        const flipped = await tx.quotation.updateMany({
+          where: { id: body.quotationId, status: "DRAFT" },
+          data: {
+            // Header fields are derived exactly the way POST derives them —
+            // same expressions, same falsy-to-null defaulting — because the
+            // builder always resubmits the complete form on an edit, so an
+            // absent/empty field here means the founder cleared it, not
+            // that it should be left alone.
+            projectId: body.projectId || null,
+            accountId: body.accountId || null,
+            title: body.title ? String(body.title).trim() : null,
+            eventStart: body.eventStart ? new Date(body.eventStart) : null,
+            eventEnd: body.eventEnd ? new Date(body.eventEnd) : null,
+            detailLevel: body.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
+            subtotal,
+            discount,
+            vatRate,
+            tax: tax.vat,
+            total: tax.total,
+            whtRate,
+            vatWithheldAtSource,
+            grossUpRate,
+            targetNet,
+            // Notes and payment terms are the two POST-accepted fields the
+            // document builder's form never collects at all, so — unlike
+            // the header fields above — their absence from a content-edit
+            // body means "not part of this form", not "cleared".
+            // Preserving them is what keeps an edit made through the
+            // builder from silently erasing terms or notes set some other
+            // way.
+            paymentTerms:
+              typeof body.paymentTerms === "string" ? body.paymentTerms.trim() || null : existing.paymentTerms,
+            notes: typeof body.notes === "string" ? body.notes.trim() || null : existing.notes,
+            validUntil: body.validUntil ? new Date(body.validUntil) : null,
+            // Carried in the same conditional write so a forward move (e.g.
+            // DRAFT -> SENT) lands atomically with the content it applies
+            // to. `canTransitionStatus` is not needed here beyond the
+            // membership check above: this update only ever fires with
+            // `existing status = DRAFT` confirmed by the `where` clause
+            // itself, so the only transitions reachable are DRAFT -> X,
+            // never a backward move into DRAFT from something else.
+            ...(typeof body.status === "string" ? { status: body.status } : {}),
+            // Never touched: `code` is minted once from a reserved sequence
+            // and must never move, skip or duplicate — see document-code.ts.
           },
-        },
-        include: { lines: { orderBy: { sortOrder: "asc" } } },
+        });
+        if (flipped.count === 0) {
+          throw new ContentLockedError(CONTENT_LOCKED_MESSAGE);
+        }
+
+        // Delete-then-recreate, both against the same transaction client,
+        // so a failure partway through cannot leave the quotation with
+        // half its old lines and half its new ones — the same pattern
+        // DELETE uses. `updateMany` cannot carry a nested relation write,
+        // which is why the lines are replaced as separate statements here
+        // rather than nested inside the update above; both still run
+        // inside this one transaction, so they commit or roll back
+        // together with the guarded update.
+        await tx.quotationLine.deleteMany({ where: { quotationId: body.quotationId } });
+        await tx.quotationLine.createMany({
+          data: lines.map((l, i) => ({
+            quotationId: body.quotationId,
+            section: l.section,
+            description: l.description,
+            subDescription: l.subDescription ?? null,
+            days: l.days,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            amount: lineAmount(l),
+            sortOrder: i,
+          })),
+        });
+
+        return tx.quotation.findUnique({
+          where: { id: body.quotationId },
+          include: { lines: { orderBy: { sortOrder: "asc" } } },
+        });
       });
-    });
+    } catch (e) {
+      if (e instanceof ContentLockedError) {
+        return NextResponse.json({ error: e.message }, { status: 409 });
+      }
+      throw e;
+    }
 
     return NextResponse.json({ ok: true, quotation: updated, expectedCash: tax.expectedCash });
   }
 
-  const VALID_STATUS = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED"];
   const data: Record<string, unknown> = {};
   if (typeof body.status === "string") {
-    if (!VALID_STATUS.includes(body.status)) {
+    if (!QUOTATION_STATUSES.includes(body.status)) {
       return NextResponse.json(
-        { error: `Invalid status. One of: ${VALID_STATUS.join(", ")}` },
+        { error: `Invalid status. One of: ${QUOTATION_STATUSES.join(", ")}` },
         { status: 400 },
       );
+    }
+    // The one rule that matters: a document already moved off DRAFT can
+    // never be walked back to it. Before this file grew a content-edit
+    // path this was harmless — there was nothing destructive to pair the
+    // downgrade with. Now that a DRAFT can have its lines rewritten, a
+    // `status: "DRAFT"` PATCH followed by a `lines: [...]` PATCH would
+    // rewrite a quotation a client has already seen, so the downgrade
+    // itself has to be refused here, at the source.
+    if (!canTransitionStatus(existing.status, body.status)) {
+      return NextResponse.json({ error: BACKWARD_TO_DRAFT_MESSAGE }, { status: 409 });
     }
     data.status = body.status;
   }

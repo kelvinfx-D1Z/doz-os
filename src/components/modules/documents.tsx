@@ -393,6 +393,25 @@ export function DocumentsModule() {
   );
 }
 
+// Says what the quotation's own status actually is, rather than a single
+// "Sent" caught-all for every non-DRAFT status — labelling an EXPIRED or
+// DECLINED quotation "Sent" would be a small lie in the founder's own
+// ledger about a document that never got that far or didn't land.
+function quotationLockedReason(status: string): string {
+  switch (status) {
+    case "SENT":
+      return "Sent — create a new quotation to change it.";
+    case "ACCEPTED":
+      return "Accepted — create a new quotation to change it.";
+    case "DECLINED":
+      return "Declined — create a new quotation to change it.";
+    case "EXPIRED":
+      return "Expired — create a new quotation to change it.";
+    default:
+      return "Locked — create a new quotation to change it.";
+  }
+}
+
 function QuotationRow({
   q, busy, onConvert, onDelete, onMarkSent, onEdit,
 }: {
@@ -434,7 +453,7 @@ function QuotationRow({
           </Button>
         ) : (
           <span className="text-[11px] text-muted-foreground">
-            Sent — create a new quotation to change it.
+            {quotationLockedReason(q.status)}
           </span>
         )}
         {q.status === "DRAFT" && (
