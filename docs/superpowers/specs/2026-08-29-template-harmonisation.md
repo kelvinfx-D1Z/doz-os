@@ -132,6 +132,6 @@ mismatches, and the founder should see the list.
   resolves to that service.
 - A project seeded from a template arrives with real BP on every mapped line,
   and its `category` matches a department so the CP lookup resolves too.
-- The six unmatched lines still exist, still seed, and are reported by name.
+- The seven unmatched lines still exist, still seed, and are reported by name.
 - Nothing is deleted. No `ProjectService`, `Project`, `Invoice` or `Quotation`
   row is touched.

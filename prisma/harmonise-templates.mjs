@@ -393,17 +393,22 @@ async function applySplit(client, templateId, templateLabel, originalName, split
     const existing = existingFound.row;
 
     if (existing) {
-      const identityOk = existing.section === def.section && existing.serviceItemId === serviceId;
+      // `name` is part of identity, not just section and id: findLine folds case, so a line
+      // stored as "videographer" matches and must be normalised to the catalogue's own
+      // spelling. Leaving it would strand that row off-spec forever, since a guard that
+      // never checks name can never notice it is wrong.
+      const identityOk =
+        existing.name === def.name && existing.section === def.section && existing.serviceItemId === serviceId;
       if (identityOk) {
         console.log(`  - [${templateLabel}] "${def.name}" (section "${def.section}", serviceItemId ${serviceId ?? "—"}): already correct, skipped.`);
         statuses.push("already-correct");
       } else {
         await client.eventTemplateItem.update({
           where: { id: existing.id },
-          data: { section: def.section, serviceItemId: serviceId },
+          data: { name: def.name, section: def.section, serviceItemId: serviceId },
         });
         console.log(
-          `  - [${templateLabel}] "${def.name}" (split of "${originalName}"): corrected to section "${def.section}", ` +
+          `  - [${templateLabel}] "${def.name}" (split of "${originalName}"): corrected to name "${def.name}", section "${def.section}", ` +
           `serviceItemId ${serviceId ?? "—"} (quantity/days/enabled left as they are — a founder's own edit is never reverted).`
         );
         statuses.push("updated");
