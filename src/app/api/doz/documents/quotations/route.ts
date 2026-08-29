@@ -18,6 +18,13 @@ import {
 // updateMany-or-conflict transitions.
 class ContentLockedError extends Error {}
 
+// Same idea, for the plain status/detailLevel/notes/paymentTerms branch:
+// thrown when its own compare-and-set updateMany matches nothing, meaning
+// the quotation's status moved between this request's read and its write.
+class StatusConflictError extends Error {}
+const STATUS_CONFLICT_MESSAGE =
+  "This quotation changed elsewhere just now. Reload it and try again.";
+
 /**
  * The company's own VAT registration, read once per document creation.
  *
@@ -289,7 +296,10 @@ export async function PATCH(req: Request) {
     // downgrade with. Now that a DRAFT can have its lines rewritten, a
     // `status: "DRAFT"` PATCH followed by a `lines: [...]` PATCH would
     // rewrite a quotation a client has already seen, so the downgrade
-    // itself has to be refused here, at the source.
+    // itself has to be refused here, at the source. Checked against
+    // `existing.status` — the same value the compare-and-set write below
+    // conditions on, so this check and that write can never disagree about
+    // what status the quotation was actually in.
     if (!canTransitionStatus(existing.status, body.status)) {
       return NextResponse.json({ error: BACKWARD_TO_DRAFT_MESSAGE }, { status: 409 });
     }
@@ -303,7 +313,34 @@ export async function PATCH(req: Request) {
     data.paymentTerms = body.paymentTerms.trim() || null;
   }
 
-  const updated = await db.quotation.update({ where: { id: body.quotationId }, data });
+  // Compare-and-set, not a plain update: `existing.status` was read once,
+  // above, before this handler decided anything (including the
+  // canTransitionStatus check just above). Conditioning the write on that
+  // same status closes the general race, not just the DRAFT-specific one —
+  // a status flip landing between this request's read and its write (e.g.
+  // "mark as sent" from another tab) now makes this write match nothing
+  // rather than silently overwriting whatever committed first. Same
+  // updateMany-or-conflict pattern as the content branch above and as
+  // src/app/api/doz/projects/pricing/route.ts's reopen/convert guards.
+  let updated;
+  try {
+    updated = await db.$transaction(async (tx) => {
+      const flipped = await tx.quotation.updateMany({
+        where: { id: body.quotationId, status: existing.status },
+        data,
+      });
+      if (flipped.count === 0) {
+        throw new StatusConflictError(STATUS_CONFLICT_MESSAGE);
+      }
+      return tx.quotation.findUnique({ where: { id: body.quotationId } });
+    });
+  } catch (e) {
+    if (e instanceof StatusConflictError) {
+      return NextResponse.json({ error: e.message }, { status: 409 });
+    }
+    throw e;
+  }
+
   return NextResponse.json({ ok: true, quotation: updated });
 }
 
