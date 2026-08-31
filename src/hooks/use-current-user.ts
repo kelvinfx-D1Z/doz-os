@@ -13,7 +13,7 @@ export interface CurrentUser {
   impersonated?: boolean;
 }
 
-const VIEW_AS_INFO_COOKIE = "doz-view-as-info";
+import { readViewAsInfo } from "@/lib/view-as-cookie";
 
 // While the founder is viewing as someone else, the server already shapes every
 // response as that person — money stripped, projects scoped. The NextAuth
@@ -25,20 +25,15 @@ const VIEW_AS_INFO_COOKIE = "doz-view-as-info";
 // render with the wrong role. This is display only: the httpOnly cookie is the
 // server's authority, and tampering here just gives you a wrong-looking UI in
 // your own browser.
+// Parsing lives in src/lib/view-as-cookie.ts alongside the writer, so the two
+// halves cannot drift apart again. They already did once: the route
+// pre-encoded the value, the cookie layer encoded it a second time, and this
+// hook's single decode could never parse it — so it silently returned null and
+// the founder's own shell rendered over someone else's data.
 function readImpersonation(): CurrentUser | null {
   if (typeof document === "undefined") return null;
-  const raw = document.cookie
-    .split("; ")
-    .find((c) => c.startsWith(`${VIEW_AS_INFO_COOKIE}=`))
-    ?.slice(VIEW_AS_INFO_COOKIE.length + 1);
-  if (!raw) return null;
-  try {
-    const u = JSON.parse(decodeURIComponent(raw));
-    if (!u?.id || !u?.role) return null;
-    return { ...u, impersonated: true } as CurrentUser;
-  } catch {
-    return null;
-  }
+  const info = readViewAsInfo(document.cookie);
+  return info ? ({ ...info, impersonated: true } as CurrentUser) : null;
 }
 
 export function useCurrentUser(): { user: CurrentUser | null; status: "loading" | "authenticated" | "unauthenticated" } {

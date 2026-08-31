@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { getRealSessionUser, VIEW_AS_COOKIE, VIEW_AS_INFO_COOKIE } from "@/lib/auth";
+import { serialiseViewAsInfo } from "@/lib/view-as-cookie";
 
 // Founder-only impersonation.
 //
@@ -91,14 +92,20 @@ export async function POST(req: Request) {
   // Not a security boundary: the httpOnly cookie above is the authority, and
   // the server shapes every response from it. Tampering with this one only
   // gives the tamperer a wrong-looking UI in their own browser.
-  jar.set(VIEW_AS_INFO_COOKIE, encodeURIComponent(JSON.stringify({
+  //
+  // Serialised through src/lib/view-as-cookie.ts, which the client reads with
+  // the matching parser. Do NOT encode it here: `jar.set` percent-encodes on
+  // the way out, and pre-encoding made the browser store a doubly-encoded
+  // value that the client's single decode could never parse — so the shell
+  // silently fell back to the founder and view-as never worked.
+  jar.set(VIEW_AS_INFO_COOKIE, serialiseViewAsInfo({
     id: target.id,
     name: target.name,
     email: target.email,
     role: target.role,
     title: target.title ?? undefined,
     permissions: target.permissions ? JSON.parse(target.permissions) : null,
-  })), {
+  }), {
     httpOnly: false,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
