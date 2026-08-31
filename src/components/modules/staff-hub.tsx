@@ -307,9 +307,13 @@ function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, on
 
   // Merge this-week tasks with completed tasks so the founder sees the
   // full picture (completed tasks are tucked under a collapsible section).
+  // `undated` is included deliberately: a task assigned without a deadline is
+  // still assigned. It used to be in none of these lists, so the card read
+  // "No tasks yet" straight after the founder was told the task was created.
   const openTasks = [
     ...staff.tasks.thisWeek,
     ...staff.tasks.today.filter((t: any) => !staff.tasks.thisWeek.find((x: any) => x.id === t.id)),
+    ...(staff.tasks.undated ?? []),
   ];
   const completedTasks = staff.tasks.completed || [];
   // Has custom permissions? (null = role defaults apply)

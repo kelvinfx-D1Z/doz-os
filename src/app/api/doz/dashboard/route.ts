@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 import { collectableAmount } from "@/lib/received-allocation";
+import { isOnMyDay, dueRank } from "@/lib/task-buckets";
 
 // CEO Command Center aggregate — company-wide data + per-user `myDay` block.
 // The company-wide payload is what the founder sees. Staff/Interns/Freelancers
@@ -234,14 +235,13 @@ export async function GET() {
   // myDay — user-scoped data for the personalized Command Center
   // ---------------------------------------------------------------
   // 1. User's tasks due today or overdue (not done).
+  // Overdue, due today, AND anything open with no deadline. An undated task
+  // used to be filtered out here, so a task assigned without a due date never
+  // reached the assignee's dashboard at all — the count said "13 active" while
+  // the list said "Inbox zero for priorities". Undated work sorts last (see
+  // dueRank) rather than being dropped.
   const myDayTasksRaw = myTasksAll
-    .filter((t) => t.status !== "DONE")
-    .filter((t) => {
-      if (!t.dueDate) return false;
-      const d = new Date(t.dueDate);
-      // due today or earlier (overdue)
-      return d <= todayEnd;
-    })
+    .filter((t) => isOnMyDay(t, todayEnd.getTime()))
     .sort((a, b) => {
       const order: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
       const pa = order[a.priority] ?? 2;

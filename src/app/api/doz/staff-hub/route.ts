@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSessionUser, hashPassword, parsePermissions } from "@/lib/auth";
 import { geminiChatComplete } from "@/lib/gemini";
 import type { ModuleId } from "@/lib/store";
+import { bucketStaffTasks } from "@/lib/task-buckets";
 
 // All valid module IDs — used to validate the permissions array.
 const VALID_MODULES: ModuleId[] = [
@@ -93,13 +94,11 @@ export async function GET() {
         percentage: r.percentage,
         responsibilities: r.responsibilities ? r.responsibilities.split("\n").filter(Boolean) : [],
       })),
-      tasks: {
-        today: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() <= now + DAY),
-        thisWeek: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() <= now + 7 * DAY),
-        overdue: userTasks.filter(t => t.status !== "DONE" && t.dueDate && new Date(t.dueDate).getTime() < now),
-        completed: userTasks.filter(t => t.status === "DONE"),
-        total: userTasks.length,
-      },
+      // Bucketed in src/lib/task-buckets.ts, which also carries the `undated`
+      // bucket. Every bucket here used to require a dueDate, so a task
+      // assigned without a deadline was created, counted in `total`, and shown
+      // by nothing — the card said "No tasks yet" while the count said one.
+      tasks: bucketStaffTasks(userTasks, now),
       doneToday,
     };
   });
