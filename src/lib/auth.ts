@@ -56,12 +56,22 @@ export function verifyPassword(password: string, stored: string): boolean {
       return false;
     }
   }
-  // Legacy format: unsalted sha256 hex — verify then mark for upgrade
-  const legacyHash = crypto.createHash("sha256").update(password).digest("hex");
-  return legacyHash === stored;
+  // Anything that is not scrypt is refused. The legacy format was unsalted
+  // sha256, and every account still carrying one was seeded with a shared demo
+  // password that is permanently in this repository's git history. Accepting
+  // that format meant a leaked hash stayed usable the moment an account was
+  // activated — with only an isActive flag in the way. Verified before
+  // removing: 4 accounts on scrypt (every active user) and 9 on sha256, all
+  // inactive, so nobody real is locked out. Reactivating one of those nine now
+  // requires setting a real password, which is the correct outcome.
+  return false;
 }
 
-/** Returns true if the stored hash is the legacy unsalted sha256 format (needs upgrade). */
+/**
+ * True if the stored hash is the legacy unsalted sha256 format. These can no
+ * longer sign in — verifyPassword refuses them — so this is now a detector
+ * for accounts that need a real password set, not an upgrade trigger.
+ */
 export function isLegacyHash(stored: string): boolean {
   return !stored.startsWith(SCRYPT_PREFIX);
 }
@@ -174,17 +184,6 @@ export const authOptions: NextAuthOptions = {
           console.error("[AUTH] could not clear failed sign-in attempts", e);
         }
 
-        // Transparent upgrade: if the stored hash is legacy sha256, re-hash
-        // with scrypt now that we have the plaintext password in memory.
-        if (isLegacyHash(user.password)) {
-          try {
-            const newHash = hashPassword(credentials.password);
-            await db.user.update({ where: { id: user.id }, data: { password: newHash } });
-          } catch (e) {
-            console.error("[AUTH] Failed to upgrade password hash for", user.email, e);
-            // Non-blocking — login still succeeds.
-          }
-        }
 
         // Parse permissions once at sign-in so the JWT carries the array
         // (avoids re-parsing the JSON column on every request).
