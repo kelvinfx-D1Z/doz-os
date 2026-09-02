@@ -6,6 +6,11 @@ import type { NextConfig } from "next";
 // downgrade attacks. Tune the CSP for your production domain.
 // ============================================================
 const securityHeaders = [
+  // Never index this. DOZ OS is an internal operating system on a public
+  // URL — there is no page here anyone outside the company should reach
+  // from a search result. public/robots.txt asks; this header enforces,
+  // and unlike robots.txt it also covers every API route.
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet" },
   // Prevent MIME-type sniffing
   { key: "X-Content-Type-Options", value: "nosniff" },
   // Prevent clickjacking — this app is never embedded in an iframe

@@ -1,14 +1,7 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
+# DOZ OS is D1Z Technologies' internal operating system.
+# It is not a website, has no public audience, and must never be indexed.
+# Enforced properly by the X-Robots-Tag header in next.config.ts — this file
+# is only advisory, and a crawler that ignores it is stopped by the header.
 
 User-agent: *
-Allow: /
+Disallow: /
