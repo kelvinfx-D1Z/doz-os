@@ -15,7 +15,7 @@ import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-prim
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
-import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil } from "lucide-react";
+import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
@@ -196,6 +196,29 @@ export function DocumentsModule() {
   // off DRAFT except a payment landing on it. Until this existed the PATCH
   // handlers on both routes were unreachable, so an invoice stayed invisible
   // to Finance and the client portal forever.
+  // Start a new document from an existing one. The server mints a fresh
+  // number and returns a DRAFT — no payment, no status, no conversion link
+  // carried over. See src/lib/document-duplicate.ts.
+  async function duplicate(kind: "quotation" | "invoice", id: string, code: string) {
+    setBusyId(id);
+    try {
+      const r = await fetch(`/api/doz/documents/${kind}s`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duplicateOf: id }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      const made = j?.quotation?.code ?? j?.invoice?.code ?? "a new draft";
+      toast.success(`${code} copied to ${made} — edit it before sending.`);
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't duplicate", { duration: 8000 });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function markSent(kind: "quotation" | "invoice", id: string, code: string) {
     setBusyId(id);
     try {
@@ -312,6 +335,7 @@ export function DocumentsModule() {
                   onDelete={() => deleteQuotation(q)}
                   onMarkSent={() => markSent("quotation", q.id, q.code)}
                   onEdit={() => openEditQuotation(q)}
+                  onDuplicate={() => duplicate("quotation", q.id, q.code)}
                 />
               ))
             )}
@@ -331,6 +355,7 @@ export function DocumentsModule() {
                   onDelete={() => deleteInvoice(inv)}
                   onRecordPayment={() => setPaymentTarget(inv)}
                   onMarkSent={() => markSent("invoice", inv.id, inv.code ?? "Invoice")}
+                  onDuplicate={() => duplicate("invoice", inv.id, inv.code ?? "this invoice")}
                 />
               ))
             )}
@@ -413,7 +438,7 @@ function quotationLockedReason(status: string): string {
 }
 
 function QuotationRow({
-  q, busy, onConvert, onDelete, onMarkSent, onEdit,
+  q, busy, onConvert, onDelete, onMarkSent, onEdit, onDuplicate,
 }: {
   q: Quotation;
   busy: boolean;
@@ -421,6 +446,7 @@ function QuotationRow({
   onDelete: () => void;
   onMarkSent: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
 }) {
   return (
     <Card className="p-4">
@@ -461,6 +487,12 @@ function QuotationRow({
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent
           </Button>
         )}
+        {/* Available whatever the status: copying a sent or accepted quotation
+            is the most useful case — it is the one already proven with a
+            client. The copy is always a new DRAFT, so nothing is rewritten. */}
+        <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onDuplicate}>
+          <Copy className="h-3.5 w-3.5" /> Duplicate
+        </Button>
         {!q.convertedInvoiceId && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onConvert}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />} Convert to invoice
@@ -477,8 +509,8 @@ function QuotationRow({
 }
 
 function InvoiceRow({
-  inv, busy, onDelete, onRecordPayment, onMarkSent,
-}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void; onMarkSent: () => void }) {
+  inv, busy, onDelete, onRecordPayment, onMarkSent, onDuplicate,
+}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void; onMarkSent: () => void; onDuplicate: () => void }) {
   const collectable = collectableAmount(inv);
   const balance = Math.max(0, collectable - inv.amountPaid);
   const canRecordPayment = inv.status !== "PAID" && balance > MONEY_EPSILON;
@@ -514,6 +546,10 @@ function InvoiceRow({
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent
           </Button>
         )}
+        {/* Any status: the invoice worth copying is usually one already sent. */}
+        <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onDuplicate}>
+          <Copy className="h-3.5 w-3.5" /> Duplicate
+        </Button>
         {canRecordPayment && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRecordPayment}>
             <Banknote className="h-3.5 w-3.5" /> Record payment

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
+import { duplicateQuotationData, duplicateLines } from "@/lib/document-duplicate";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 import {
@@ -71,6 +72,40 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // DUPLICATE — start from an existing quotation instead of a blank one.
+  // The copy is always a fresh DRAFT with its own number; see
+  // src/lib/document-duplicate.ts for what is carried and what is reset.
+  if (typeof body.duplicateOf === "string" && body.duplicateOf.trim()) {
+    const src = await db.quotation.findUnique({
+      where: { id: body.duplicateOf.trim() },
+      include: { lines: { orderBy: { sortOrder: "asc" } } },
+    });
+    if (!src) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
+
+    const created = await db.$transaction(async (tx) => {
+      // Minted inside the transaction so two duplications cannot race onto
+      // the same number.
+      const code = await nextDocumentCode(tx, "QUO");
+      return tx.quotation.create({
+        data: {
+          ...duplicateQuotationData(src),
+          code,
+          createdById: user.id,
+          lines: { create: duplicateLines(src.lines) },
+        },
+        include: { lines: { orderBy: { sortOrder: "asc" } } },
+      });
+      // Minting a number and inserting a document with all its lines can take
+      // longer than Prisma's 5s default against a remote pooler — a copy of an
+      // 18-line quotation exceeded it in testing. Failing here would leave the
+      // founder with a "couldn't duplicate" error on a document that is fine.
+    }, { timeout: 30_000 });
+    return NextResponse.json(
+      { ok: true, quotation: created, duplicatedFrom: src.code },
+      { status: 201 },
+    );
   }
 
   const parsed = parseDocumentBody(body, {

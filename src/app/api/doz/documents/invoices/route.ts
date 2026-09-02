@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
+import { duplicateInvoiceData, duplicateLines } from "@/lib/document-duplicate";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 
@@ -51,6 +52,38 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // DUPLICATE — start from an existing invoice instead of a blank one. The
+  // copy is a fresh DRAFT with its own number, no payment recorded against it,
+  // and no link to the quotation the original came from (that link is unique).
+  // See src/lib/document-duplicate.ts.
+  if (typeof body.duplicateOf === "string" && body.duplicateOf.trim()) {
+    const src = await db.invoice.findUnique({
+      where: { id: body.duplicateOf.trim() },
+      include: { lines: { orderBy: { sortOrder: "asc" } } },
+    });
+    if (!src) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+
+    const created = await db.$transaction(async (tx) => {
+      const code = await nextDocumentCode(tx, "INV");
+      return tx.invoice.create({
+        data: {
+          ...duplicateInvoiceData(src),
+          code,
+          lines: { create: duplicateLines(src.lines) },
+        },
+        include: { lines: { orderBy: { sortOrder: "asc" } } },
+      });
+      // Minting a number and inserting a document with all its lines can take
+      // longer than Prisma's 5s default against a remote pooler — a copy of an
+      // 18-line quotation exceeded it in testing. Failing here would leave the
+      // founder with a "couldn't duplicate" error on a document that is fine.
+    }, { timeout: 30_000 });
+    return NextResponse.json(
+      { ok: true, invoice: created, duplicatedFrom: src.code },
+      { status: 201 },
+    );
   }
 
   const parsed = parseDocumentBody(body, {
