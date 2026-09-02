@@ -16,6 +16,15 @@ import { NextResponse } from "next/server";
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALTLEN = 16;
+import {
+  throttleState,
+  shouldRecordFailure,
+  pruneBefore,
+  clientIpFrom,
+  normaliseEmail,
+  THROTTLE_WINDOW_MS,
+} from "@/lib/login-throttle";
+
 const SCRYPT_PREFIX = "scrypt$";
 
 function scryptHash(password: string, salt: Buffer): string {
@@ -98,17 +107,72 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
-        const email = credentials.email.toLowerCase().trim();
+        const email = normaliseEmail(credentials.email);
         // Basic email format check — reject obviously malformed input early.
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+
+        // RATE LIMIT — before any password work, and before we reveal by
+        // timing whether the address exists. Two limits: a strict one per
+        // address, a looser one per origin to catch password spraying, which
+        // no per-address count ever sees. See src/lib/login-throttle.ts.
+        const ip = clientIpFrom((req as { headers?: Headers } | undefined)?.headers ?? null);
+        let recent: { email: string; ip: string | null; createdAt: Date }[] = [];
+        try {
+          recent = await db.loginAttempt.findMany({
+            where: {
+              createdAt: { gt: new Date(Date.now() - THROTTLE_WINDOW_MS) },
+              OR: [{ email }, ...(ip ? [{ ip }] : [])],
+            },
+            select: { email: true, ip: true, createdAt: true },
+          });
+        } catch (e) {
+          // Never let the throttle's own failure become an outage. It fails
+          // open on purpose: a login that cannot be rate-limited is worse than
+          // one that is not, but a company locked out of its own OS is worse
+          // than both.
+          console.error("[AUTH] throttle lookup failed, allowing the attempt", e);
+        }
+        const decision = throttleState(recent, email, ip);
+        if (decision.locked) {
+          console.warn(
+            `[AUTH] throttled sign-in for ${email} from ${ip ?? "unknown"} ` +
+              `(${decision.scope} limit, ${decision.retryAfterSeconds}s remaining)`
+          );
+          return null;
+        }
+
+        const recordFailure = async () => {
+          if (!shouldRecordFailure(decision)) return;
+          try {
+            await db.loginAttempt.create({ data: { email, ip } });
+          } catch (e) {
+            console.error("[AUTH] could not record a failed sign-in", e);
+          }
+        };
 
         const user = await db.user.findUnique({
           where: { email },
         });
-        if (!user || !user.isActive || !user.password) return null;
-        if (!verifyPassword(credentials.password, user.password)) return null;
+        if (!user || !user.isActive || !user.password) {
+          await recordFailure();
+          return null;
+        }
+        if (!verifyPassword(credentials.password, user.password)) {
+          await recordFailure();
+          return null;
+        }
+
+        // Signed in: clear this address's failures so a person who simply
+        // mistyped starts clean, and prune everyone's stale rows while here.
+        try {
+          await db.loginAttempt.deleteMany({
+            where: { OR: [{ email }, { createdAt: { lt: pruneBefore() } }] },
+          });
+        } catch (e) {
+          console.error("[AUTH] could not clear failed sign-in attempts", e);
+        }
 
         // Transparent upgrade: if the stored hash is legacy sha256, re-hash
         // with scrypt now that we have the plaintext password in memory.

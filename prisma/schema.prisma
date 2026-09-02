@@ -1596,3 +1596,20 @@ model DocumentSequence {
 
   @@unique([type, year])
 }
+
+// A failed sign-in, kept only long enough to rate-limit the next one.
+// Rows older than the throttle window are pruned on successful sign-in; see
+// src/lib/login-throttle.ts for the rule and why a blocked attempt is never
+// recorded here.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  // Stored lowercased and trimmed, matching how sign-in normalises it.
+  email     String
+  // First entry of x-forwarded-for. A rate-limit key only — never trusted for
+  // any authorisation decision, because it is trivially forgeable.
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
