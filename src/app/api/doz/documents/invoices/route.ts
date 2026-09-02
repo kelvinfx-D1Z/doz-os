@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
-import { duplicateInvoiceData, duplicateLines } from "@/lib/document-duplicate";
+import { duplicateInvoiceData, duplicateLines, nextCopyTitle, stripCopySuffix } from "@/lib/document-duplicate";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 
@@ -65,11 +65,21 @@ export async function POST(req: Request) {
     });
     if (!src) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
 
+    // Siblings of the same name, so the copy takes the next FREE number
+    // rather than source + 1 — duplicating the original twice must not
+    // produce two documents both called "(2)".
+    const base = src.title ? stripCopySuffix(src.title) : null;
+    const siblings = base
+      ? await db.invoice.findMany({ where: { title: { startsWith: base } }, select: { title: true } })
+      : [];
+    const copyTitle = nextCopyTitle(src.title, siblings.map((x) => x.title ?? ""));
+
     const created = await db.$transaction(async (tx) => {
       const code = await nextDocumentCode(tx, "INV");
       return tx.invoice.create({
         data: {
           ...duplicateInvoiceData(src),
+          title: copyTitle,
           code,
           lines: { create: duplicateLines(src.lines) },
         },

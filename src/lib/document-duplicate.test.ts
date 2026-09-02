@@ -5,6 +5,8 @@ import {
   duplicateInvoiceData,
   duplicateLines,
   futureOnly,
+  nextCopyTitle,
+  stripCopySuffix,
 } from "./document-duplicate.ts";
 
 const NOW = new Date("2026-08-31T12:00:00.000Z").getTime();
@@ -154,4 +156,49 @@ test("a free line of zero copies as zero, not as missing", () => {
   const [copied] = duplicateLines(lines);
   assert.equal(copied.unitPrice, 0);
   assert.equal(copied.amount, 0);
+});
+
+test("a copy takes the same name with a number", () => {
+  const t = "Triple Helix Nigeria SciBiz Conference 2026";
+  assert.equal(nextCopyTitle(t, [t]), `${t} (2)`);
+});
+
+test("copying a copy increments rather than stacking suffixes", () => {
+  const t = "Triple Helix SciBiz 2026";
+  assert.equal(nextCopyTitle(`${t} (2)`, [t, `${t} (2)`]), `${t} (3)`);
+  assert.notEqual(nextCopyTitle(`${t} (2)`, [t, `${t} (2)`]), `${t} (2) (2)`);
+});
+
+test("THE COLLISION: duplicating the original twice gives (2) then (3)", () => {
+  // Naive "source number + 1" would produce two documents both called (2).
+  const t = "NNPC Stakeholders";
+  assert.equal(nextCopyTitle(t, [t, `${t} (2)`]), `${t} (3)`);
+  assert.equal(nextCopyTitle(t, [t, `${t} (2)`, `${t} (3)`]), `${t} (4)`);
+});
+
+test("gaps are not reused — numbering only ever goes up", () => {
+  const t = "Lecture Series";
+  assert.equal(nextCopyTitle(t, [t, `${t} (5)`]), `${t} (6)`);
+});
+
+test("only siblings of the same base are counted", () => {
+  const t = "Gala Night";
+  assert.equal(nextCopyTitle(t, [t, "Something Else (9)", "Gala Nightly (4)"]), `${t} (2)`);
+});
+
+test("an untitled document stays untitled", () => {
+  assert.equal(nextCopyTitle(null, []), null);
+  assert.equal(nextCopyTitle("", []), null);
+  assert.equal(nextCopyTitle("   ", []), null);
+});
+
+test("a name that merely ends in a number keeps it", () => {
+  // "... 2026" is a year, not a copy number.
+  assert.equal(stripCopySuffix("SciBiz Conference 2026"), "SciBiz Conference 2026");
+  assert.equal(nextCopyTitle("SciBiz Conference 2026", ["SciBiz Conference 2026"]), "SciBiz Conference 2026 (2)");
+});
+
+test("whitespace around the suffix does not create a second family", () => {
+  const t = "Booth Build";
+  assert.equal(nextCopyTitle(t, [t, `${t}  (2) `]), `${t} (3)`);
 });

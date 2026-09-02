@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
-import { duplicateQuotationData, duplicateLines } from "@/lib/document-duplicate";
+import { duplicateQuotationData, duplicateLines, nextCopyTitle, stripCopySuffix } from "@/lib/document-duplicate";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 import {
@@ -84,6 +84,15 @@ export async function POST(req: Request) {
     });
     if (!src) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
 
+    // Siblings of the same name, so the copy takes the next FREE number
+    // rather than source + 1 — duplicating the original twice must not
+    // produce two documents both called "(2)".
+    const base = src.title ? stripCopySuffix(src.title) : null;
+    const siblings = base
+      ? await db.quotation.findMany({ where: { title: { startsWith: base } }, select: { title: true } })
+      : [];
+    const copyTitle = nextCopyTitle(src.title, siblings.map((x) => x.title ?? ""));
+
     const created = await db.$transaction(async (tx) => {
       // Minted inside the transaction so two duplications cannot race onto
       // the same number.
@@ -91,6 +100,7 @@ export async function POST(req: Request) {
       return tx.quotation.create({
         data: {
           ...duplicateQuotationData(src),
+          title: copyTitle,
           code,
           createdById: user.id,
           lines: { create: duplicateLines(src.lines) },

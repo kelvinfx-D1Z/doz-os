@@ -202,3 +202,49 @@ export const NEVER_DUPLICATED = [
   "paymentConfirmations",
   "lines",
 ] as const;
+
+// ============================================================
+// NAMING A COPY
+//
+// The founder duplicates a quotation while still negotiating, so the copies
+// are versions of one conversation, not unrelated documents. They should read
+// as such in a list: the same name, numbered.
+//
+//   "Triple Helix SciBiz 2026"      ->  "Triple Helix SciBiz 2026 (2)"
+//   "Triple Helix SciBiz 2026 (2)"  ->  "Triple Helix SciBiz 2026 (3)"
+//
+// Copying a copy must not produce "... (2) (2)", and the number must be the
+// next FREE one rather than source + 1 — otherwise duplicating the original
+// twice yields two documents both called "(2)", which is worse than no
+// numbering at all.
+// ============================================================
+
+const COPY_SUFFIX = /\s*\((\d+)\)\s*$/;
+
+/** "Job (3)" -> "Job". Leaves a name that merely ends in a number alone. */
+export function stripCopySuffix(title: string): string {
+  return title.replace(COPY_SUFFIX, "").trim();
+}
+
+/**
+ * The name a new copy should take, given every existing title that shares its
+ * base. Returns null for an untitled document — a copy of something with no
+ * name does not gain one.
+ */
+export function nextCopyTitle(title: string | null | undefined, existing: string[]): string | null {
+  if (!title || !title.trim()) return null;
+  const base = stripCopySuffix(title);
+  if (!base) return title;
+
+  let highest = 0;
+  for (const other of existing) {
+    if (typeof other !== "string") continue;
+    const trimmed = other.trim();
+    if (stripCopySuffix(trimmed) !== base) continue;
+    // The unnumbered original counts as number 1.
+    const m = trimmed.match(COPY_SUFFIX);
+    const n = m ? Number(m[1]) : 1;
+    if (Number.isFinite(n) && n > highest) highest = n;
+  }
+  return `${base} (${Math.max(highest, 1) + 1})`;
+}
