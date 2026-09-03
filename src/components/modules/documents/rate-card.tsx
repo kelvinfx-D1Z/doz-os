@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { SectionHeader, EmptyState } from "@/components/doz/ui-primitives";
-import { Wallet, AlertTriangle } from "lucide-react";
+import { Wallet, AlertTriangle, Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { marginFor, suggestOfficialPrice } from "@/lib/pricing";
 import { formatNGN, formatPct } from "@/lib/format";
@@ -88,6 +89,71 @@ export function RateCard() {
     });
     return () => { cancelled = true; };
   }, [load]);
+
+  // Add, rename and remove a service without leaving the rate card. These
+  // reuse the founder-only catalogue_* actions the Catalogue tab already
+  // calls — no second write path, so the two screens cannot disagree about
+  // what a service is or whether a duplicate name is allowed.
+  const [newName, setNewName] = useState<Record<string, string>>({});
+
+  async function catalogueAction(body: Record<string, unknown>, success: string) {
+    const r = await fetch("/api/doz/services", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+    toast.success(success);
+    await load();
+  }
+
+  async function addItem(categoryId: string, categoryName: string) {
+    const name = (newName[categoryId] ?? "").trim();
+    if (!name) return;
+    setBusy((b) => ({ ...b, [categoryId]: true }));
+    try {
+      await catalogueAction(
+        { action: "catalogue_add_item", categoryId, name },
+        `${name} added to ${categoryName}`,
+      );
+      setNewName((n) => ({ ...n, [categoryId]: "" }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't add that service", { duration: 8000 });
+    } finally {
+      setBusy((b) => ({ ...b, [categoryId]: false }));
+    }
+  }
+
+  async function renameItem(item: RateItem) {
+    const next = window.prompt("Rename this service", item.name)?.trim();
+    if (!next || next === item.name) return;
+    setBusy((b) => ({ ...b, [item.id]: true }));
+    try {
+      await catalogueAction({ action: "catalogue_rename_item", itemId: item.id, name: next }, `Renamed to ${next}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't rename that service", { duration: 8000 });
+    } finally {
+      setBusy((b) => ({ ...b, [item.id]: false }));
+    }
+  }
+
+  async function deleteItem(item: RateItem) {
+    // Deleting takes its rates with it, and quotations already issued keep the
+    // figures they were issued with — but nothing else will price off it again.
+    const ok = window.confirm(
+      `Remove "${item.name}" from the rate card?\n\nIts BP and CP go with it. Documents already issued keep the figures they were issued with.`,
+    );
+    if (!ok) return;
+    setBusy((b) => ({ ...b, [item.id]: true }));
+    try {
+      await catalogueAction({ action: "catalogue_delete_item", itemId: item.id }, `${item.name} removed`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't remove that service", { duration: 8000 });
+    } finally {
+      setBusy((b) => ({ ...b, [item.id]: false }));
+    }
+  }
 
   // Sends only the one field that changed — omitting the other, per
   // catalogue_set_rates's semantics, leaves it untouched server-side.
@@ -169,6 +235,11 @@ export function RateCard() {
               onBpBlur={(item) => commitField(item.id, "standardCost", bpBox[item.id] ?? "", item.standardCost)}
               onCpBlur={(item) => commitField(item.id, "standardClientRate", cpBox[item.id] ?? "", item.standardClientRate)}
               onApplySuggested={applySuggested}
+              newName={newName[cat.id] ?? ""}
+              onNewNameChange={(v) => setNewName((n) => ({ ...n, [cat.id]: v }))}
+              onAddItem={() => addItem(cat.id, cat.name)}
+              onRenameItem={renameItem}
+              onDeleteItem={deleteItem}
             />
           ))}
         </div>
@@ -179,6 +250,7 @@ export function RateCard() {
 
 function DepartmentRates({
   cat, bpBox, cpBox, busy, onBpChange, onCpChange, onBpBlur, onCpBlur, onApplySuggested,
+  newName, onNewNameChange, onAddItem, onRenameItem, onDeleteItem,
 }: {
   cat: RateCategory;
   bpBox: Record<string, string>;
@@ -189,6 +261,11 @@ function DepartmentRates({
   onBpBlur: (item: RateItem) => void;
   onCpBlur: (item: RateItem) => void;
   onApplySuggested: (id: string, suggested: number) => void;
+  newName: string;
+  onNewNameChange: (v: string) => void;
+  onAddItem: () => void;
+  onRenameItem: (item: RateItem) => void;
+  onDeleteItem: (item: RateItem) => void;
 }) {
   return (
     <Card className="p-4">
@@ -200,7 +277,7 @@ function DepartmentRates({
       </div>
 
       {cat.items.length === 0 ? (
-        <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">No services yet.</p>
+        <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">No services yet — add the first one below.</p>
       ) : (
         <div className="mt-3 border-t border-border pt-3">
           <Table>
@@ -229,7 +306,30 @@ function DepartmentRates({
                 return (
                   <TableRow key={item.id} className={isLoss ? "bg-rose-500/10" : undefined}>
                     <TableCell className="text-xs font-medium">
-                      {item.name}
+                      <span className="group inline-flex items-center gap-1">
+                        {item.name}
+                        {/* Kept quiet until hover: the page is read far more
+                            often than it is edited, and a rate card lined with
+                            icons is harder to scan for a wrong number. */}
+                        <button
+                          type="button"
+                          aria-label={`Rename ${item.name}`}
+                          disabled={rowBusy}
+                          onClick={() => onRenameItem(item)}
+                          className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item.name}`}
+                          disabled={rowBusy}
+                          onClick={() => onDeleteItem(item)}
+                          className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100 text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </span>
                       {isLoss && (
                         <span className="ml-1.5 inline-flex items-center gap-1 rounded-md bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-rose-400">
                           <AlertTriangle className="h-2.5 w-2.5" /> Loses money
@@ -294,6 +394,28 @@ function DepartmentRates({
           </Table>
         </div>
       )}
+
+      {/* Add a service without leaving the page. Uses the same founder-only
+          catalogue_add_item the Catalogue tab calls, including its refusal of
+          a duplicate name within the department. */}
+      <div className="mt-3 flex gap-2 border-t border-border pt-3">
+        <Input
+          value={newName}
+          onChange={(e) => onNewNameChange(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onAddItem(); } }}
+          placeholder={`Add a service to ${cat.name}`}
+          className="h-8 text-xs"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0 gap-1.5"
+          disabled={!newName.trim() || !!busy[cat.id]}
+          onClick={onAddItem}
+        >
+          <Plus className="h-3.5 w-3.5" /> Add
+        </Button>
+      </div>
     </Card>
   );
 }
