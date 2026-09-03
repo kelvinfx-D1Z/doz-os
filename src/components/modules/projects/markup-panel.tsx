@@ -277,8 +277,8 @@ export function MarkupPanel({
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Days</TableHead>
                 <TableHead className="text-right">{budgetView ? "Cost" : "BP (cost)"}</TableHead>
-                <TableHead className="text-right">{budgetView ? "Price" : "CP (client rate)"}</TableHead>
-                <TableHead className="text-right">{budgetView ? "Total" : "CP Total"}</TableHead>
+                {!budgetView && <TableHead className="text-right">CP (client rate)</TableHead>}
+                {!budgetView && <TableHead className="text-right">CP Total</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -299,6 +299,7 @@ export function MarkupPanel({
                     <TableCell className="text-right text-xs">{l.quantity}</TableCell>
                     <TableCell className="text-right text-xs">{l.days}</TableCell>
                     <TableCell className="text-right font-mono text-xs">{formatNGN(l.unitPrice)}</TableCell>
+                    {!budgetView && (
                     <TableCell className="text-right">
                       <Input
                         type="number"
@@ -322,17 +323,18 @@ export function MarkupPanel({
                           the job costs, and naming the multiplier that would
                           turn it into a price invites reading one as the other.
                           The pricing view still shows it. */}
-                      {!budgetView && (
-                        <p className="mt-0.5 text-right text-[9px] text-muted-foreground">
-                          {l.suggestedSource === "RATE_CARD"
-                            ? `Rate card ${formatNGN(l.suggested)}`
-                            : `×${markupFor(l.section).toFixed(2)} markup ${formatNGN(l.suggested)}`}
-                        </p>
-                      )}
+                      <p className="mt-0.5 text-right text-[9px] text-muted-foreground">
+                        {l.suggestedSource === "RATE_CARD"
+                          ? `Rate card ${formatNGN(l.suggested)}`
+                          : `×${markupFor(l.section).toFixed(2)} markup ${formatNGN(l.suggested)}`}
+                      </p>
                     </TableCell>
+                    )}
+                    {!budgetView && (
                     <TableCell className="text-right font-mono text-xs font-semibold">
                       {cp === null ? "—" : formatNGN(lineTotal({ quantity: l.quantity, days: l.days, price: cp }))}
                     </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
@@ -370,7 +372,7 @@ export function MarkupPanel({
         )}
       </div>
 
-      {unpricedCount > 0 && (
+      {!budgetView && unpricedCount > 0 && (
         <p className="mt-2 text-center text-[10px] text-amber-400">
           {unpricedCount} line{unpricedCount === 1 ? "" : "s"} not yet priced —{" "}
           {editable
