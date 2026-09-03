@@ -6,6 +6,7 @@ import { lineTotal } from "@/lib/pricing";
 import { MONEY_EPSILON, collectableAmount } from "@/lib/received-allocation";
 import { nextDocumentCode } from "@/lib/document-code";
 import { syncProjectBudget } from "@/lib/project-figures";
+import { buildCostIndex, resolvePublishedRate } from "@/lib/pricing";
 import {
   isSyntheticInvoice,
   receivedByProject,
@@ -523,17 +524,38 @@ export async function POST(req: Request) {
       { serviceName: string; category: string; quantity: number; days: number; unitPrice: number; totalPrice: number }
     >();
 
+    // Ticking a service in the picker brings its cost with it. This path used
+    // to hardcode unitPrice 0 while only the template path consulted the rate
+    // card, so a budget built by picking services arrived entirely unpriced —
+    // 27 lines at zero on a real project, every one of them a service whose BP
+    // was published. Same index and matching rule the pricing route uses, so a
+    // cost seeded here and one resolved there cannot disagree.
+    //
+    // A service with no published BP still seeds 0: ProjectService.unitPrice is
+    // non-nullable and cannot hold "unknown". That is honest — the founder sets
+    // it — and is different from overwriting a known cost with a guess.
+    const pickerCatalogue = picked.length
+      ? await db.serviceCategory.findMany({ include: { items: true } })
+      : [];
+    const pickerCostIndex = buildCostIndex(
+      pickerCatalogue.flatMap((c) =>
+        c.items.map((i) => ({ name: i.name, category: c.name, standardCost: i.standardCost })),
+      ),
+    );
+
     for (const entry of picked.slice(0, 200)) {
       const [category, ...rest] = String(entry).split("::");
       const serviceName = (rest.join("::") || category).trim();
       const cat = rest.length ? category.trim() : "Other";
+      const bp = resolvePublishedRate(pickerCostIndex, serviceName, cat);
+      const unitPrice = bp ?? 0;
       seedLines.set(seedKey(cat, serviceName), {
         serviceName,
         category: cat,
         quantity: 1,
         days: 1,
-        unitPrice: 0,
-        totalPrice: 0,
+        unitPrice,
+        totalPrice: lineTotal({ quantity: 1, days: 1, price: unitPrice }),
       });
     }
 
