@@ -301,19 +301,29 @@ function BudgetDialog({
   const isFounder = user?.role === "FOUNDER";
   const isPM = user?.role === "FREELANCER" || user?.role === "PRODUCTION_MANAGER";
 
-  // Wide, because this is not a form — it is a whole cost sheet, with a vendor,
-  // quantity, days and rate on every line, plus the markup panel underneath. At
-  // max-w-2xl the columns wrapped and the founder could not scan a budget for
-  // the wrong number, which is the one thing this screen exists to let him do.
+  // Wide by default, and draggable-resizable from there — this is a whole
+  // cost sheet, with a vendor, quantity, days and rate on every line, plus the
+  // markup panel underneath, and no one width suits every budget. `resize` is
+  // a plain CSS property; the browser draws its own handle at the bottom-right
+  // corner, no library needed. It needs an explicit starting width AND height
+  // (not just max-*) or there is nothing for the handle to shrink from.
+  //
+  // Sizing is inline, not in className, because DialogContent carries its own
+  // sm:max-w-lg, and a responsive class variant beats a base-level max-w-*
+  // passed in through className — a class-only override silently did nothing
+  // above 640px, which is every screen this is used on.
   return (
     <DialogContent
-      className="max-h-[94vh] w-[97vw] overflow-y-auto"
-      // maxWidth is set inline on purpose. DialogContent carries `sm:max-w-lg`
-      // of its own, and a responsive variant beats any base-level max-w-*
-      // utility passed in via className — so widening it with a class silently
-      // did nothing above 640px, which is every screen this is used on. An
-      // inline style is the one thing that reliably wins.
-      style={{ maxWidth: "min(1600px, 97vw)" }}
+      className="overflow-auto"
+      style={{
+        width: "min(1600px, 97vw)",
+        height: "min(88vh, 900px)",
+        maxWidth: "97vw",
+        maxHeight: "94vh",
+        minWidth: "480px",
+        minHeight: "320px",
+        resize: "both",
+      }}
     >
       <DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
@@ -339,27 +349,29 @@ function BudgetDialog({
           itself), so a PM never sees client price alongside their cost. */}
       {isFounder && <MarkupPanel projectId={project.id} onChanged={onProjectChanged} variant="budget" />}
 
-      <div className="mt-4 rounded-lg border border-border p-4">
-        {project.pricingStage !== "OFFICIAL" ? (
-          <p className="text-xs text-muted-foreground">
-            Price this budget first — the client price comes from the markup.
-          </p>
-        ) : isFounder ? (
-          <Button className="w-full gap-1.5" onClick={onCreateQuotation}>
-            <FileText className="h-4 w-4" /> Create quotation
-          </Button>
-        ) : (
-          // The document builder's auto-load depends on GET
-          // /api/doz/projects/pricing, which is founder-only and 403s for
-          // anyone else — showing the button here would land a STAFF/PM
-          // viewer (reachable only via an explicit `documents` grant) in a
-          // builder with no lines and no explanation. Refuse before that
-          // dead end rather than after it.
-          <p className="text-xs text-muted-foreground">
-            This budget has been priced — ask the founder to create the quotation.
-          </p>
-        )}
-      </div>
+      {/* Nothing rendered while the budget is still BASE: MarkupPanel's own
+          "Send for approval" button, right above, already says what to do —
+          a second box repeating "price this first" under a button that does
+          exactly that was telling the founder the same thing twice. */}
+      {project.pricingStage === "OFFICIAL" && (
+        <div className="mt-4 rounded-lg border border-border p-4">
+          {isFounder ? (
+            <Button className="w-full gap-1.5" onClick={onCreateQuotation}>
+              <FileText className="h-4 w-4" /> Create quotation
+            </Button>
+          ) : (
+            // The document builder's auto-load depends on GET
+            // /api/doz/projects/pricing, which is founder-only and 403s for
+            // anyone else — showing the button here would land a STAFF/PM
+            // viewer (reachable only via an explicit `documents` grant) in a
+            // builder with no lines and no explanation. Refuse before that
+            // dead end rather than after it.
+            <p className="text-xs text-muted-foreground">
+              This budget has been priced — ask the founder to create the quotation.
+            </p>
+          )}
+        </div>
+      )}
     </DialogContent>
   );
 }
