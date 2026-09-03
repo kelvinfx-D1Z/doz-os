@@ -905,8 +905,6 @@ function NewProjectDialog({
   const [accountId, setAccountId] = useState<string>("");
   const [eventDate, setEventDate] = useState<string>("");
   const [venue, setVenue] = useState<string>("");
-  const [budget, setBudget] = useState<string>("");
-  const [revenue, setRevenue] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
   // Client list + inline "add new client" now live in <ClientSelect />.
@@ -939,35 +937,15 @@ function NewProjectDialog({
       setAccountId("");
       setEventDate("");
       setVenue("");
-      setBudget("");
-      setRevenue("");
       setServices(new Set());
       setTemplateId("");
     }
   }, [open]);
 
-  const budgetNum = useMemo(() => {
-    const n = Number(budget);
-    return isNaN(n) ? 0 : n;
-  }, [budget]);
-  const revenueNum = useMemo(() => {
-    const n = Number(revenue);
-    return isNaN(n) ? 0 : n;
-  }, [revenue]);
-  const projectedProfit = revenueNum - budgetNum;
-  const projectedMargin =
-    revenueNum > 0 ? (projectedProfit / revenueNum) * 100 : 0;
 
   const effectiveServiceType = getEffectiveServiceType(serviceType, customServiceType);
   const canSubmit =
-    name.trim().length > 0 &&
-    effectiveServiceType.length > 0 &&
-    (proposing ||
-      (budget.trim().length > 0 &&
-        Number(budget) >= 0 &&
-        revenue.trim().length > 0 &&
-        Number(revenue) >= 0)) &&
-    !submitting;
+    name.trim().length > 0 && effectiveServiceType.length > 0 && !submitting;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -982,8 +960,6 @@ function NewProjectDialog({
       // Never send money from a proposer — the server ignores it either way,
       // but the request shouldn't carry figures they aren't allowed to hold.
       if (!proposing) {
-        payload.budget = budgetNum;
-        payload.revenue = revenueNum;
       }
       if (services.size > 0) payload.serviceNames = [...services];
       if (templateId) payload.templateId = templateId;
@@ -1190,78 +1166,23 @@ function NewProjectDialog({
               <ServicePicker selected={services} onChange={setServices} />
             </div>
 
-            {/* Budget + Revenue — FOUNDER/STAFF only. A proposing PM never
-                sees or sends money; the founder prices it on approval. */}
+            {/* Project Cost and Total Contract Value used to be typed here —
+                the one moment nobody knows either number. Both are earned now:
+                the cost from this project's own budget lines, the contract
+                value from the quotation the client accepts. A proposing PM
+                never saw these fields; the founder no longer does either. */}
             {!proposing && (
-            <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="np-budget">
-                  Project Cost (Budget) <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  id="np-budget"
-                  type="number"
-                  min={0}
-                  step="1000"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="5,000,000"
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  What will this project cost us to deliver?
+              <div className="rounded-md border border-border/60 bg-muted/30 p-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  Cost and contract value
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Worked out for you. The cost adds up this project&apos;s budget
+                  lines as you build them; the contract value is set by the
+                  quotation your client accepts.
                 </p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="np-revenue">
-                  Total Contract Value <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  id="np-revenue"
-                  type="number"
-                  min={0}
-                  step="1000"
-                  value={revenue}
-                  onChange={(e) => setRevenue(e.target.value)}
-                  placeholder="8,000,000"
-                  required
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Total amount the client will pay.
-                </p>
-              </div>
-            </div>
-
-            {/* Live profit calculation */}
-            <div className="rounded-md border border-border/60 bg-muted/30 p-3">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                <TrendingUp className="h-3.5 w-3.5" />
-                Projected Profit (if client pays in full)
-              </div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-2">
-                <span
-                  className={`text-lg font-semibold ${
-                    projectedProfit >= 0 ? "text-emerald-500" : "text-rose-500"
-                  }`}
-                >
-                  {formatNGN(projectedProfit)}
-                </span>
-                <span
-                  className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                    projectedProfit >= 0
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-rose-500/15 text-rose-400"
-                  }`}
-                >
-                  {revenueNum > 0 ? `${projectedMargin.toFixed(1)}% margin` : "—"}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Contract {formatNGN(revenueNum, true)} − Cost {formatNGN(budgetNum, true)}
-              </p>
-            </div>
-            </>
             )}
           </div>
 

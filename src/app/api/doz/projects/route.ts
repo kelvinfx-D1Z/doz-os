@@ -370,25 +370,23 @@ export async function POST(req: Request) {
     // here would make proposing impossible. The project opens at zero and the
     // founder prices it when they approve. Anything a PM *did* send is
     // discarded rather than trusted.
+    // Neither figure is required any more, from anyone. Both are earned:
+    // budget from the project's own cost lines, revenue from the quotation the
+    // client accepts. Demanding them at creation asked the founder to invent
+    // two numbers at the one moment nobody can know either — his words: "at
+    // this point of project creation i do not have that information yet."
+    //
+    // Still accepted when sent and still founder-only, so an estimate can be
+    // seeded deliberately and edited later; a PM's figures are discarded as
+    // before. Anything not sent opens at zero and is replaced the moment there
+    // is something real to replace it with.
     let budgetNum = 0;
     let revenueNum = 0;
     if (canCreateOutright) {
       const b = typeof budget === "string" ? Number(budget) : budget;
       const r = typeof revenue === "string" ? Number(revenue) : revenue;
-      if (typeof b !== "number" || isNaN(b) || b < 0) {
-        return NextResponse.json(
-          { error: "Missing or invalid required field: budget (must be a non-negative number)" },
-          { status: 400 }
-        );
-      }
-      if (typeof r !== "number" || isNaN(r) || r < 0) {
-        return NextResponse.json(
-          { error: "Missing or invalid required field: revenue (must be a non-negative number)" },
-          { status: 400 }
-        );
-      }
-      budgetNum = b;
-      revenueNum = r;
+      if (typeof b === "number" && Number.isFinite(b) && b >= 0) budgetNum = b;
+      if (typeof r === "number" && Number.isFinite(r) && r >= 0) revenueNum = r;
     }
 
     // ---- Validate optional fields ----
