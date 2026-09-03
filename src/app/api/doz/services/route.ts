@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, isProjectManagerRole, canBuildBudget, canSeeFinancials } from "@/lib/auth";
 import { lineTotal } from "@/lib/pricing";
+import { syncProjectBudget } from "@/lib/project-figures";
 import { parseRate } from "@/lib/rate-card";
 
 // Floors to a whole number >= `min`; falls back to `fallback` when the input
@@ -240,6 +241,10 @@ export async function POST(req: Request) {
         vendorId: body.vendorId || null, vendorName, vendorContact, vendorPhone, vendorEmail, vendorBankDetails,
         status: "LISTED", notes: body.notes || null, createdBy: user.id },
     });
+    // The project's cost is the sum of its lines, not a figure someone typed
+    // at creation. Recomputed here so Project.budget stays true without any of
+    // the twelve readers of that column having to change.
+    await syncProjectBudget(db, body.projectId);
     return NextResponse.json({ ok: true, service: shapeService(created, user.role, canSeeFinancials(user.role)) }, { status: 201 });
   }
 
@@ -275,6 +280,7 @@ export async function POST(req: Request) {
     if (body.notes !== undefined) data.notes = body.notes;
     if (body.status !== undefined) data.status = body.status;
     const updated = await db.projectService.update({ where: { id: body.serviceId }, data });
+    await syncProjectBudget(db, updated.projectId);
     return NextResponse.json({ ok: true, service: shapeService(updated, user.role, canSeeFinancials(user.role)) });
   }
 
@@ -284,6 +290,8 @@ export async function POST(req: Request) {
     if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (isProjectManagerRole(user.role) && existing.status !== "LISTED") return NextResponse.json({ error: "cannot_delete_submitted" }, { status: 403 });
     await db.projectService.delete({ where: { id: body.serviceId } });
+    // Removing a line lowers the cost — recompute from what remains.
+    await syncProjectBudget(db, existing.projectId);
     return NextResponse.json({ ok: true });
   }
 

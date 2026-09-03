@@ -5,6 +5,7 @@ import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/au
 import { lineTotal } from "@/lib/pricing";
 import { MONEY_EPSILON, collectableAmount } from "@/lib/received-allocation";
 import { nextDocumentCode } from "@/lib/document-code";
+import { syncProjectBudget } from "@/lib/project-figures";
 import {
   isSyntheticInvoice,
   receivedByProject,
@@ -615,6 +616,10 @@ export async function POST(req: Request) {
           createdBy: user.id,
         })),
       });
+      // A template seeds real costs from the rate card, so the project's
+      // budget is knowable the moment it is created — derived from those
+      // lines rather than typed into the form.
+      await syncProjectBudget(db, created.id);
     }
     if (tpl) {
       await db.project.update({ where: { id: created.id }, data: { templateId: tpl.id } });
