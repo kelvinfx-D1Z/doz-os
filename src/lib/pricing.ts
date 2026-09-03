@@ -169,12 +169,40 @@ export function rateKey(name: string, category: string): string {
  * quietly dropped and marked up to a formula price.
  */
 export function buildRateCardIndex(items: RateCardEntry[]): Map<string, Set<number>> {
+  return indexBy(items, (i) => i.standardClientRate);
+}
+
+export type CostCardEntry = {
+  name: string;
+  category: string;
+  standardCost: number | null | undefined;
+};
+
+/**
+ * The same index over BP — what a job costs D1Z — rather than CP.
+ *
+ * Used when extrapolating a budget from a quotation: the founder sometimes
+ * skips the budget and quotes straight away, and the cost sheet is then
+ * reconstructed by looking up what each quoted line costs us. Sharing
+ * `indexBy` with the CP index is the point — the duplicate rule, the key and
+ * the treatment of a published 0 must be identical for both, or a job's cost
+ * and its price would disagree about which catalogue row they matched.
+ */
+export function buildCostIndex(items: CostCardEntry[]): Map<string, Set<number>> {
+  return indexBy(items, (i) => i.standardCost);
+}
+
+function indexBy<T extends { name: string; category: string }>(
+  items: T[],
+  rateOf: (item: T) => number | null | undefined,
+): Map<string, Set<number>> {
   const byKey = new Map<string, Set<number>>();
   for (const item of items) {
-    if (item.standardClientRate === null || item.standardClientRate === undefined) continue;
+    const rate = rateOf(item);
+    if (rate === null || rate === undefined) continue;
     const key = rateKey(item.name, item.category);
     if (!byKey.has(key)) byKey.set(key, new Set());
-    byKey.get(key)!.add(item.standardClientRate);
+    byKey.get(key)!.add(rate);
   }
   return byKey;
 }

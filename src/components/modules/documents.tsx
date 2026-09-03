@@ -15,7 +15,7 @@ import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-prim
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
-import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil, Copy } from "lucide-react";
+import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil, Copy, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentBuilder } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
@@ -199,6 +199,35 @@ export function DocumentsModule() {
   // Start a new document from an existing one. The server mints a fresh
   // number and returns a DRAFT — no payment, no status, no conversion link
   // carried over. See src/lib/document-duplicate.ts.
+  // The founder quoted without budgeting first. Turn the quotation back into
+  // a cost sheet using the rate card's BP for each line, so the job has a
+  // margin without him building the sheet by hand. Creates the project too if
+  // the quotation has none — quoting first is exactly that case.
+  async function buildBudget(id: string, code: string) {
+    setBusyId(id);
+    try {
+      const r = await fetch("/api/doz/documents/quotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ buildBudgetFor: id }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      toast.success(`Budget built from ${code}`, {
+        description: j?.message,
+        duration: j?.uncosted?.length ? 10000 : 5000,
+      });
+      await loadAll();
+    } catch (e) {
+      toast.error("Couldn't build that budget", {
+        description: e instanceof Error ? e.message : undefined,
+        duration: 8000,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function duplicate(kind: "quotation" | "invoice", id: string, code: string) {
     setBusyId(id);
     try {
@@ -336,6 +365,7 @@ export function DocumentsModule() {
                   onMarkSent={() => markSent("quotation", q.id, q.code)}
                   onEdit={() => openEditQuotation(q)}
                   onDuplicate={() => duplicate("quotation", q.id, q.code)}
+                  onBuildBudget={() => buildBudget(q.id, q.code)}
                 />
               ))
             )}
@@ -438,7 +468,7 @@ function quotationLockedReason(status: string): string {
 }
 
 function QuotationRow({
-  q, busy, onConvert, onDelete, onMarkSent, onEdit, onDuplicate,
+  q, busy, onConvert, onDelete, onMarkSent, onEdit, onDuplicate, onBuildBudget,
 }: {
   q: Quotation;
   busy: boolean;
@@ -447,6 +477,7 @@ function QuotationRow({
   onMarkSent: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
+  onBuildBudget: () => void;
 }) {
   return (
     <Card className="p-4">
@@ -492,6 +523,11 @@ function QuotationRow({
             client. The copy is always a new DRAFT, so nothing is rewritten. */}
         <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Duplicate
+        </Button>
+        {/* Only useful before a cost sheet exists — the server refuses once
+            the project already has lines rather than doubling the budget. */}
+        <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onBuildBudget}>
+          <Wallet className="h-3.5 w-3.5" /> Build budget
         </Button>
         {!q.convertedInvoiceId && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onConvert}>

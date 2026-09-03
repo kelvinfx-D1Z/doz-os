@@ -3,7 +3,9 @@ import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
 import { duplicateQuotationData, duplicateLines, nextCopyTitle, stripCopySuffix } from "@/lib/document-duplicate";
-import { syncProjectRevenue } from "@/lib/project-figures";
+import { syncProjectRevenue, syncProjectBudget } from "@/lib/project-figures";
+import { buildCostIndex } from "@/lib/pricing";
+import { extrapolateBudget, describeExtrapolation } from "@/lib/budget-extrapolation";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 import {
@@ -73,6 +75,102 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // BUILD BUDGET — the founder skipped the budget and quoted straight away.
+  // Turn the quotation back into a cost sheet by looking up what each quoted
+  // line COSTS us on the rate card, so he gets a margin without building the
+  // sheet by hand. His words: "when he is done, the budget should be
+  // extrapolated from the cost list."
+  //
+  // Creates the project too when the quotation has none — quoting first is
+  // exactly the case where no project exists yet.
+  if (typeof body.buildBudgetFor === "string" && body.buildBudgetFor.trim()) {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    const quote = await db.quotation.findUnique({
+      where: { id: body.buildBudgetFor.trim() },
+      include: { lines: { orderBy: { sortOrder: "asc" } } },
+    });
+    if (!quote) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
+    if (quote.lines.length === 0) {
+      return NextResponse.json({ error: "This quotation has no lines to cost." }, { status: 400 });
+    }
+
+    // Refuse rather than double a budget. Clicking twice must not add every
+    // line again — a cost sheet silently containing each service twice is a
+    // margin that reads as half what it is.
+    if (quote.projectId) {
+      const existing = await db.projectService.count({ where: { projectId: quote.projectId } });
+      if (existing > 0) {
+        return NextResponse.json(
+          { error: `That project already has ${existing} cost line(s). Clear them first, or add to them by hand.` },
+          { status: 409 },
+        );
+      }
+    }
+
+    const categories = await db.serviceCategory.findMany({ include: { items: true } });
+    const costIndex = buildCostIndex(
+      categories.flatMap((c) =>
+        c.items.map((i) => ({ name: i.name, category: c.name, standardCost: i.standardCost })),
+      ),
+    );
+    const result = extrapolateBudget(
+      quote.lines.map((l) => ({
+        description: l.description,
+        section: l.section,
+        quantity: l.quantity,
+        days: l.days,
+      })),
+      costIndex,
+    );
+
+    const out = await db.$transaction(async (tx) => {
+      let projectId = quote.projectId;
+      if (!projectId) {
+        const created = await tx.project.create({
+          data: {
+            name: quote.title?.trim() || `Job from ${quote.code}`,
+            serviceType: "EVENT_PRODUCTION",
+            status: "PLANNING",
+            accountId: quote.accountId,
+            eventDate: quote.eventStart,
+            approvalStatus: "APPROVED",
+            approvedById: user.id,
+            approvedAt: new Date(),
+          },
+        });
+        projectId = created.id;
+        await tx.quotation.update({ where: { id: quote.id }, data: { projectId } });
+      }
+      await tx.projectService.createMany({
+        data: result.lines.map((l) => ({
+          projectId: projectId as string,
+          serviceName: l.serviceName,
+          category: l.category,
+          quantity: l.quantity,
+          days: l.days,
+          unitPrice: l.unitPrice,
+          totalPrice: l.totalPrice,
+          status: "LISTED",
+          createdBy: user.id,
+        })),
+      });
+      const budget = await syncProjectBudget(tx, projectId as string);
+      return { projectId, budget };
+    }, { timeout: 30_000 });
+
+    return NextResponse.json({
+      ok: true,
+      projectId: out.projectId,
+      budget: out.budget,
+      costed: result.costed,
+      uncosted: result.uncosted,
+      lines: result.lines.length,
+      message: describeExtrapolation(result),
+    }, { status: 201 });
   }
 
   // DUPLICATE — start from an existing quotation instead of a blank one.
