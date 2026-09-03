@@ -301,8 +301,12 @@ function BudgetDialog({
   const isFounder = user?.role === "FOUNDER";
   const isPM = user?.role === "FREELANCER" || user?.role === "PRODUCTION_MANAGER";
 
+  // Wide, because this is not a form — it is a whole cost sheet, with a vendor,
+  // quantity, days and rate on every line, plus the markup panel underneath. At
+  // max-w-2xl the columns wrapped and the founder could not scan a budget for
+  // the wrong number, which is the one thing this screen exists to let him do.
   return (
-    <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+    <DialogContent className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto">
       <DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
           {project.code && (

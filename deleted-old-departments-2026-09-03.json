@@ -1,0 +1,410 @@
+[
+  {
+    "id": "cms83vbiy0000i3mhhn5saxh0",
+    "name": "Audiovisual & Technical Production",
+    "icon": null,
+    "sortOrder": 0,
+    "items": [
+      {
+        "id": "cms83vjb3000ci3mhj045mv4u",
+        "categoryId": "cms83vbiy0000i3mhhn5saxh0",
+        "name": "Technical direction",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:15.136Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83ve0f0004i3mhcv4ensa7",
+        "categoryId": "cms83vbiy0000i3mhhn5saxh0",
+        "name": "Live streaming & broadcasting",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:08.270Z",
+        "standardCost": 70000,
+        "standardClientRate": 185000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T05:50:46.946Z",
+        "rateUpdatedAt": "2026-09-03T05:51:52.972Z"
+      },
+      {
+        "id": "cms83vfml0006i3mhoa409p19",
+        "categoryId": "cms83vbiy0000i3mhhn5saxh0",
+        "name": "Sound reinforcement",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:10.365Z",
+        "standardCost": 200000,
+        "standardClientRate": 350000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T07:59:08.612Z",
+        "rateUpdatedAt": "2026-09-03T07:59:18.496Z"
+      },
+      {
+        "id": "cms83vgta0008i3mh62c2g2qa",
+        "categoryId": "cms83vbiy0000i3mhhn5saxh0",
+        "name": "Stage & ambient lighting",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:11.902Z",
+        "standardCost": 200000,
+        "standardClientRate": 480000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T08:03:32.138Z",
+        "rateUpdatedAt": "2026-09-03T08:03:51.057Z"
+      },
+      {
+        "id": "cms83vi54000ai3mhpqvzw8zo",
+        "categoryId": "cms83vbiy0000i3mhhn5saxh0",
+        "name": "Projection mapping",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:13.624Z",
+        "standardCost": 50000,
+        "standardClientRate": 250000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T07:58:17.084Z",
+        "rateUpdatedAt": "2026-09-03T07:58:35.605Z"
+      }
+    ]
+  },
+  {
+    "id": "cms83vkg4000di3mhwwu6lqfm",
+    "name": "Scenic Design & Stage Production",
+    "icon": null,
+    "sortOrder": 1,
+    "items": [
+      {
+        "id": "cms83vpd4000li3mhcmmyadiy",
+        "categoryId": "cms83vkg4000di3mhwwu6lqfm",
+        "name": "Green rooms & backstage",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:22.985Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83vlrf000fi3mhi3eeqe94",
+        "categoryId": "cms83vkg4000di3mhwwu6lqfm",
+        "name": "Custom stage production",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:18.316Z",
+        "standardCost": 450000,
+        "standardClientRate": 950000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T08:04:19.631Z",
+        "rateUpdatedAt": "2026-09-03T08:04:36.743Z"
+      },
+      {
+        "id": "cms83vo13000ji3mhr51gk5zc",
+        "categoryId": "cms83vkg4000di3mhwwu6lqfm",
+        "name": "Podiums & lecterns",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:21.256Z",
+        "standardCost": 30000,
+        "standardClientRate": 90000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T08:04:43.186Z",
+        "rateUpdatedAt": "2026-09-03T08:04:49.514Z"
+      },
+      {
+        "id": "cms83vmwa000hi3mh6plomugy",
+        "categoryId": "cms83vkg4000di3mhwwu6lqfm",
+        "name": "Scenic backdrops",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:19.787Z",
+        "standardCost": 250000,
+        "standardClientRate": 450000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T08:06:17.712Z",
+        "rateUpdatedAt": "2026-09-03T08:06:28.162Z"
+      },
+      {
+        "id": "cms83vqlm000ni3mh21r3f6pa",
+        "categoryId": "cms83vkg4000di3mhwwu6lqfm",
+        "name": "Comfort monitors",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:24.586Z",
+        "standardCost": 30000,
+        "standardClientRate": 60000,
+        "unit": "UNIT",
+        "costUpdatedAt": "2026-09-03T08:03:56.126Z",
+        "rateUpdatedAt": "2026-09-03T08:04:13.386Z"
+      }
+    ]
+  },
+  {
+    "id": "cms83vrqb000oi3mhzx14qy47",
+    "name": "Trade Show Exhibition & Booth Construction",
+    "icon": null,
+    "sortOrder": 2,
+    "items": [
+      {
+        "id": "cms83vt26000qi3mhffr29ebz",
+        "categoryId": "cms83vrqb000oi3mhzx14qy47",
+        "name": "Custom booth construction",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:27.775Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83vu73000si3mhnvwn739k",
+        "categoryId": "cms83vrqb000oi3mhzx14qy47",
+        "name": "Regular conference booths",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:29.248Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83vvpt000ui3mhktagm9rr",
+        "categoryId": "cms83vrqb000oi3mhzx14qy47",
+        "name": "Pop-up & modular displays",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:31.218Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83vxbc000wi3mhp1cobyhz",
+        "categoryId": "cms83vrqb000oi3mhzx14qy47",
+        "name": "Exhibition furniture rental",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:33.140Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83vypo000yi3mh64x5n4hj",
+        "categoryId": "cms83vrqb000oi3mhzx14qy47",
+        "name": "Booth power & data",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:35.101Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      }
+    ]
+  },
+  {
+    "id": "cms83w00k000zi3mhc66a64l0",
+    "name": "Event Branding & Signage",
+    "icon": null,
+    "sortOrder": 3,
+    "items": [
+      {
+        "id": "cms83w1cl0011i3mh2hyicbwy",
+        "categoryId": "cms83w00k000zi3mhc66a64l0",
+        "name": "Large format printing",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:38.517Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83w2vr0013i3mhs50xw953",
+        "categoryId": "cms83w00k000zi3mhc66a64l0",
+        "name": "Wayfinding & directional signage",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:40.503Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83w4380015i3mh1n1fuowc",
+        "categoryId": "cms83w00k000zi3mhc66a64l0",
+        "name": "Structural branding",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:42.068Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83w5gp0017i3mhb6tys76p",
+        "categoryId": "cms83w00k000zi3mhc66a64l0",
+        "name": "Digital signage networks",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:43.849Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83w6ov0019i3mhs28h8pri",
+        "categoryId": "cms83w00k000zi3mhc66a64l0",
+        "name": "Experiential photo ops",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:45.439Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      }
+    ]
+  },
+  {
+    "id": "cms83w7uh001ai3mhsa3omokn",
+    "name": "Event Technology & Registration",
+    "icon": null,
+    "sortOrder": 4,
+    "items": [
+      {
+        "id": "cms83w93y001ci3mhzd4gcamq",
+        "categoryId": "cms83w7uh001ai3mhsa3omokn",
+        "name": "Registration & ticketing",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:48.430Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wa90001ei3mhs9i1qxwf",
+        "categoryId": "cms83w7uh001ai3mhsa3omokn",
+        "name": "Custom event apps",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:50.052Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wbe6001gi3mhpx3rssok",
+        "categoryId": "cms83w7uh001ai3mhsa3omokn",
+        "name": "Audience engagement tech",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:51.534Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wcm6001ii3mhejyqwrdv",
+        "categoryId": "cms83w7uh001ai3mhsa3omokn",
+        "name": "Lead retrieval systems",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:53.119Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wdsm001ki3mhlm5661qg",
+        "categoryId": "cms83w7uh001ai3mhsa3omokn",
+        "name": "Event Wi-Fi infrastructure",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:54.647Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      }
+    ]
+  },
+  {
+    "id": "cms83wezx001li3mhuc9h9zkr",
+    "name": "Operations, Logistics & Management",
+    "icon": null,
+    "sortOrder": 5,
+    "items": [
+      {
+        "id": "cms83wg5g001ni3mh4wkjlrya",
+        "categoryId": "cms83wezx001li3mhuc9h9zkr",
+        "name": "Venue sourcing",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:57.701Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83whe8001pi3mh1i0lkern",
+        "categoryId": "cms83wezx001li3mhuc9h9zkr",
+        "name": "Catering & hospitality",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:49:59.313Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wik2001ri3mhfbb4jxf8",
+        "categoryId": "cms83wezx001li3mhuc9h9zkr",
+        "name": "Event staffing",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:50:00.819Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wjq6001ti3mheliwz0i2",
+        "categoryId": "cms83wezx001li3mhuc9h9zkr",
+        "name": "Logistics & freight",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:50:02.334Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      },
+      {
+        "id": "cms83wldy001vi3mhl2byg6my",
+        "categoryId": "cms83wezx001li3mhuc9h9zkr",
+        "name": "Permitting & safety",
+        "isCustom": false,
+        "createdAt": "2026-07-30T22:50:04.287Z",
+        "standardCost": null,
+        "standardClientRate": null,
+        "unit": "UNIT",
+        "costUpdatedAt": null,
+        "rateUpdatedAt": null
+      }
+    ]
+  }
+]
