@@ -59,14 +59,20 @@ interface ProjectOption {
 // The shape this builder actually reads from GET /api/doz/projects/pricing.
 // Deliberately missing `unitPrice` (the cost/BP field the API also returns)
 // — this component has no legitimate use for it, so it isn't even given a
-// name to reach for. The only per-line price this type exposes is
-// `clientPrice`, the Official Price.
+// name to reach for. A budget's cost must never become a client's price, and
+// the surest way to enforce that is to leave it unnamed here.
+//
+// The two prices it may read are both CLIENT-facing: `clientPrice`, set by the
+// founder when a budget was converted, and `suggested` — the published rate
+// card figure, or the section markup where there is none. That is what lets an
+// unconverted budget be quoted at all.
 interface ProjectPricingLine {
   serviceName: string;
   section: string | null;
   quantity: number;
   days: number;
   clientPrice: number | null;
+  suggested: number;
 }
 
 interface ProjectPricingResponse {
@@ -300,29 +306,41 @@ export function DocumentBuilder({
   const pricingLoading = projectId !== "" && (!projectPricing || projectPricing.projectId !== projectId);
 
   function loadFromProject() {
-    if (!currentPricing || currentPricing.stage !== "OFFICIAL") return;
+    if (!currentPricing) return;
 
-    const priced = currentPricing.lines.filter((l) => l.clientPrice !== null);
-    const skipped = currentPricing.lines.length - priced.length;
-    const nextLines: BuilderLine[] = priced.map((l) => ({
+    // A budget that has not been converted is still quotable. `suggested` is
+    // the published client rate where the rate card has one, and the section
+    // markup otherwise — precisely what converting would have written. Waiting
+    // for OFFICIAL bought nothing and blocked the founder: he approved a budget
+    // through the cost sheet, came here to quote it, and found the row
+    // disabled. A quotation is a draft he edits anyway.
+    //
+    // clientPrice still wins where it exists — a figure he set by hand is not
+    // replaced by a suggestion.
+    const nextLines: BuilderLine[] = currentPricing.lines.map((l) => ({
       key: Math.random().toString(36).slice(2),
       section: l.section ?? "",
       description: l.serviceName,
       subDescription: "",
       quantity: String(l.quantity),
       days: String(l.days),
-      // The Official Price — what the client is charged. This is the ONLY
-      // field on the fetched line that may ever reach a document's
-      // unitPrice; the project's cost (unitPrice/BP) is never read here.
-      unitPrice: String(l.clientPrice),
+      // Only ever a CLIENT-facing figure. The project's cost (unitPrice/BP) is
+      // never read here — a budget's cost must not become a client's price.
+      unitPrice: String(l.clientPrice ?? l.suggested),
     }));
+    const suggestedCount = currentPricing.lines.filter((l) => l.clientPrice === null).length;
 
     const apply = () => {
       setLines(nextLines.length > 0 ? nextLines : [emptyLine()]);
       toast.success(
-        `Loaded ${nextLines.length} priced line(s) from the project`,
-        skipped > 0
-          ? { description: `${skipped} line(s) skipped — not priced yet (added since this project was reopened)` }
+        `Loaded ${nextLines.length} line(s) from the budget`,
+        suggestedCount > 0
+          ? {
+              description:
+                `${suggestedCount} priced from the rate card or the section markup — ` +
+                `check them before sending.`,
+              duration: 9000,
+            }
           : undefined,
       );
     };
@@ -363,7 +381,7 @@ export function DocumentBuilder({
     if (isEditing) return;
     if (!initialProjectId || projectId !== initialProjectId) return;
     if (autoLoadedRef.current === initialProjectId) return;
-    if (currentPricing?.stage === "OFFICIAL") {
+    if (currentPricing) {
       autoLoadedRef.current = initialProjectId;
       loadFromProject();
     }

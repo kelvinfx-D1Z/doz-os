@@ -443,8 +443,9 @@ export function DocumentsModule() {
           <DialogHeader>
             <DialogTitle>Quote from a budget</DialogTitle>
             <DialogDescription>
-              A priced budget carries its lines straight into the quotation. One
-              still on its cost sheet has no client prices to bring.
+              A budget brings its lines straight in. One you have already priced
+              uses those figures; one you have not is quoted from the rate card,
+              falling back to the section markup — check those before sending.
             </DialogDescription>
           </DialogHeader>
           {pickable === null ? (
@@ -453,22 +454,26 @@ export function DocumentsModule() {
             <p className="text-sm text-muted-foreground">No projects yet.</p>
           ) : (
             <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+              {/* Every budget is selectable. Requiring OFFICIAL blocked the
+                  founder from quoting a budget he had approved through the
+                  cost sheet — two different things called approval. An
+                  unconverted budget quotes at its suggested prices (rate card,
+                  then markup), which is what converting would have written. */}
               {pickable.map((p) => {
                 const priced = p.pricingStage === "OFFICIAL";
                 return (
                   <button
                     key={p.id}
                     type="button"
-                    disabled={!priced}
                     onClick={() => { setBudgetPickerOpen(false); openQuotationBuilderFor(p.id); }}
-                    className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-muted/50 disabled:opacity-50"
+                    className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-muted/50"
                   >
                     <span className="min-w-0 truncate">
                       {p.code && <span className="mr-2 font-mono text-[10px] text-muted-foreground">{p.code}</span>}
                       {p.name}
                     </span>
                     <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {priced ? "Priced — ready" : "Send for approval first"}
+                      {priced ? "Priced" : "At suggested prices"}
                     </span>
                   </button>
                 );
