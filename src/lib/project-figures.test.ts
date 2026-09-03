@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectBudgetFrom, budgetChanged } from "./project-figures.ts";
+import { projectBudgetFrom, budgetChanged, hasAnyPrice } from "./project-figures.ts";
 
 const line = (quantity: number, days: number, unitPrice: number) => ({ quantity, days, unitPrice });
 
@@ -67,4 +67,10 @@ test("budgetChanged treats an absent stored figure as zero", () => {
   assert.equal(budgetChanged(undefined, 0), false);
   assert.equal(budgetChanged(null, 500_000), true);
   assert.equal(budgetChanged(NaN, 250_000), true);
+});
+
+test("hasAnyPrice distinguishes an unpriced sheet from a free one", () => {
+  assert.equal(hasAnyPrice([]), false);
+  assert.equal(hasAnyPrice([line(1, 1, 0), line(2, 3, 0)]), false);
+  assert.equal(hasAnyPrice([line(1, 1, 0), line(1, 1, 150_000)]), true);
 });

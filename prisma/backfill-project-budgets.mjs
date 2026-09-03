@@ -19,7 +19,7 @@
 // ============================================================
 
 import { PrismaClient } from "@prisma/client";
-import { projectBudgetFrom, budgetChanged } from "../src/lib/project-figures.ts";
+import { projectBudgetFrom, budgetChanged, hasAnyPrice } from "../src/lib/project-figures.ts";
 
 const db = new PrismaClient();
 const APPLY = process.argv.includes("--apply");
@@ -35,6 +35,7 @@ async function main() {
 
   let changing = 0;
   let toZero = 0;
+  let held = 0;
 
   for (const p of projects) {
     const lines = await db.projectService.findMany({
@@ -42,6 +43,17 @@ async function main() {
       select: { quantity: true, days: true, unitPrice: true },
     });
     const computed = projectBudgetFrom(lines);
+
+    // Same rule the live sync uses: never assert a cost of zero when what we
+    // have is no information. An unpriced sheet leaves an existing estimate
+    // alone; the first priced line replaces it with the truth.
+    if (computed === 0 && !hasAnyPrice(lines) && (p.budget ?? 0) > 0) {
+      held++;
+      console.log(`  .  ${p.name}`);
+      console.log(`     keeping ${naira(p.budget)} — ${lines.length} line(s), none priced yet.`);
+      continue;
+    }
+
     const differs = budgetChanged(p.budget, computed);
     if (!differs) {
       console.log(`  =  ${p.name}`);
@@ -58,7 +70,7 @@ async function main() {
     }
   }
 
-  console.log(`\n${changing} project(s) would change` + (APPLY ? " — applied." : ", of which " + toZero + " to zero."));
+  console.log(`\n${changing} project(s) would change` + (APPLY ? " — applied." : ", of which " + toZero + " to zero.") + `  ${held} left alone (no priced lines yet).`);
   if (!APPLY && changing > 0) {
     console.log("Re-run with --apply to commit.");
   }

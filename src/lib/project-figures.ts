@@ -75,6 +75,10 @@ interface BudgetSyncClient {
     }): Promise<ProjectCostLine[]>;
   };
   project: {
+    findUnique(args: {
+      where: { id: string };
+      select: { budget: true };
+    }): Promise<{ budget: number | null } | null>;
     update(args: { where: { id: string }; data: { budget: number } }): Promise<unknown>;
   };
 }
@@ -89,12 +93,35 @@ interface BudgetSyncClient {
 export async function syncProjectBudget(
   client: BudgetSyncClient,
   projectId: string,
-): Promise<number> {
-  const lines = await client.projectService.findMany({
-    where: { projectId },
-    select: { quantity: true, days: true, unitPrice: true },
-  });
+): Promise<number | null> {
+  const [lines, project] = await Promise.all([
+    client.projectService.findMany({
+      where: { projectId },
+      select: { quantity: true, days: true, unitPrice: true },
+    }),
+    client.project.findUnique({ where: { id: projectId }, select: { budget: true } }),
+  ]);
   const budget = projectBudgetFrom(lines);
+  const storedBudget = project?.budget ?? 0;
+
+  // Do not assert a cost of zero when what we actually have is no information.
+  // Every cost sheet in production currently has lines but no prices, so a
+  // naive recompute would silently replace a founder's N3,700,000 estimate
+  // with N0 the moment he touched any line on that project. Zero is a claim —
+  // "this job costs nothing" — and it is false here. The same rule the rest of
+  // this codebase lives by: 0 is a real figure, absent is not the same thing.
+  //
+  // So while nothing on the sheet carries a price, an existing estimate is
+  // left alone. The first priced line replaces it with the truth.
+  if (budget === 0 && !hasAnyPrice(lines) && storedBudget > 0) {
+    return null;
+  }
+
   await client.project.update({ where: { id: projectId }, data: { budget } });
   return budget;
+}
+
+/** True once at least one line carries a real price above zero. */
+export function hasAnyPrice(lines: ProjectCostLine[]): boolean {
+  return lines.some((l) => Number(l.unitPrice) > 0);
 }
