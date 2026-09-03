@@ -60,6 +60,7 @@ export function RateCard() {
   // empty box is distinguishable from a typed 0.
   const [bpBox, setBpBox] = useState<Record<string, string>>({});
   const [cpBox, setCpBox] = useState<Record<string, string>>({});
+  const [unitBox, setUnitBox] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
 
   const load = useCallback(() => {
@@ -71,14 +72,17 @@ export function RateCard() {
         setCategories(cats);
         const nextBp: Record<string, string> = {};
         const nextCp: Record<string, string> = {};
+        const nextUnit: Record<string, string> = {};
         for (const cat of cats) {
           for (const item of cat.items) {
             nextBp[item.id] = boxValueFromRate(item.standardCost);
             nextCp[item.id] = boxValueFromRate(item.standardClientRate);
+            nextUnit[item.id] = item.unit ?? "";
           }
         }
         setBpBox(nextBp);
         setCpBox(nextCp);
+        setUnitBox(nextUnit);
       });
   }, []);
 
@@ -89,6 +93,36 @@ export function RateCard() {
     });
     return () => { cancelled = true; };
   }, [load]);
+
+  // The unit is a LABEL — "per day", "per sqm", "per person" — and never a
+  // multiplier: a line's amount is always quantity x days x unitPrice. It is
+  // editable here because the founder now prices the same product two ways
+  // (a screen per day, a wall per sqm), and the label is what tells him which
+  // row he is looking at.
+  async function saveUnit(item: RateItem, raw: string) {
+    const unit = raw.trim();
+    if (!unit || unit === item.unit) {
+      setUnitBox((u) => ({ ...u, [item.id]: item.unit ?? "" }));
+      return;
+    }
+    setBusy((b) => ({ ...b, [item.id]: true }));
+    try {
+      const r = await fetch("/api/doz/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "catalogue_set_rates", itemId: item.id, unit }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      toast.success(`Unit set to ${unit}`);
+      await load();
+    } catch (e) {
+      setUnitBox((u) => ({ ...u, [item.id]: item.unit ?? "" }));
+      toast.error(e instanceof Error ? e.message : "Couldn't set that unit", { duration: 8000 });
+    } finally {
+      setBusy((b) => ({ ...b, [item.id]: false }));
+    }
+  }
 
   // Add, rename and remove a service without leaving the rate card. These
   // reuse the founder-only catalogue_* actions the Catalogue tab already
@@ -232,6 +266,9 @@ export function RateCard() {
               busy={busy}
               onBpChange={(id, v) => setBpBox((b) => ({ ...b, [id]: v }))}
               onCpChange={(id, v) => setCpBox((b) => ({ ...b, [id]: v }))}
+              unitBox={unitBox}
+              onUnitChange={(id, v) => setUnitBox((u) => ({ ...u, [id]: v }))}
+              onUnitBlur={(item) => saveUnit(item, unitBox[item.id] ?? "")}
               onBpBlur={(item) => commitField(item.id, "standardCost", bpBox[item.id] ?? "", item.standardCost)}
               onCpBlur={(item) => commitField(item.id, "standardClientRate", cpBox[item.id] ?? "", item.standardClientRate)}
               onApplySuggested={applySuggested}
@@ -249,17 +286,20 @@ export function RateCard() {
 }
 
 function DepartmentRates({
-  cat, bpBox, cpBox, busy, onBpChange, onCpChange, onBpBlur, onCpBlur, onApplySuggested,
+  cat, bpBox, cpBox, unitBox, busy, onBpChange, onCpChange, onUnitChange, onBpBlur, onCpBlur, onUnitBlur, onApplySuggested,
   newName, onNewNameChange, onAddItem, onRenameItem, onDeleteItem,
 }: {
   cat: RateCategory;
   bpBox: Record<string, string>;
   cpBox: Record<string, string>;
+  unitBox: Record<string, string>;
   busy: Record<string, boolean>;
   onBpChange: (id: string, v: string) => void;
   onCpChange: (id: string, v: string) => void;
+  onUnitChange: (id: string, v: string) => void;
   onBpBlur: (item: RateItem) => void;
   onCpBlur: (item: RateItem) => void;
+  onUnitBlur: (item: RateItem) => void;
   onApplySuggested: (id: string, suggested: number) => void;
   newName: string;
   onNewNameChange: (v: string) => void;
@@ -336,7 +376,17 @@ function DepartmentRates({
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
+                    <TableCell>
+                      <Input
+                        value={unitBox[item.id] ?? ""}
+                        onChange={(e) => onUnitChange(item.id, e.target.value)}
+                        onBlur={() => onUnitBlur(item)}
+                        disabled={rowBusy}
+                        placeholder="DAY"
+                        className="h-7 w-24 text-xs"
+                        aria-label={`Unit for ${item.name}`}
+                      />
+                    </TableCell>
                     <TableCell className="text-right">
                       <Input
                         type="number"
