@@ -125,3 +125,93 @@ export async function syncProjectBudget(
 export function hasAnyPrice(lines: ProjectCostLine[]): boolean {
   return lines.some((l) => Number(l.unitPrice) > 0);
 }
+
+// ============================================================
+// REVENUE — the total contract value, earned on acceptance
+//
+// The founder's sequence: "when client is ok with the quotation it can be
+// converted to an invoice, then the original project cost (budget) and Total
+// contract value is automatically calculated."
+//
+// In this system converting a quotation to an invoice IS accepting it — the
+// convert route is the only place that writes ACCEPTED. So the contract value
+// becomes known at exactly that moment, and it is the accepted quotation's
+// total.
+//
+// Renegotiation is normal here: Triple Helix moved from N12,117,400 to
+// N9,384,105 mid-conversation. So the authority is the MOST RECENTLY accepted
+// quotation, not the first — accepting a revised one re-stamps the project.
+// ============================================================
+
+export interface AcceptableQuotation {
+  status: string;
+  total: number;
+  /** When this quotation was last touched. Latest acceptance wins. */
+  updatedAt: Date | string;
+}
+
+/**
+ * The contract value a project should report, or null when no quotation has
+ * been accepted yet.
+ *
+ * Null is not zero. A project mid-negotiation has an unknown contract value,
+ * and saying "zero" would assert the client agreed to nothing.
+ */
+export function revenueFromQuotations(quotations: AcceptableQuotation[]): number | null {
+  const accepted = quotations
+    .filter((q) => q.status === "ACCEPTED")
+    .map((q) => ({ total: q.total, at: new Date(q.updatedAt).getTime() }))
+    .filter((q) => Number.isFinite(q.at));
+  if (accepted.length === 0) return null;
+  accepted.sort((a, b) => b.at - a.at);
+  const total = Number(accepted[0].total);
+  return Number.isFinite(total) ? Math.round(Math.max(0, total) * 100) / 100 : null;
+}
+
+interface RevenueSyncClient {
+  quotation: {
+    findMany(args: {
+      where: { projectId: string };
+      select: { status: true; total: true; updatedAt: true };
+    }): Promise<AcceptableQuotation[]>;
+  };
+  project: {
+    findUnique(args: {
+      where: { id: string };
+      select: { revenue: true };
+    }): Promise<{ revenue: number | null } | null>;
+    update(args: { where: { id: string }; data: { revenue: number } }): Promise<unknown>;
+  };
+}
+
+/**
+ * Recompute a project's contract value from its quotations and store it.
+ * Returns the figure, or null when it was deliberately left alone.
+ *
+ * Same rule as the budget: never replace a founder's estimate with a false
+ * zero. If no quotation has been accepted we do not know the contract value,
+ * and an existing figure is better than asserting nothing was agreed. Once a
+ * quotation is accepted its total becomes the authority, including if that is
+ * lower than the estimate — a renegotiated figure is the real one.
+ */
+export async function syncProjectRevenue(
+  client: RevenueSyncClient,
+  projectId: string,
+): Promise<number | null> {
+  const [quotations, project] = await Promise.all([
+    client.quotation.findMany({
+      where: { projectId },
+      select: { status: true, total: true, updatedAt: true },
+    }),
+    client.project.findUnique({ where: { id: projectId }, select: { revenue: true } }),
+  ]);
+
+  const revenue = revenueFromQuotations(quotations);
+  if (revenue === null) {
+    // Nothing accepted. Leave whatever is there rather than claim zero.
+    return null;
+  }
+  if (!budgetChanged(project?.revenue, revenue)) return revenue;
+  await client.project.update({ where: { id: projectId }, data: { revenue } });
+  return revenue;
+}

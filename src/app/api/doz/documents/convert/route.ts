@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
 import { computeTax } from "@/lib/document-math";
+import { syncProjectRevenue } from "@/lib/project-figures";
 
 /** Quotation accepted -> invoice, carrying every line across unchanged. */
 export async function POST(req: Request) {
@@ -81,6 +82,15 @@ export async function POST(req: Request) {
       where: { id: quote.id },
       data: { status: "ACCEPTED", convertedInvoiceId: created.id },
     });
+
+    // Converting IS accepting — this is the only place a quotation becomes
+    // ACCEPTED — so the contract value becomes known here and nowhere else.
+    // Inside the transaction, so a project can never report a figure from a
+    // conversion that then rolled back. Nothing accepted yet leaves the
+    // founder's estimate alone rather than asserting zero.
+    if (quote.projectId) {
+      await syncProjectRevenue(tx, quote.projectId);
+    }
     return created;
   });
 

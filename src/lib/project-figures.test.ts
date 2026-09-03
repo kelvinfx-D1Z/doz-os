@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectBudgetFrom, budgetChanged, hasAnyPrice } from "./project-figures.ts";
+import { projectBudgetFrom, budgetChanged, hasAnyPrice, revenueFromQuotations } from "./project-figures.ts";
 
 const line = (quantity: number, days: number, unitPrice: number) => ({ quantity, days, unitPrice });
 
@@ -73,4 +73,68 @@ test("hasAnyPrice distinguishes an unpriced sheet from a free one", () => {
   assert.equal(hasAnyPrice([]), false);
   assert.equal(hasAnyPrice([line(1, 1, 0), line(2, 3, 0)]), false);
   assert.equal(hasAnyPrice([line(1, 1, 0), line(1, 1, 150_000)]), true);
+});
+
+// ---- revenue: the accepted quotation's total ----
+
+const quote = (status: string, total: number, updatedAt: string) => ({ status, total, updatedAt });
+
+test("no accepted quotation means the contract value is unknown, not zero", () => {
+  // Null, never 0. Zero would assert the client agreed to nothing.
+  assert.equal(revenueFromQuotations([]), null);
+  assert.equal(revenueFromQuotations([quote("DRAFT", 9_384_105, "2026-09-02")]), null);
+  assert.equal(revenueFromQuotations([quote("SENT", 9_384_105, "2026-09-02")]), null);
+  assert.equal(revenueFromQuotations([quote("DECLINED", 5_000_000, "2026-09-02")]), null);
+  assert.equal(revenueFromQuotations([quote("EXPIRED", 5_000_000, "2026-09-02")]), null);
+});
+
+test("an accepted quotation's total becomes the contract value", () => {
+  assert.equal(revenueFromQuotations([quote("ACCEPTED", 9_384_105, "2026-09-02")]), 9_384_105);
+});
+
+test("RENEGOTIATION: the most recently accepted quotation wins", () => {
+  // Triple Helix moved from N12,117,400 to N9,384,105 mid-conversation.
+  // Accepting the revised one must re-stamp the project, not be ignored
+  // because an earlier one was accepted first.
+  const quotes = [
+    quote("ACCEPTED", 12_117_400, "2026-08-29T09:18:00Z"),
+    quote("ACCEPTED", 9_384_105, "2026-09-02T16:34:00Z"),
+  ];
+  assert.equal(revenueFromQuotations(quotes), 9_384_105);
+  assert.equal(revenueFromQuotations(quotes.slice().reverse()), 9_384_105, "order of the array must not matter");
+});
+
+test("a renegotiated figure wins even when it is lower", () => {
+  const quotes = [
+    quote("ACCEPTED", 20_000_000, "2026-01-01T00:00:00Z"),
+    quote("ACCEPTED", 1_000_000, "2026-06-01T00:00:00Z"),
+  ];
+  assert.equal(revenueFromQuotations(quotes), 1_000_000);
+});
+
+test("drafts and declines alongside an acceptance are ignored", () => {
+  const quotes = [
+    quote("DRAFT", 99_000_000, "2026-09-03T00:00:00Z"),
+    quote("DECLINED", 50_000_000, "2026-09-03T00:00:00Z"),
+    quote("ACCEPTED", 9_384_105, "2026-09-02T00:00:00Z"),
+  ];
+  assert.equal(revenueFromQuotations(quotes), 9_384_105);
+});
+
+test("a genuinely free accepted job reports zero, not unknown", () => {
+  // 0 here is a real agreed figure — the distinction the rest of this
+  // codebase lives by. Null means nothing was accepted; 0 means nothing owed.
+  assert.equal(revenueFromQuotations([quote("ACCEPTED", 0, "2026-09-02")]), 0);
+});
+
+test("an unparseable timestamp does not become the winner", () => {
+  const quotes = [
+    quote("ACCEPTED", 9_384_105, "2026-09-02T00:00:00Z"),
+    quote("ACCEPTED", 999_999_999, "not a date"),
+  ];
+  assert.equal(revenueFromQuotations(quotes), 9_384_105);
+});
+
+test("a negative total cannot become a contract value", () => {
+  assert.equal(revenueFromQuotations([quote("ACCEPTED", -500_000, "2026-09-02")]), 0);
 });

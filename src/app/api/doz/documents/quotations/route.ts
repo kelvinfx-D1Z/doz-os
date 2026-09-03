@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSessionUser, canIssueDocuments } from "@/lib/auth";
 import { nextDocumentCode } from "@/lib/document-code";
 import { duplicateQuotationData, duplicateLines, nextCopyTitle, stripCopySuffix } from "@/lib/document-duplicate";
+import { syncProjectRevenue } from "@/lib/project-figures";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
 import {
@@ -377,7 +378,13 @@ export async function PATCH(req: Request) {
       if (flipped.count === 0) {
         throw new StatusConflictError(STATUS_CONFLICT_MESSAGE);
       }
-      return tx.quotation.findUnique({ where: { id: body.quotationId } });
+      const after = await tx.quotation.findUnique({ where: { id: body.quotationId } });
+      // Accepting by hand stamps the contract value too, so this path and
+      // convert-to-invoice can never disagree about what the client agreed to.
+      if (after?.projectId && after.status === "ACCEPTED") {
+        await syncProjectRevenue(tx, after.projectId);
+      }
+      return after;
     });
   } catch (e) {
     if (e instanceof StatusConflictError) {
