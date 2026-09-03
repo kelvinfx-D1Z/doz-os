@@ -67,3 +67,8 @@ db/backups/
 /examples
 # Subagent-driven development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Local backups taken before destructive cleanups. They contain user records
+# and password hashes and must never be committed — two of them were, by an
+# over-broad `git add -A`, and had to be untracked afterwards.
+deleted-demo-*.json
