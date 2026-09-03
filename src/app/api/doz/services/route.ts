@@ -419,6 +419,47 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // CLEAR A BUDGET — "delete" as the founder means it on the Budgets tab. A
+  // budget IS the project's cost lines, so emptying the sheet is what removes
+  // it from that list. The project itself survives, and so do its quotations,
+  // invoices and everything else hanging off it; deleting the project is a
+  // separate, far heavier action that already exists in Projects & Events.
+  //
+  // FOUNDER-only, matching the project delete's own reasoning: a cost sheet is
+  // the company's record of what a job costs, and a project's manager can be
+  // any role.
+  if (body.action === "clear_budget") {
+    if (user.role !== "FOUNDER") {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    if (!body.projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+    const project = await db.project.findUnique({
+      where: { id: String(body.projectId) },
+      select: { id: true, name: true, pricingStage: true },
+    });
+    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+
+    // A priced budget is what a live quotation was built from. Clearing it
+    // would strip the cost out from under prices the client may already have
+    // seen, leaving a margin computed against nothing. Reopening first is a
+    // deliberate act; this refuses rather than doing it silently.
+    if (project.pricingStage === "OFFICIAL") {
+      return NextResponse.json(
+        { error: "This budget has been priced. Reopen it for edits first, then clear it." },
+        { status: 409 },
+      );
+    }
+
+    const removed = await db.projectService.deleteMany({ where: { projectId: project.id } });
+    await syncProjectBudget(db, project.id);
+    try {
+      await db.activityLog.create({
+        data: { userId: user.id, action: "CLEARED_BUDGET", detail: `Cleared ${removed.count} cost line(s) from ${project.name}` },
+      });
+    } catch {}
+    return NextResponse.json({ ok: true, removed: removed.count });
+  }
+
   if (body.action === "catalogue_add_item") {
     if (!body.categoryId) return NextResponse.json({ error: "categoryId required" }, { status: 400 });
     const name = String(body.name || "").trim();

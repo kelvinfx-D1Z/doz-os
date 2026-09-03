@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { EmptyState, StatusBadge } from "@/components/doz/ui-primitives";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN } from "@/lib/format";
-import { Wallet, FileText, Plus } from "lucide-react";
+import { Wallet, FileText, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { ServicesSection, deriveBudgetState, NewProjectDialog, type BudgetState } from "@/components/modules/projects-events";
 import { MarkupPanel } from "@/components/modules/projects/markup-panel";
 
@@ -75,6 +76,7 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
   const [rows, setRows] = useState<BudgetRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openProject, setOpenProject] = useState<ProjectLite | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   // Starting a budget is where work begins now — the founder names the job and
   // picks the client, and the project is created behind it. He never meets a
   // blank project form asking for a cost and a contract value he cannot know
@@ -202,6 +204,39 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
 
   // A freshly started budget lands straight on its cost sheet, which is the
   // whole point: the founder came here to build one, not to admire a row.
+  // "Delete" on a budget means empty its cost sheet — a budget IS the
+  // project's cost lines, so clearing them is what takes it off this list. The
+  // project, its quotations and its invoices all survive; deleting a project
+  // outright is a separate action in Projects & Events.
+  async function clearBudget(row: BudgetRow) {
+    const ok = window.confirm(
+      `Delete the budget for "${row.project.name}"?\n\n` +
+        `This removes its ${row.lineCount} cost line${row.lineCount === 1 ? "" : "s"} ` +
+        `(${formatNGN(row.baseTotal)}). The project itself stays, along with any ` +
+        `quotations and invoices already raised from it.\n\nThis cannot be undone.`,
+    );
+    if (!ok) return;
+    setBusyId(row.project.id);
+    try {
+      const r = await fetch("/api/doz/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_budget", projectId: row.project.id }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
+      toast.success(`Budget cleared — ${j.removed} line${j.removed === 1 ? "" : "s"} removed`);
+      await load();
+    } catch (e) {
+      toast.error("Couldn't delete that budget", {
+        description: e instanceof Error ? e.message : undefined,
+        duration: 8000,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-3">
       {canStartBudget && (
@@ -220,7 +255,13 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
         />
       ) : (
         rows.map((row) => (
-          <BudgetRowCard key={row.project.id} row={row} onOpen={() => setOpenProject(row.project)} />
+          <BudgetRowCard
+            key={row.project.id}
+            row={row}
+            onOpen={() => setOpenProject(row.project)}
+            onDelete={canStartBudget ? () => clearBudget(row) : undefined}
+            busy={busyId === row.project.id}
+          />
         ))
       )}
 
@@ -264,7 +305,12 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
   );
 }
 
-function BudgetRowCard({ row, onOpen }: { row: BudgetRow; onOpen: () => void }) {
+function BudgetRowCard({ row, onOpen, onDelete, busy }: {
+  row: BudgetRow;
+  onOpen: () => void;
+  onDelete?: () => void;
+  busy?: boolean;
+}) {
   const { project, lineCount, baseTotal, state } = row;
   return (
     <Card
@@ -285,9 +331,23 @@ function BudgetRowCard({ row, onOpen }: { row: BudgetRow; onOpen: () => void }) 
             {project.manager && ` · PM: ${project.manager.name}`}
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-lg font-bold tracking-tight">{formatNGN(baseTotal)}</p>
-          <p className="text-[10px] text-muted-foreground">base cost</p>
+        <div className="flex items-start gap-3">
+          <div className="text-right">
+            <p className="text-lg font-bold tracking-tight">{formatNGN(baseTotal)}</p>
+            <p className="text-[10px] text-muted-foreground">base cost</p>
+          </div>
+          {onDelete && (
+            <button
+              type="button"
+              aria-label={`Delete the budget for ${project.name}`}
+              disabled={busy}
+              // stopPropagation: the whole card opens the budget on click.
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="mt-1 text-muted-foreground/50 transition-colors hover:text-destructive disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </Card>
