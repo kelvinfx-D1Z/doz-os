@@ -173,10 +173,11 @@ export function MarkupPanel({
   function handleConvert() {
     if (!data || lines.length === 0) return;
     const ok = window.confirm(
-      "Convert to Official Price?\n\n" +
+      "Send this budget for approval?\n\n" +
         "This closes the cost sheet to the production manager — they will " +
         "not be able to add or edit services until you reopen it. The " +
-        "prices shown now become what the client is charged.\n\n" +
+        "prices shown now become what the client is charged, and the budget " +
+        "is ready to become a quotation.\n\n" +
         "You can undo this later with Reopen for edits.",
     );
     if (!ok) return;
@@ -381,7 +382,7 @@ export function MarkupPanel({
       <div className="mt-3 flex justify-end gap-2">
         {stage === "BASE" ? (
           <Button size="sm" onClick={handleConvert} disabled={converting || lines.length === 0}>
-            {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Convert to Official Price"}
+            {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send for approval"}
           </Button>
         ) : (
           <Button size="sm" variant="outline" onClick={handleReopen} disabled={reopening}>

@@ -123,6 +123,13 @@ export function DocumentsModule() {
   // with that project already chosen. Cleared whenever the builder closes,
   // so the plain "New document" button never inherits a stale preselection.
   const [quotationProjectId, setQuotationProjectId] = useState<string | undefined>(undefined);
+
+  // The founder does not always come at this from the Budgets tab. He may be
+  // looking at his quotations and want to raise the next one from a budget he
+  // has already priced, so the picker lives here too rather than making him
+  // navigate away and come back.
+  const [budgetPickerOpen, setBudgetPickerOpen] = useState(false);
+  const [pickable, setPickable] = useState<{ id: string; name: string; code: string | null; pricingStage: string }[] | null>(null);
   // Set only by a DRAFT quotation's own "Edit" action. Mutually exclusive
   // with quotationProjectId in practice (Edit opens on an existing
   // quotation, not a fresh one), and cleared the same way: whenever the
@@ -157,6 +164,15 @@ export function DocumentsModule() {
   // Budgets' "Create quotation" hand-off — the step that closes the
   // founder's gap: land in the document builder with the project already
   // chosen, rather than an empty picker he has to remember to fill in.
+  function openBudgetPicker() {
+    setBudgetPickerOpen(true);
+    setPickable(null);
+    fetch("/api/doz/projects")
+      .then((r) => r.json())
+      .then((d) => setPickable(d?.projects ?? []))
+      .catch(() => setPickable([]));
+  }
+
   function openQuotationBuilderFor(projectId: string) {
     setQuotationProjectId(projectId);
     setBuilderOpen(true);
@@ -327,9 +343,16 @@ export function DocumentsModule() {
         title="Documents"
         description="Quotations, invoices and receipts — issued from the same numbers Finance already tracks"
         action={
-          <Button className="gap-1.5" onClick={() => setBuilderOpen(true)}>
-            <Plus className="h-4 w-4" /> New document
-          </Button>
+          <div className="flex gap-2">
+            {isFounder && (
+              <Button variant="outline" className="gap-1.5" onClick={openBudgetPicker}>
+                <Wallet className="h-4 w-4" /> From a budget
+              </Button>
+            )}
+            <Button className="gap-1.5" onClick={() => setBuilderOpen(true)}>
+              <Plus className="h-4 w-4" /> New document
+            </Button>
+          </div>
         }
       />
 
@@ -414,6 +437,46 @@ export function DocumentsModule() {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={budgetPickerOpen} onOpenChange={setBudgetPickerOpen}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Quote from a budget</DialogTitle>
+            <DialogDescription>
+              A priced budget carries its lines straight into the quotation. One
+              still on its cost sheet has no client prices to bring.
+            </DialogDescription>
+          </DialogHeader>
+          {pickable === null ? (
+            <Skeleton className="h-24 w-full" />
+          ) : pickable.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No projects yet.</p>
+          ) : (
+            <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+              {pickable.map((p) => {
+                const priced = p.pricingStage === "OFFICIAL";
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={!priced}
+                    onClick={() => { setBudgetPickerOpen(false); openQuotationBuilderFor(p.id); }}
+                    className="flex w-full items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-left text-sm enabled:hover:bg-muted/50 disabled:opacity-50"
+                  >
+                    <span className="min-w-0 truncate">
+                      {p.code && <span className="mr-2 font-mono text-[10px] text-muted-foreground">{p.code}</span>}
+                      {p.name}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {priced ? "Priced — ready" : "Send for approval first"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <DocumentBuilder
         // Forces a fresh mount whenever the preselected project changes, or
