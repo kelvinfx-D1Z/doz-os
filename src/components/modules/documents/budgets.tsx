@@ -337,7 +337,7 @@ function BudgetDialog({
       {/* Price it — founder-only, exactly like Projects & Events. Never even
           attempts to render for anyone else (MarkupPanel enforces this
           itself), so a PM never sees client price alongside their cost. */}
-      {isFounder && <MarkupPanel projectId={project.id} onChanged={onProjectChanged} />}
+      {isFounder && <MarkupPanel projectId={project.id} onChanged={onProjectChanged} variant="budget" />}
 
       <div className="mt-4 rounded-lg border border-border p-4">
         {project.pricingStage !== "OFFICIAL" ? (

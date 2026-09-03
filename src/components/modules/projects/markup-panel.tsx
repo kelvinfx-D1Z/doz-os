@@ -88,10 +88,27 @@ function inputsFromLines(lines: PricingLine[]): PriceInputs {
 export function MarkupPanel({
   projectId,
   onChanged,
+  variant = "full",
 }: {
   projectId: string;
   onChanged?: () => void;
+  /**
+   * "budget" strips this back to what a budget actually is: cost.
+   *
+   * A budget is internal — what the job costs D1Z — and pricing it is a
+   * separate act. Showing the client rate, the markup that produced it and the
+   * margin alongside the cost sheet invites the founder to read a budget as a
+   * quotation. So the budget view keeps Service, Section, Qty, Days and Cost,
+   * and the Convert button; the client rate, the markup caption, the official
+   * total and both margin figures belong to the pricing view only.
+   *
+   * Converting from here still prices every line — the server falls back to
+   * the published rate, then the markup, for any line without an explicit
+   * figure (see resolveConvertPrice).
+   */
+  variant?: "full" | "budget";
 }) {
+  const budgetView = variant === "budget";
   const { user } = useCurrentUser();
   const [data, setData] = useState<PricingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -258,9 +275,9 @@ export function MarkupPanel({
                 <TableHead>Section</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Days</TableHead>
-                <TableHead className="text-right">BP (cost)</TableHead>
-                <TableHead className="text-right">CP (client rate)</TableHead>
-                <TableHead className="text-right">CP Total</TableHead>
+                <TableHead className="text-right">{budgetView ? "Cost" : "BP (cost)"}</TableHead>
+                {!budgetView && <TableHead className="text-right">CP (client rate)</TableHead>}
+                {!budgetView && <TableHead className="text-right">CP Total</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -281,6 +298,7 @@ export function MarkupPanel({
                     <TableCell className="text-right text-xs">{l.quantity}</TableCell>
                     <TableCell className="text-right text-xs">{l.days}</TableCell>
                     <TableCell className="text-right font-mono text-xs">{formatNGN(l.unitPrice)}</TableCell>
+                    {!budgetView && (
                     <TableCell className="text-right">
                       <Input
                         type="number"
@@ -306,9 +324,12 @@ export function MarkupPanel({
                           : `×${markupFor(l.section).toFixed(2)} markup ${formatNGN(l.suggested)}`}
                       </p>
                     </TableCell>
+                    )}
+                    {!budgetView && (
                     <TableCell className="text-right font-mono text-xs font-semibold">
                       {cp === null ? "—" : formatNGN(lineTotal({ quantity: l.quantity, days: l.days, price: cp }))}
                     </TableCell>
+                    )}
                   </TableRow>
                 );
               })}
@@ -317,11 +338,15 @@ export function MarkupPanel({
         </div>
       )}
 
-      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+      <div className={`mt-3 grid gap-2 text-center ${budgetView ? "grid-cols-1" : "grid-cols-4"}`}>
         <div className="rounded-lg bg-muted/30 p-2">
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Base Total</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
+            {budgetView ? "Total Cost" : "Base Total"}
+          </p>
           <p className="text-sm font-bold">{formatNGN(baseTotal)}</p>
         </div>
+        {!budgetView && (
+        <>
         <div className="rounded-lg bg-muted/30 p-2">
           <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Official Total</p>
           <p className="text-sm font-bold text-primary">{formatNGN(officialTotalLocal)}</p>
@@ -338,9 +363,11 @@ export function MarkupPanel({
             {margin.percent.toFixed(1)}%
           </p>
         </div>
+        </>
+        )}
       </div>
 
-      {unpricedCount > 0 && (
+      {!budgetView && unpricedCount > 0 && (
         <p className="mt-2 text-center text-[10px] text-amber-400">
           {unpricedCount} line{unpricedCount === 1 ? "" : "s"} not yet priced —{" "}
           {editable

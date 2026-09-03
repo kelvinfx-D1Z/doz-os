@@ -540,7 +540,14 @@ export function DocumentBuilder({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[760px]">
+      <DialogContent
+        className="max-h-[94vh] w-[97vw] overflow-y-auto"
+        // Inline for the same reason as the budget dialog: DialogContent's own
+        // sm:max-w-lg beats a base-level max-w-* from className. 760px was not
+        // wide enough for a line-item table with description, sub-description,
+        // quantity, days, rate and amount.
+        style={{ maxWidth: "min(1500px, 97vw)" }}
+      >
         <DialogHeader>
           <DialogTitle>{isEditing ? `Edit ${initialQuotation?.code}` : "New document"}</DialogTitle>
           <DialogDescription>
