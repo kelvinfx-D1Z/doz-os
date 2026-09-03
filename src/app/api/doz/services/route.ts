@@ -439,25 +439,38 @@ export async function POST(req: Request) {
     });
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-    // A priced budget is what a live quotation was built from. Clearing it
-    // would strip the cost out from under prices the client may already have
-    // seen, leaving a margin computed against nothing. Reopening first is a
-    // deliberate act; this refuses rather than doing it silently.
-    if (project.pricingStage === "OFFICIAL") {
-      return NextResponse.json(
-        { error: "This budget has been priced. Reopen it for edits first, then clear it." },
-        { status: 409 },
-      );
-    }
+    // A priced budget is reset, not refused. Making the founder go and find
+    // "Reopen for edits" first was friction with nothing behind it — the two
+    // acts always went together, and he asked to be able to start again.
+    //
+    // Reopening is folded in: the stage returns to BASE and the conversion
+    // stamps are cleared, so the project reads as an unpriced budget again
+    // rather than an OFFICIAL one with an empty sheet, which no screen in the
+    // app knows how to show honestly.
+    //
+    // Quotations and invoices already raised are NOT touched. They record what
+    // was sent to a client and remain true whatever happens to the cost sheet
+    // afterwards; the caller is told how many exist so it can say so.
+    const wasPriced = project.pricingStage === "OFFICIAL";
+    const documents = await db.quotation.count({ where: { projectId: project.id } });
 
-    const removed = await db.projectService.deleteMany({ where: { projectId: project.id } });
+    const removed = await db.$transaction(async (tx) => {
+      const del = await tx.projectService.deleteMany({ where: { projectId: project.id } });
+      if (wasPriced) {
+        await tx.project.update({
+          where: { id: project.id },
+          data: { pricingStage: "BASE", convertedToOfficialAt: null, convertedById: null },
+        });
+      }
+      return del;
+    }, { timeout: 30_000 });
     await syncProjectBudget(db, project.id);
     try {
       await db.activityLog.create({
-        data: { userId: user.id, action: "CLEARED_BUDGET", detail: `Cleared ${removed.count} cost line(s) from ${project.name}` },
+        data: { userId: user.id, action: "CLEARED_BUDGET", detail: `Reset ${project.name} — ${removed.count} cost line(s) removed${wasPriced ? ", reopened from OFFICIAL" : ""}` },
       });
     } catch {}
-    return NextResponse.json({ ok: true, removed: removed.count });
+    return NextResponse.json({ ok: true, removed: removed.count, reopened: wasPriced, documents });
   }
 
   if (body.action === "catalogue_add_item") {

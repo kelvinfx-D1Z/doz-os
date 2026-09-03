@@ -209,11 +209,17 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
   // project, its quotations and its invoices all survive; deleting a project
   // outright is a separate action in Projects & Events.
   async function clearBudget(row: BudgetRow) {
+    const priced = row.project.pricingStage === "OFFICIAL";
     const ok = window.confirm(
-      `Delete the budget for "${row.project.name}"?\n\n` +
+      `Reset the budget for "${row.project.name}"?\n\n` +
         `This removes its ${row.lineCount} cost line${row.lineCount === 1 ? "" : "s"} ` +
-        `(${formatNGN(row.baseTotal)}). The project itself stays, along with any ` +
-        `quotations and invoices already raised from it.\n\nThis cannot be undone.`,
+        `(${formatNGN(row.baseTotal)}) so you can build it again from scratch.\n\n` +
+        (priced
+          ? "It has been priced, so this also undoes that and reopens it as a budget. " +
+            "Any quotation already raised keeps the figures it was raised with.\n\n"
+          : "The project itself stays, along with any quotations and invoices " +
+            "already raised from it.\n\n") +
+        "This cannot be undone.",
     );
     if (!ok) return;
     setBusyId(row.project.id);
@@ -225,10 +231,21 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
       });
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(j?.error || `Failed (${r.status})`);
-      toast.success(`Budget cleared — ${j.removed} line${j.removed === 1 ? "" : "s"} removed`);
+      toast.success(
+        `Budget reset — ${j.removed} line${j.removed === 1 ? "" : "s"} removed`,
+        {
+          description: [
+            j.reopened ? "Pricing undone; it is a budget again." : null,
+            j.documents > 0
+              ? `${j.documents} quotation${j.documents === 1 ? "" : "s"} kept — a sent document still says what it said.`
+              : null,
+          ].filter(Boolean).join(" ") || undefined,
+          duration: j.reopened || j.documents > 0 ? 9000 : 5000,
+        },
+      );
       await load();
     } catch (e) {
-      toast.error("Couldn't delete that budget", {
+      toast.error("Couldn't reset that budget", {
         description: e instanceof Error ? e.message : undefined,
         duration: 8000,
       });
@@ -339,7 +356,7 @@ function BudgetRowCard({ row, onOpen, onDelete, busy }: {
           {onDelete && (
             <button
               type="button"
-              aria-label={`Delete the budget for ${project.name}`}
+              aria-label={`Reset the budget for ${project.name}`}
               disabled={busy}
               // stopPropagation: the whole card opens the budget on click.
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
