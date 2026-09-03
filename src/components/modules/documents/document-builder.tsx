@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -20,6 +20,7 @@ import { applyGrossUp } from "@/lib/document-request";
 import { ClientSelect } from "@/components/modules/projects-events";
 import { DescriptionCombobox, type ServiceCatalogueCategory } from "@/components/modules/documents/description-combobox";
 import { SectionCombobox } from "@/components/modules/documents/section-combobox";
+import { buildRateCardIndex, resolvePublishedRate } from "@/lib/pricing";
 
 // The document builder — one dialog, two outcomes (quotation or invoice).
 // Every number shown here comes from the same pure helpers the API uses
@@ -180,6 +181,27 @@ export function DocumentBuilder({
     initialQuotation ? linesFromQuotation(initialQuotation) : [emptyLine()],
   );
   const [serviceCatalogue, setServiceCatalogue] = useState<ServiceCatalogueCategory[] | null>(null);
+
+  // A quotation is priced at CP — what the client pays — so picking a service
+  // here fills in the rate card's client rate, exactly as picking one on a
+  // budget line fills in its cost. Same index and same matching rule the
+  // pricing route uses (name + department, case- and whitespace-insensitive,
+  // ambiguous duplicates deliberately unresolved), so a figure suggested here
+  // and one suggested there can never disagree.
+  const rateIndex = useMemo(
+    () =>
+      buildRateCardIndex(
+        (serviceCatalogue ?? []).flatMap((c) =>
+          c.items.map((i) => ({
+            name: i.name,
+            category: c.name,
+            standardClientRate: i.standardClientRate,
+          })),
+        ),
+      ),
+    [serviceCatalogue],
+  );
+
   const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">(
     initialQuotation?.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
   );
@@ -637,15 +659,24 @@ export function DocumentBuilder({
                           <DescriptionCombobox
                             value={l.description}
                             onChange={(description) => updateLine(l.key, { description })}
-                            onPick={(description, section) =>
+                            onPick={(description, section) => {
+                              const dept = l.section.trim() || section;
+                              const cp = resolvePublishedRate(rateIndex, description, dept);
                               updateLine(l.key, {
                                 description,
                                 // Back-fill only when Section is still empty —
                                 // once the founder has set it, picking a
                                 // description must not overwrite their choice.
                                 ...(l.section.trim() ? {} : { section }),
-                              })
-                            }
+                                // The published client rate, when there is one.
+                                // undefined means unpriced, not allowed, or two
+                                // catalogue rows disagreeing — in every one of
+                                // those the founder's own figure stands rather
+                                // than being replaced by a guess. A published 0
+                                // IS filled: a complimentary line is a decision.
+                                ...(cp !== undefined ? { unitPrice: String(cp) } : {}),
+                              });
+                            }}
                             categories={serviceCatalogue}
                             section={l.section}
                             placeholder="Description"

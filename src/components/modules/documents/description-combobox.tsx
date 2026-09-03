@@ -10,7 +10,18 @@ export type ServiceCatalogueCategory = {
   id: string;
   name: string;
   icon?: string | null;
-  items: { id: string; name: string }[];
+  items: {
+    id: string;
+    name: string;
+    /**
+     * CP — what the client is charged. Founder-only: /api/doz/services omits
+     * the key entirely for every other role, so `undefined` here means "not
+     * allowed to see it" and `null` means "not priced yet". Neither is 0,
+     * which is a real complimentary price.
+     */
+    standardClientRate?: number | null;
+    unit?: string;
+  }[];
 };
 
 // Shared popover/keyboard mechanics for a free-typeable field that suggests
