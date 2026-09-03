@@ -306,7 +306,15 @@ function BudgetDialog({
   // max-w-2xl the columns wrapped and the founder could not scan a budget for
   // the wrong number, which is the one thing this screen exists to let him do.
   return (
-    <DialogContent className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto">
+    <DialogContent
+      className="max-h-[94vh] w-[97vw] overflow-y-auto"
+      // maxWidth is set inline on purpose. DialogContent carries `sm:max-w-lg`
+      // of its own, and a responsive variant beats any base-level max-w-*
+      // utility passed in via className — so widening it with a class silently
+      // did nothing above 640px, which is every screen this is used on. An
+      // inline style is the one thing that reliably wins.
+      style={{ maxWidth: "min(1600px, 97vw)" }}
+    >
       <DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
           {project.code && (
