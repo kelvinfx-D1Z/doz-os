@@ -883,7 +883,10 @@ export function ClientSelect({
 // anywhere (they can't see budget, cost or profit), and it lands PENDING for
 // the founder to approve. Both get the service tick-list, so a new project
 // starts as a real cost sheet instead of an empty shell.
-function NewProjectDialog({
+// Exported so the Budgets tab can open it as "New Budget". One dialog, not
+// two: a budget and a project are the same record — the budget IS the
+// project's cost sheet — and a second creation form would drift from this one.
+export function NewProjectDialog({
   open,
   onOpenChange,
   onCreated,
@@ -891,10 +894,12 @@ function NewProjectDialog({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onCreated: () => void;
-  mode?: "create" | "propose";
+  /** Receives the created project so a caller can go straight to its sheet. */
+  onCreated: (project?: { id: string; name: string }) => void;
+  mode?: "create" | "propose" | "budget";
 }) {
   const proposing = mode === "propose";
+  const budgeting = mode === "budget";
   const [services, setServices] = useState<Set<string>>(new Set());
   const [templates, setTemplates] = useState<EventTemplateOption[]>([]);
   const [templateId, setTemplateId] = useState<string>("");
@@ -976,16 +981,16 @@ function NewProjectDialog({
       if (!res.ok || !json?.project) {
         throw new Error(json?.error || `Failed (${res.status})`);
       }
-      toast.success(proposing ? "Sent to the founder for approval" : "Project created", {
+      toast.success(proposing ? "Sent to the founder for approval" : budgeting ? "Budget started" : "Project created", {
         description: proposing
           ? `${json.project.name} — ${services.size} service line(s). You'll see it once it's approved.`
           : `${json.project.name} (${json.project.code ?? "no code"})`,
         duration: proposing ? 8000 : 4000,
       });
+      onCreated(json.project ? { id: json.project.id, name: json.project.name } : undefined);
       onOpenChange(false);
-      onCreated();
     } catch (err) {
-      toast.error(proposing ? "Couldn't send that proposal" : "Couldn't create project", {
+      toast.error(proposing ? "Couldn't send that proposal" : budgeting ? "Couldn't start that budget" : "Couldn't create project", {
         description: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
@@ -999,7 +1004,7 @@ function NewProjectDialog({
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Plus className="h-4 w-4 text-primary" />
-            {proposing ? "Propose a New Project" : "Create New Project"}
+            {proposing ? "Propose a New Project" : budgeting ? "New Budget" : "Create New Project"}
           </DialogTitle>
           <p className="text-xs text-muted-foreground">
             {proposing
@@ -1199,12 +1204,12 @@ function NewProjectDialog({
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  {proposing ? "Sending…" : "Creating…"}
+                  {proposing ? "Sending…" : budgeting ? "Starting…" : "Creating…"}
                 </>
               ) : (
                 <>
                   <Plus className="h-4 w-4" />
-                  {proposing ? "Send for Approval" : "Create Project"}
+                  {proposing ? "Send for Approval" : budgeting ? "Start budget" : "Create Project"}
                 </>
               )}
             </Button>

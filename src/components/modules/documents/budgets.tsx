@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { EmptyState, StatusBadge } from "@/components/doz/ui-primitives";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN } from "@/lib/format";
-import { Wallet, FileText } from "lucide-react";
-import { ServicesSection, deriveBudgetState, type BudgetState } from "@/components/modules/projects-events";
+import { Wallet, FileText, Plus } from "lucide-react";
+import { ServicesSection, deriveBudgetState, NewProjectDialog, type BudgetState } from "@/components/modules/projects-events";
 import { MarkupPanel } from "@/components/modules/projects/markup-panel";
 
 // Budgets — the first document in the chain (Budget -> Quotation -> Invoice
@@ -66,9 +66,21 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
     user?.role === "PRODUCTION_MANAGER" ||
     user?.role === "FREELANCER";
 
+  // Who may START one. The founder's own rule — a budget is built "by founder
+  // or production manager" — so a freelancer who can read their own project's
+  // sheet still does not open new work.
+  const canStartBudget =
+    user?.role === "FOUNDER" || user?.role === "STAFF" || user?.role === "PRODUCTION_MANAGER";
+
   const [rows, setRows] = useState<BudgetRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openProject, setOpenProject] = useState<ProjectLite | null>(null);
+  // Starting a budget is where work begins now — the founder names the job and
+  // picks the client, and the project is created behind it. He never meets a
+  // blank project form asking for a cost and a contract value he cannot know
+  // yet; both are earned later, from the cost sheet and from the quotation the
+  // client accepts.
+  const [newOpen, setNewOpen] = useState(false);
 
   // A plain function returning one promise chain (not `async`/`await`) so
   // every state update happens inside a `.then()`/`.catch()` continuation,
@@ -188,19 +200,52 @@ export function Budgets({ onCreateQuotation }: { onCreateQuotation: (projectId: 
     return <div className="space-y-3"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div>;
   }
 
+  // A freshly started budget lands straight on its cost sheet, which is the
+  // whole point: the founder came here to build one, not to admire a row.
   return (
     <div className="space-y-3">
+      {canStartBudget && (
+        <div className="flex justify-end">
+          <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)}>
+            <Plus className="h-3.5 w-3.5" /> New Budget
+          </Button>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <EmptyState
           icon={<Wallet className="h-8 w-8" />}
           title="No budgets yet"
-          hint="A budget appears here once a project's cost sheet has at least one line — add services from Projects & Events."
+          hint="Start one with New Budget — name the job, pick the client, then build its cost lines. The project is created for you."
         />
       ) : (
         rows.map((row) => (
           <BudgetRowCard key={row.project.id} row={row} onOpen={() => setOpenProject(row.project)} />
         ))
       )}
+
+      <NewProjectDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        mode="budget"
+        onCreated={(project) => {
+          // Straight onto the cost sheet — the founder came here to build one,
+          // not to admire a row. No need to wait for the reload to hand the
+          // project back: a budget that has just been created is always BASE,
+          // and the reload behind it fills in the rest.
+          if (project) {
+            setOpenProject({
+              id: project.id,
+              name: project.name,
+              code: null,
+              pricingStage: "BASE",
+              account: null,
+              manager: null,
+            });
+          }
+          void load();
+        }}
+      />
 
       <Dialog open={openProject !== null} onOpenChange={(open) => { if (!open) setOpenProject(null); }}>
         {openProject && (
