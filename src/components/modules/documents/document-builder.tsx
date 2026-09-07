@@ -414,7 +414,23 @@ export function DocumentBuilder({
   const discountNum = Number(discount) || 0;
   const vatRateNum = vatRate === "" ? VAT_RATE : Number(vatRate) || 0;
   const whtRateNum = government ? 5 : 0;
-  const currentSubtotal = sumLines(numericLines);
+  const targetNetNum = Number(grossUpTarget) || 0;
+  // The totals must describe the document that will actually be SAVED. When a
+  // gross-up target is set, the server scales every unit price before storing —
+  // so computing these from the typed lines showed the founder one figure while
+  // the small preview under the government checkbox showed another, and the
+  // saved invoice matched the preview. Two answers on one screen, and the
+  // prominent one was wrong: he typed a target, watched Subtotal not move, and
+  // reasonably concluded the field did nothing.
+  //
+  // Same two pure functions the server runs, in the same order, so the panel
+  // and the database cannot disagree.
+  const grossUpActive = government && targetNetNum > 0 && whtRateNum > 0;
+  const effectiveLines = grossUpActive
+    ? applyGrossUp(numericLines, targetNetNum, whtRateNum, discountNum).lines
+    : numericLines;
+  const typedSubtotal = sumLines(numericLines);
+  const currentSubtotal = sumLines(effectiveLines);
   const currentTax = computeTax({
     subtotal: currentSubtotal,
     discount: discountNum,
@@ -423,7 +439,6 @@ export function DocumentBuilder({
     vatWithheldAtSource: government,
   });
 
-  const targetNetNum = Number(grossUpTarget) || 0;
   // Preview the figure that will ACTUALLY BE STORED, not the un-rounded ideal.
   // The server runs applyGrossUp, which scales every unit price and then rounds
   // each one to the nearest 100 naira, so the stored total differs from the
@@ -837,6 +852,15 @@ export function DocumentBuilder({
               <span className="text-muted-foreground">Subtotal</span>
               <span>{naira(currentSubtotal)}</span>
             </div>
+            {/* Never silently restate what he typed as something else: when the
+                gross-up moves the subtotal, both figures are shown and the
+                reason named. */}
+            {grossUpActive && currentSubtotal !== typedSubtotal && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Grossed up from {naira(typedSubtotal)} to absorb {whtRateNum}% WHT</span>
+                <span>+{naira(currentSubtotal - typedSubtotal)}</span>
+              </div>
+            )}
             {discountNum > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Discount</span>
