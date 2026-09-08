@@ -97,7 +97,11 @@ export function ReceiptDoc({
       </div>
 
       <div className="doc-signs">
-        <SignatureRule label="For D1Z Technologies" />
+        <SignatureRule
+          label={`For ${company.legalName}`}
+          signature={company.signatureUrl}
+          signatureName={company.signatureName}
+        />
         <div className="doc-sign" />
       </div>
     </DocumentShell>

@@ -1515,6 +1515,16 @@ model CompanySettings {
   bankAccount   String?
   bankAccountName String?
   logoUrl       String?
+  // The founder's signature, stored as a base64 data URL rather than a file
+  // path. This app runs on Vercel, where the filesystem is ephemeral — a
+  // signature written to disk disappears on the next deploy, silently, and
+  // the documents that used it start printing an empty box. Held in the
+  // record it belongs to, it survives every deploy and travels with a
+  // database backup. A signature PNG is a few tens of kilobytes; the API
+  // caps it so this column cannot become a place to hide a large file.
+  signatureUrl  String?
+  /** Who is signing — printed under the rule, e.g. "Kelvin, Managing Director". */
+  signatureName String?
   defaultPaymentTerms String? @default("Payment due within 30 days of invoice date.")
   updatedAt     DateTime @updatedAt @default(now())
 }

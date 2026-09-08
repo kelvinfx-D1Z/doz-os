@@ -15,12 +15,14 @@ import { SectionHeader, EmptyState, StatusBadge } from "@/components/doz/ui-prim
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { formatNGN, formatDate } from "@/lib/format";
 import { collectableAmount, MONEY_EPSILON } from "@/lib/received-allocation";
-import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil, Copy, Wallet } from "lucide-react";
+import { isInvoiceContentEditable } from "@/lib/document-editability";
+import { FileText, Plus, Loader2, ExternalLink, ArrowRightLeft, Banknote, Trash2, Send, Receipt as ReceiptIcon, Pencil, Copy, Wallet, Building2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { DocumentBuilder } from "@/components/modules/documents/document-builder";
+import { DocumentBuilder, type EditableDocument } from "@/components/modules/documents/document-builder";
 import { CatalogueEditor } from "@/components/modules/documents/catalogue-editor";
 import { RateCard } from "@/components/modules/documents/rate-card";
 import { Budgets } from "@/components/modules/documents/budgets";
+import { CompanySettingsDialog } from "@/components/doz/company-settings-dialog";
 
 // Documents — quotations, invoices and receipts for clients. Reads/writes the
 // same Invoice rows Finance and the client portal already use; this is not a
@@ -77,6 +79,14 @@ export interface Invoice {
   amountPaid: number;
   whtRate: number;
   vatWithheldAtSource: boolean;
+  // Present on the row all along — the API returns the whole invoice — but
+  // only typed here once the builder needed to reopen one for editing.
+  eventStart: string | null;
+  eventEnd: string | null;
+  subtotal: number;
+  discount: number;
+  vatRate: number;
+  targetNet: number | null;
   detailLevel: string;
   dueDate: string | null;
   quotationId: string | null;
@@ -134,7 +144,39 @@ export function DocumentsModule() {
   // with quotationProjectId in practice (Edit opens on an existing
   // quotation, not a fresh one), and cleared the same way: whenever the
   // builder closes.
-  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
+  const [editingDocument, setEditingDocument] = useState<EditableDocument | null>(null);
+
+  // The header of every document — legal name, RC, TIN — and the payment
+  // block at the foot of an invoice come from one CompanySettings row. It
+  // was only reachable from the avatar menu, which is not where anyone is
+  // standing when they notice an invoice has no account number on it. So
+  // the way in lives here too, next to the documents it prints on.
+  const [companyOpen, setCompanyOpen] = useState(false);
+  // What the row is still missing, by label. Empty means nothing to warn
+  // about; null means we have not looked yet — not the same thing, so the
+  // banner does not flash on first paint.
+  const [companyGaps, setCompanyGaps] = useState<string[] | null>(null);
+
+  const loadCompany = useCallback(() => {
+    if (!isFounder) return;
+    fetch("/api/doz/company", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const c = j?.company;
+        if (!c) return;
+        const gaps: string[] = [];
+        // An invoice prints the payment block only when a bank detail
+        // exists, so a blank row means the client is asked to pay with
+        // nowhere to pay. That is the one worth interrupting for.
+        if (!c.bankName || !c.bankAccount || !c.bankAccountName) gaps.push("bank account");
+        if (!c.tin) gaps.push("TIN");
+        if (!c.rcNumber) gaps.push("RC number");
+        setCompanyGaps(gaps);
+      })
+      .catch(() => setCompanyGaps(null));
+  }, [isFounder]);
+
+  useEffect(() => { loadCompany(); }, [loadCompany]);
 
   const loadAll = useCallback(() => {
     return Promise.all([
@@ -180,11 +222,31 @@ export function DocumentsModule() {
 
   // The founder's own request: "i can't edit the quotation... i need to
   // edit it before sending." Reopens the same builder, prefilled from this
-  // quotation, saving back to it (PATCH) instead of minting a new one. Only
-  // ever called for a DRAFT — QuotationRow doesn't render the action
-  // otherwise, and the server refuses the content edit regardless.
+  // document, saving back to it (PATCH) instead of minting a new one.
+  //
+  // The row only renders the action where the edit is allowed, and the
+  // server refuses it regardless — a quotation must still be DRAFT, and an
+  // invoice must have no money recorded against it. See
+  // src/lib/document-editability.ts for why those two rules differ.
   function openEditQuotation(q: Quotation) {
-    setEditingQuotation(q);
+    setEditingDocument({ ...q, kind: "QUOTATION" });
+    setBuilderOpen(true);
+  }
+
+  // "in some cases we might still need to be able to edit the invoice, as
+  // there are last minute changes to a client's needs." Same builder, same
+  // grid, PATCHed back onto the same invoice number.
+  function openEditInvoice(inv: Invoice) {
+    setEditingDocument({
+      ...inv,
+      kind: "INVOICE",
+      // Every invoice has a code; the row types it nullable because the
+      // column is. Falling back to the id keeps the dialog title honest
+      // rather than reading "Edit undefined" if one ever arrived without.
+      code: inv.code ?? inv.id.slice(0, 8),
+      // An invoice has a due date, not a validity window.
+      validUntil: null,
+    });
     setBuilderOpen(true);
   }
 
@@ -345,6 +407,11 @@ export function DocumentsModule() {
         action={
           <div className="flex gap-2">
             {isFounder && (
+              <Button variant="outline" className="gap-1.5" onClick={() => setCompanyOpen(true)}>
+                <Building2 className="h-4 w-4" /> Company details
+              </Button>
+            )}
+            {isFounder && (
               <Button variant="outline" className="gap-1.5" onClick={openBudgetPicker}>
                 <Wallet className="h-4 w-4" /> From a budget
               </Button>
@@ -355,6 +422,25 @@ export function DocumentsModule() {
           </div>
         }
       />
+
+      {isFounder && companyGaps !== null && companyGaps.length > 0 && (
+        <Card className="flex items-start gap-3 border-amber-500/30 bg-amber-500/5 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              Your documents are printing without your {companyGaps.join(", ")}.
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {companyGaps.includes("bank account")
+                ? "An invoice with no bank details asks the client to pay with nowhere to pay it."
+                : "These print in the footer of every quotation, invoice and receipt."}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={() => setCompanyOpen(true)}>
+            <Building2 className="h-3.5 w-3.5" /> Fill them in
+          </Button>
+        </Card>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -408,6 +494,7 @@ export function DocumentsModule() {
                   onDelete={() => deleteInvoice(inv)}
                   onRecordPayment={() => setPaymentTarget(inv)}
                   onMarkSent={() => markSent("invoice", inv.id, inv.code ?? "Invoice")}
+                  onEdit={() => openEditInvoice(inv)}
                   onDuplicate={() => duplicate("invoice", inv.id, inv.code ?? "this invoice")}
                 />
               ))
@@ -437,6 +524,11 @@ export function DocumentsModule() {
           </TabsContent>
         )}
       </Tabs>
+
+      <CompanySettingsDialog
+        open={companyOpen}
+        onOpenChange={(v) => { setCompanyOpen(v); if (!v) loadCompany(); }}
+      />
 
       <Dialog open={budgetPickerOpen} onOpenChange={setBudgetPickerOpen}>
         <DialogContent className="sm:max-w-[560px]">
@@ -491,21 +583,24 @@ export function DocumentsModule() {
         // the fact. The plain "New document" flow never changes this key,
         // so it keeps behaving exactly as before: one persistent instance
         // across repeated opens.
-        key={editingQuotation ? `edit-${editingQuotation.id}` : (quotationProjectId ?? "__manual__")}
+        key={editingDocument ? `edit-${editingDocument.id}` : (quotationProjectId ?? "__manual__")}
         open={builderOpen}
         onOpenChange={(open) => {
           setBuilderOpen(open);
           if (!open) {
             setQuotationProjectId(undefined);
-            setEditingQuotation(null);
+            setEditingDocument(null);
           }
         }}
         onSaved={() => {
           loadAll().catch(() => {});
-          setActiveTab("quotations");
+          // Land on the tab the document actually lives on. Sending the
+          // founder to Quotations after editing an invoice would leave him
+          // looking for a change he could not see.
+          setActiveTab(editingDocument?.kind === "INVOICE" ? "invoices" : "quotations");
         }}
         initialProjectId={quotationProjectId}
-        initialQuotation={editingQuotation}
+        initialDocument={editingDocument}
       />
       <RecordPaymentDialog
         invoice={paymentTarget}
@@ -613,12 +708,15 @@ function QuotationRow({
 }
 
 function InvoiceRow({
-  inv, busy, onDelete, onRecordPayment, onMarkSent, onDuplicate,
-}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void; onMarkSent: () => void; onDuplicate: () => void }) {
+  inv, busy, onDelete, onRecordPayment, onMarkSent, onEdit, onDuplicate,
+}: { inv: Invoice; busy: boolean; onDelete: () => void; onRecordPayment: () => void; onMarkSent: () => void; onEdit: () => void; onDuplicate: () => void }) {
   const collectable = collectableAmount(inv);
   const balance = Math.max(0, collectable - inv.amountPaid);
   const canRecordPayment = inv.status !== "PAID" && balance > MONEY_EPSILON;
   const canDelete = inv.amountPaid <= 0;
+  // The same rule the server enforces, so the button is absent exactly when
+  // the write would be refused rather than offering an action that fails.
+  const canEdit = isInvoiceContentEditable(inv.status, inv.amountPaid);
 
   return (
     <Card className="p-4">
@@ -645,6 +743,16 @@ function InvoiceRow({
         <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => openDocument("invoice", inv.id)}>
           <ExternalLink className="h-3.5 w-3.5" /> Open
         </Button>
+        {canEdit && (
+          <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+            {/* Past DRAFT this rewrites a document the client already holds,
+                under the same number. Saying "Re-issue" rather than "Edit"
+                is the difference between a correction he meant to make and
+                one he did not realise he was making. */}
+            {inv.status === "DRAFT" ? "Edit" : "Re-issue"}
+          </Button>
+        )}
         {inv.status === "DRAFT" && (
           <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={busy} onClick={onMarkSent}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Mark as sent

@@ -53,3 +53,60 @@ export const CONTENT_LOCKED_MESSAGE =
 /** Message shown/returned when a status update would move a document back to DRAFT. */
 export const BACKWARD_TO_DRAFT_MESSAGE =
   "A quotation that has already been sent can't be moved back to DRAFT.";
+
+// ============================================================
+// AN INVOICE'S CONTENT
+//
+// The founder's case, in his words: "in some cases we might still need to
+// be able to edit the invoice, as there are last minute changes to a
+// client's needs, things are added or removed."
+//
+// That is real. An event's scope moves in the last week, and a small firm
+// re-issues the invoice rather than raising a credit note. So an invoice is
+// editable for longer than a quotation is — but not forever, and the line
+// is not drawn at status.
+//
+// THE LINE IS MONEY, NOT STATUS
+// Once any payment has been recorded, a Receipt row exists that names the
+// figures on this invoice, and Finance has allocated cash against it.
+// Rewriting the lines then leaves a receipt describing an invoice that no
+// longer says what it said — the client holds one document and the system
+// holds another. So `amountPaid > 0` locks the content outright, whatever
+// the status happens to read.
+//
+// Below that, SENT is deliberately still editable. Refusing it would be
+// tidier and would not match how this business runs: the founder emails
+// every document himself, and an invoice sent on Monday with a screen added
+// on Tuesday is re-sent, under the same number, as the same invoice. The
+// alternative he actually has is duplicating it, which mints a second
+// invoice number for one job — worse for his records than an honest edit.
+// ============================================================
+
+/** Every status an invoice can be in. */
+export const INVOICE_STATUSES = ["DRAFT", "SENT", "PARTIAL", "PAID", "OVERDUE"] as const;
+
+/**
+ * Whether an invoice's lines and header may still be rewritten.
+ *
+ * `amountPaid` is the only thing that truly locks it — see the note above.
+ * PAID is refused as well even at a zero recorded amount, because marking
+ * an invoice paid is a claim that the account is settled, and quietly
+ * changing what was owed after that is the one edit nobody could defend.
+ */
+export function isInvoiceContentEditable(status: string, amountPaid: number): boolean {
+  if (Number(amountPaid) > 0) return false;
+  if (status === "PAID" || status === "PARTIAL") return false;
+  return (INVOICE_STATUSES as readonly string[]).includes(status);
+}
+
+/** Message returned when an invoice's content edit is refused. */
+export const INVOICE_LOCKED_MESSAGE =
+  "This invoice has money recorded against it, so its content is locked. Duplicate it and edit the copy, or reverse the payment first.";
+
+/**
+ * Whether re-issuing this invoice changes a document the client already
+ * holds. Not a refusal — the founder is told, and decides.
+ */
+export function isReissue(status: string): boolean {
+  return status !== "DRAFT";
+}

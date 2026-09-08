@@ -88,14 +88,22 @@ function toDateInputValue(iso: string | null | undefined): string {
 }
 
 /**
- * The subset of a fetched Quotation the builder needs to reopen it for
- * editing. Deliberately a structural shape rather than an import of
- * documents.tsx's own `Quotation` — the two modules stay decoupled, and any
- * object with these fields (a real quotation row) satisfies it.
+ * The subset of a fetched Quotation or Invoice the builder needs to reopen
+ * it for editing. Deliberately a structural shape rather than an import of
+ * documents.tsx's own row types — the two modules stay decoupled, and any
+ * object with these fields satisfies it.
+ *
+ * The two documents differ in exactly two places: which endpoint the edit
+ * PATCHes, and whether the deadline field is `validUntil` or `dueDate`.
+ * `kind` is what tells them apart, so nothing downstream has to guess from
+ * the shape of a code string.
  */
-export interface EditableQuotation {
+export interface EditableDocument {
+  kind: "QUOTATION" | "INVOICE";
   id: string;
   code: string;
+  /** Read only to tell an edit from a re-issue in the copy below. */
+  status: string;
   title: string | null;
   eventStart: string | null;
   eventEnd: string | null;
@@ -112,6 +120,8 @@ export interface EditableQuotation {
   // look load-bearing without doing anything.
   vatWithheldAtSource: boolean;
   targetNet: number | null;
+  /** Invoices only; quotations carry `validUntil` instead. */
+  dueDate?: string | null;
   account: { id: string } | null;
   project: { id: string } | null;
   lines: Array<{
@@ -124,7 +134,7 @@ export interface EditableQuotation {
   }>;
 }
 
-function linesFromQuotation(q: EditableQuotation): BuilderLine[] {
+function linesFromDocument(q: EditableDocument): BuilderLine[] {
   if (q.lines.length === 0) return [emptyLine()];
   return q.lines.map((l) => ({
     key: Math.random().toString(36).slice(2),
@@ -144,7 +154,7 @@ export function DocumentBuilder({
   onOpenChange,
   onSaved,
   initialProjectId,
-  initialQuotation,
+  initialDocument,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -159,32 +169,37 @@ export function DocumentBuilder({
    */
   initialProjectId?: string;
   /**
-   * Reopens the builder on an existing DRAFT quotation instead of a blank
-   * one: every field seeded from it, and saving PATCHes that same
-   * quotation rather than POSTing a new one. The caller (documents.tsx)
-   * forces a fresh mount per quotation via a `key`, exactly like
+   * Reopens the builder on an existing document instead of a blank one:
+   * every field seeded from it, and saving PATCHes that same document
+   * rather than POSTing a new one. A quotation must be DRAFT; an invoice
+   * may still be edited after sending, up until money is recorded against
+   * it — see src/lib/document-editability.ts. The caller (documents.tsx)
+   * forces a fresh mount per document via a `key`, exactly like
    * `initialProjectId` above — seeded once at construction, never synced
    * in later via an effect.
    */
-  initialQuotation?: EditableQuotation | null;
+  initialDocument?: EditableDocument | null;
 }) {
-  const isEditing = !!initialQuotation;
-  const [docType, setDocType] = useState<DocType>("QUOTATION");
-  const [accountId, setAccountId] = useState(initialQuotation?.account?.id ?? "");
+  const isEditing = !!initialDocument;
+  // Editing an invoice that has already left the building is a re-issue,
+  // not a correction to a draft nobody has seen.
+  const reissuing = isEditing && initialDocument.kind === "INVOICE" && initialDocument.status !== "DRAFT";
+  const [docType, setDocType] = useState<DocType>(initialDocument?.kind ?? "QUOTATION");
+  const [accountId, setAccountId] = useState(initialDocument?.account?.id ?? "");
   // Seeded from `initialProjectId` (new document) or the edited quotation's
   // own project (edit) at construction time only. The caller forces a
   // fresh mount for a new preselection/quotation by keying this component,
   // so there is no later prop-to-state sync to do here — no effect calling
   // setProjectId, just an initializer.
-  const [projectId, setProjectId] = useState(initialQuotation?.project?.id ?? initialProjectId ?? "");
+  const [projectId, setProjectId] = useState(initialDocument?.project?.id ?? initialProjectId ?? "");
   const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [title, setTitle] = useState(initialQuotation?.title ?? "");
-  const [eventStart, setEventStart] = useState(toDateInputValue(initialQuotation?.eventStart));
-  const [eventEnd, setEventEnd] = useState(toDateInputValue(initialQuotation?.eventEnd));
-  const [dueDate, setDueDate] = useState("");
-  const [validUntil, setValidUntil] = useState(toDateInputValue(initialQuotation?.validUntil));
+  const [title, setTitle] = useState(initialDocument?.title ?? "");
+  const [eventStart, setEventStart] = useState(toDateInputValue(initialDocument?.eventStart));
+  const [eventEnd, setEventEnd] = useState(toDateInputValue(initialDocument?.eventEnd));
+  const [dueDate, setDueDate] = useState(toDateInputValue(initialDocument?.dueDate));
+  const [validUntil, setValidUntil] = useState(toDateInputValue(initialDocument?.validUntil));
   const [lines, setLines] = useState<BuilderLine[]>(
-    initialQuotation ? linesFromQuotation(initialQuotation) : [emptyLine()],
+    initialDocument ? linesFromDocument(initialDocument) : [emptyLine()],
   );
   const [serviceCatalogue, setServiceCatalogue] = useState<ServiceCatalogueCategory[] | null>(null);
 
@@ -209,20 +224,20 @@ export function DocumentBuilder({
   );
 
   const [detailLevel, setDetailLevel] = useState<"SUMMARY" | "ITEMISED">(
-    initialQuotation?.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
+    initialDocument?.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
   );
-  const [government, setGovernment] = useState(initialQuotation?.vatWithheldAtSource ?? false);
+  const [government, setGovernment] = useState(initialDocument?.vatWithheldAtSource ?? false);
   const [grossUpTarget, setGrossUpTarget] = useState(
-    initialQuotation?.targetNet != null ? String(initialQuotation.targetNet) : "",
+    initialDocument?.targetNet != null ? String(initialDocument.targetNet) : "",
   );
   // discount/vatRate are read with `??`, not `||` — a real 0% VAT or ₦0
   // discount on the edited quotation must not fall back to the create
   // defaults.
   const [discount, setDiscount] = useState(
-    initialQuotation ? String(initialQuotation.discount ?? 0) : "",
+    initialDocument ? String(initialDocument.discount ?? 0) : "",
   );
   const [vatRate, setVatRate] = useState(
-    initialQuotation ? String(initialQuotation.vatRate ?? VAT_RATE) : String(VAT_RATE),
+    initialDocument ? String(initialDocument.vatRate ?? VAT_RATE) : String(VAT_RATE),
   );
   const [saving, setSaving] = useState(false);
   // Keyed by the projectId it was fetched for, so a project change never
@@ -509,18 +524,28 @@ export function DocumentBuilder({
       };
 
       let r: Response;
-      if (isEditing && initialQuotation) {
-        // Editing always means a quotation, in DRAFT, PATCHed back onto
-        // itself — same code, same id, no new document minted. The server
-        // mirrors POST's own validation and tax computation for this body;
-        // it refuses the write if the quotation is no longer DRAFT.
-        body.quotationId = initialQuotation.id;
-        body.validUntil = validUntil || undefined;
-        r = await fetch("/api/doz/documents/quotations", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+      if (isEditing && initialDocument) {
+        // An edit is PATCHed back onto the same document — same code, same
+        // id, no new document minted. The server mirrors POST's own
+        // validation and tax computation for this body, and refuses the
+        // write if the document is no longer editable: a quotation that has
+        // been sent, or an invoice with money recorded against it.
+        const quotation = initialDocument.kind === "QUOTATION";
+        if (quotation) {
+          body.quotationId = initialDocument.id;
+          body.validUntil = validUntil || undefined;
+        } else {
+          body.invoiceId = initialDocument.id;
+          body.dueDate = dueDate || undefined;
+        }
+        r = await fetch(
+          quotation ? "/api/doz/documents/quotations" : "/api/doz/documents/invoices",
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
       } else {
         if (docType === "QUOTATION") {
           body.validUntil = validUntil || undefined;
@@ -544,9 +569,9 @@ export function DocumentBuilder({
       // server, not just the client-side preview of it. Internal only: WHT
       // and cash landing never appear on a rendered client document.
       const landed = typeof j.expectedCash === "number" ? j.expectedCash : null;
-      if (isEditing && initialQuotation) {
+      if (isEditing && initialDocument) {
         toast.success(
-          `${initialQuotation.code} updated`,
+          `${initialDocument.code} updated`,
           government && landed !== null
             ? { description: `Cash landing ${naira(landed)} (internal — not printed)` }
             : undefined,
@@ -575,11 +600,19 @@ export function DocumentBuilder({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[760px]">
         <DialogHeader>
-          <DialogTitle>{isEditing ? `Edit ${initialQuotation?.code}` : "New document"}</DialogTitle>
+          <DialogTitle>
+            {isEditing ? `${reissuing ? "Re-issue" : "Edit"} ${initialDocument?.code}` : "New document"}
+          </DialogTitle>
           <DialogDescription>
-            {isEditing
-              ? "Still a DRAFT — change anything below and save. The code stays the same."
-              : "Build a quotation or invoice — the numbers here are exactly what gets stored."}
+            {!isEditing
+              ? "Build a quotation or invoice — the numbers here are exactly what gets stored."
+              : reissuing
+                // Said plainly, because it is the part he cannot see: this
+                // document has already gone out, and saving changes what
+                // the client's copy no longer matches. Under the same
+                // number, deliberately — one job, one invoice number.
+                ? `This invoice has already been sent. Saving rewrites it under the same number, so the copy your client holds will be out of date until you send it again.`
+                : "Still a DRAFT — change anything below and save. The code stays the same."}
           </DialogDescription>
         </DialogHeader>
 

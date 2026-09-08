@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Loader2, Building2 } from "lucide-react";
+import { Loader2, Building2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { validateSignature, SIGNATURE_TYPES } from "@/lib/signature-image";
 
 type Company = {
   legalName: string;
@@ -25,6 +26,8 @@ type Company = {
   bankName: string | null;
   bankAccount: string | null;
   bankAccountName: string | null;
+  signatureUrl: string | null;
+  signatureName: string | null;
   defaultPaymentTerms: string | null;
 };
 
@@ -41,12 +44,31 @@ const EMPTY: Company = {
   bankName: "",
   bankAccount: "",
   bankAccountName: "",
+  signatureUrl: null,
+  signatureName: "",
   defaultPaymentTerms: "",
 };
 
-// Legal name, address, RC/TIN and bank details every quotation, invoice and
-// receipt header reads from. FOUNDER-only to edit — the API enforces this
-// too, so this dialog is only ever opened for a founder.
+/**
+ * Read a chosen file into a base64 data URL.
+ *
+ * The image never leaves the browser as a file — it is turned into a string
+ * here and saved with the rest of the form, so there is no upload endpoint,
+ * no temporary file and nothing on a disk that Vercel rebuilds on the next
+ * deploy. See src/lib/signature-image.ts for why that matters.
+ */
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("That file could not be read."));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Legal name, address, RC/TIN, bank details and the signature every
+// quotation, invoice and receipt reads from. FOUNDER-only to edit — the API
+// enforces this too, so this dialog is only ever opened for a founder.
 export function CompanySettingsDialog({
   open,
   onOpenChange,
@@ -82,6 +104,8 @@ export function CompanySettingsDialog({
           bankName: c.bankName ?? "",
           bankAccount: c.bankAccount ?? "",
           bankAccountName: c.bankAccountName ?? "",
+          signatureUrl: c.signatureUrl ?? null,
+          signatureName: c.signatureName ?? "",
           defaultPaymentTerms: c.defaultPaymentTerms ?? "",
         });
       })
@@ -93,6 +117,24 @@ export function CompanySettingsDialog({
 
   function set<K extends keyof Company>(key: K, value: Company[K]) {
     setForm((f) => (f ? { ...f, [key]: value } : f));
+  }
+
+  // Validated here with the very same function the API uses, so a file that
+  // will be refused is refused now — while he is still looking at the file
+  // picker — rather than after he has filled in the rest of the form and
+  // pressed Save.
+  async function pickSignature(file: File | null | undefined) {
+    if (!file) return;
+    try {
+      const checked = validateSignature(await readAsDataUrl(file));
+      if ("error" in checked) {
+        toast.error(checked.error, { duration: 8000 });
+        return;
+      }
+      set("signatureUrl", checked.value);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "That file could not be read.", { duration: 8000 });
+    }
   }
 
   async function save() {
@@ -183,6 +225,63 @@ export function CompanySettingsDialog({
                 These appear on every quotation, invoice and receipt. Leaving RC or TIN
                 blank simply omits that line from the document.
               </p>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Signature</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="cs-sig-name">Signed by</Label>
+                <Input
+                  id="cs-sig-name"
+                  value={f.signatureName ?? ""}
+                  onChange={(e) => set("signatureName", e.target.value)}
+                  placeholder="Kelvin Ezeh, Managing Director"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cs-sig-file">Signature image</Label>
+                {f.signatureUrl ? (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 p-3">
+                    {/* Not next/image: this is a data URL held in state, with
+                        no known dimensions and nothing for the optimiser to
+                        fetch or cache. */}
+                    <img
+                      src={f.signatureUrl}
+                      alt="Your signature as it will print"
+                      className="h-12 w-auto max-w-[180px] object-contain"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto gap-1.5"
+                      onClick={() => set("signatureUrl", null)}
+                    >
+                      <X className="h-3.5 w-3.5" /> Remove
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="cs-sig-file"
+                    type="file"
+                    accept={SIGNATURE_TYPES.join(",")}
+                    className="text-xs file:mr-3 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
+                    onChange={(e) => {
+                      void pickSignature(e.target.files?.[0]);
+                      // Clear the input so choosing the same file twice
+                      // after a Remove still fires a change event.
+                      e.target.value = "";
+                    }}
+                  />
+                  <Upload className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Prints above the signature rule on quotations and invoices. A PNG
+                  with a transparent background looks best. Leave it empty and the
+                  document prints a blank rule to sign by hand.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-3">

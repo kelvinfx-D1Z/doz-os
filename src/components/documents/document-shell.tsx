@@ -16,6 +16,9 @@ export type CompanyInfo = {
   bankName: string | null;
   bankAccount: string | null;
   bankAccountName: string | null;
+  /** Base64 data URL. See src/lib/signature-image.ts for why it is not a path. */
+  signatureUrl: string | null;
+  signatureName: string | null;
 };
 
 /** Naira, whole units. Client documents never show kobo. */
@@ -179,12 +182,39 @@ export function TotalsCap() {
   );
 }
 
-/** A signature rule. Documents that need agreement, not just information. */
-export function SignatureRule({ label }: { label: string }) {
+/**
+ * A signature rule. Documents that need agreement, not just information.
+ *
+ * Pass `signature` to print D1Z's own signature sitting on the rule; the
+ * client's side never takes one, and neither does a document where no
+ * signature has been uploaded — those keep the blank rule to sign by hand,
+ * which is the honest state rather than an empty gap where an image failed.
+ */
+export function SignatureRule({
+  label,
+  signature,
+  signatureName,
+}: {
+  label: string;
+  signature?: string | null;
+  signatureName?: string | null;
+}) {
   return (
     <div className="doc-sign">
-      <div className="doc-sign-rule" />
-      <div className="doc-sign-label">{label}</div>
+      <div className="doc-sign-rule">
+        {signature ? (
+          // Not next/image: a data URL has no remote source to optimise and
+          // no dimensions known ahead of render, and this tree is printed to
+          // PDF rather than served as an interactive page.
+          <img className="doc-sign-mark" src={signature} alt="" />
+        ) : null}
+      </div>
+      <div className="doc-sign-label">
+        {label}
+        {signature && signatureName ? (
+          <span className="doc-sign-who">{signatureName}</span>
+        ) : null}
+      </div>
     </div>
   );
 }

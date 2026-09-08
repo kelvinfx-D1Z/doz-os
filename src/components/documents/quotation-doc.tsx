@@ -30,10 +30,10 @@ export type QuotationDocData = {
   account?: { name: string; billingAddress: string | null } | null;
 };
 
-const ACCEPTANCE = [
-  "Accepted for and on behalf of the client",
-  "For D1Z Technologies",
-];
+// The client signs the left rule; D1Z signs the right one, which is the
+// only side the stored signature is ever printed on. Signing the client's
+// side for them would be forgery, not a convenience.
+const CLIENT_ACCEPTANCE = "Accepted for and on behalf of the client";
 
 /**
  * A D1Z quotation.
@@ -147,9 +147,12 @@ export function QuotationDoc({
       {quotation.notes && <div className="doc-note">{quotation.notes}</div>}
 
       <div className="doc-signs">
-        {ACCEPTANCE.map((label) => (
-          <SignatureRule key={label} label={label} />
-        ))}
+        <SignatureRule label={CLIENT_ACCEPTANCE} />
+        <SignatureRule
+          label={`For ${company.legalName}`}
+          signature={company.signatureUrl}
+          signatureName={company.signatureName}
+        />
       </div>
     </DocumentShell>
   );

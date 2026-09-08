@@ -248,9 +248,32 @@
 
 /* --- signature rules --- */
 .doc-signs { display: flex; gap: 12mm; margin-top: 12mm; break-inside: avoid; }
+/* An invoice signs on one side only, and a lone rule stretched across the
+   full width reads as a mistake. Half, aligned right, matches where the
+   second rule would have been. */
+.doc-signs-single { justify-content: flex-end; }
+.doc-signs-single .doc-sign { flex: 0 0 calc(50% - 6mm); }
 .doc-sign { flex: 1; }
-.doc-sign-rule { border-bottom: 1px solid #2b2b2b; height: 14mm; }
+.doc-sign-rule {
+  border-bottom: 1px solid #2b2b2b;
+  height: 14mm;
+  /* The signature sits ON the rule rather than above it, so a signed
+     document reads the way a signed piece of paper does. */
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.doc-sign-mark {
+  max-height: 13mm;
+  max-width: 100%;
+  width: auto;
+  object-fit: contain;
+  /* Nudged onto the line: a scanned signature almost always carries a
+     little whitespace under the stroke. */
+  margin-bottom: -0.5mm;
+}
 .doc-sign-label { font-size: 8pt; color: #6e6e6e; margin-top: 1.5mm; }
+.doc-sign-who { display: block; color: #2b2b2b; margin-top: 0.5mm; }
 
 /* Browsers drop background fills when printing unless told otherwise, and
    these documents are mostly defined by their filled charcoal and orange. */

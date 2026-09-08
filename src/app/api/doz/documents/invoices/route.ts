@@ -5,6 +5,16 @@ import { nextDocumentCode } from "@/lib/document-code";
 import { duplicateInvoiceData, duplicateLines, nextCopyTitle, stripCopySuffix } from "@/lib/document-duplicate";
 import { parseDocumentBody } from "@/lib/document-request";
 import { lineAmount } from "@/lib/document-math";
+import {
+  isInvoiceContentEditable,
+  INVOICE_LOCKED_MESSAGE,
+  INVOICE_STATUSES,
+} from "@/lib/document-editability";
+
+// Thrown from inside a $transaction to abort it and report a 409 without
+// committing any of its writes — the same pattern the quotations route
+// uses for its own conditional updateMany-or-conflict transitions.
+class InvoiceLockedError extends Error {}
 
 /**
  * The company's own VAT registration, read once per document creation.
@@ -163,7 +173,115 @@ export async function PATCH(req: Request) {
   const existing = await db.invoice.findUnique({ where: { id: body.invoiceId } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const VALID_STATUS = ["DRAFT", "SENT", "PARTIAL", "PAID", "OVERDUE"];
+  // A CONTENT EDIT — the founder's "things are added or removed" case. It is
+  // signalled by `lines` being present, exactly as on the quotations route,
+  // and it is the only path here that may rewrite what the invoice says.
+  // Everything below it (status, detailLevel, paymentTerms) is workflow
+  // state and keeps working regardless.
+  if (Array.isArray(body.lines)) {
+    // Cheap 409 for the obvious case. NOT the safety net: `existing` was
+    // read before this request's transaction started, so a payment landing
+    // in between would slip past a check that only looks at that stale
+    // read. The real guard is the conditional updateMany below.
+    if (!isInvoiceContentEditable(existing.status, existing.amountPaid)) {
+      return NextResponse.json({ error: INVOICE_LOCKED_MESSAGE }, { status: 409 });
+    }
+
+    // Same parser, same tax module, same line-amount helper as POST. An
+    // edited invoice must total the way a freshly-created one would from
+    // the same inputs — nothing is re-derived here.
+    const parsed = parseDocumentBody(body, {
+      vatRegistered: await companyVatRegistered(),
+    });
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const { lines, subtotal, discount, vatRate, whtRate, vatWithheldAtSource, grossUpRate, targetNet, tax } =
+      parsed;
+
+    let updated;
+    try {
+      updated = await db.$transaction(async (tx) => {
+        // Compare-and-set on the two things that lock an invoice: its
+        // status and the fact that nothing has been paid. A "Record
+        // payment" committing between this request's read and its write
+        // leaves nothing for this to match, and it reports a conflict
+        // rather than silently rewriting an invoice a receipt now names.
+        const flipped = await tx.invoice.updateMany({
+          where: {
+            id: body.invoiceId,
+            status: existing.status,
+            amountPaid: { lte: 0 },
+          },
+          data: {
+            projectId: body.projectId || null,
+            accountId: body.accountId || null,
+            title: body.title ? String(body.title).trim() : null,
+            eventStart: body.eventStart ? new Date(body.eventStart) : null,
+            eventEnd: body.eventEnd ? new Date(body.eventEnd) : null,
+            detailLevel: body.detailLevel === "ITEMISED" ? "ITEMISED" : "SUMMARY",
+            subtotal,
+            discount,
+            vatRate,
+            tax: tax.vat,
+            amount: tax.total,
+            whtRate,
+            whtAmount: tax.wht,
+            expectedCash: tax.expectedCash,
+            vatWithheldAtSource,
+            grossUpRate,
+            targetNet,
+            // The builder's form does not collect payment terms, so an
+            // absent value means "not part of this form", not "cleared".
+            paymentTerms:
+              typeof body.paymentTerms === "string"
+                ? body.paymentTerms.trim() || null
+                : existing.paymentTerms,
+            dueDate: body.dueDate ? new Date(body.dueDate) : null,
+            // Never touched: `code` is minted once from a reserved sequence
+            // and must never move, and `status` stays where it is — an
+            // edit is not a workflow move. Re-sending a corrected invoice
+            // is the founder emailing it again, not a status change.
+          },
+        });
+        if (flipped.count === 0) {
+          throw new InvoiceLockedError(INVOICE_LOCKED_MESSAGE);
+        }
+
+        // Delete-then-recreate inside the same transaction, so a failure
+        // partway cannot leave the invoice holding half its old lines and
+        // half its new ones.
+        await tx.invoiceLine.deleteMany({ where: { invoiceId: body.invoiceId } });
+        await tx.invoiceLine.createMany({
+          data: lines.map((l, i) => ({
+            invoiceId: body.invoiceId,
+            section: l.section,
+            description: l.description,
+            subDescription: l.subDescription ?? null,
+            days: l.days,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            amount: lineAmount(l),
+            sortOrder: i,
+          })),
+        });
+
+        return tx.invoice.findUnique({
+          where: { id: body.invoiceId },
+          include: { lines: { orderBy: { sortOrder: "asc" } } },
+        });
+      }, { timeout: 30_000 });
+    } catch (e) {
+      if (e instanceof InvoiceLockedError) {
+        return NextResponse.json({ error: e.message }, { status: 409 });
+      }
+      throw e;
+    }
+
+    return NextResponse.json({ ok: true, invoice: updated, expectedCash: tax.expectedCash });
+  }
+
+  const VALID_STATUS = [...INVOICE_STATUSES] as string[];
   const data: Record<string, unknown> = {};
   if (typeof body.status === "string") {
     if (!VALID_STATUS.includes(body.status)) {

@@ -4,6 +4,7 @@ import {
   DocumentLines,
   TotalsCap,
   Field,
+  SignatureRule,
   naira,
   formatDay,
   formatRange,
@@ -173,6 +174,18 @@ export function InvoiceDoc({
       {invoice.paymentTerms && (
         <div className="doc-note doc-callout">{invoice.paymentTerms}</div>
       )}
+
+      {/* One rule, not two. An invoice is a demand for payment, not an
+          agreement — there is nothing here for the client to counter-sign,
+          so only D1Z signs it. With no signature uploaded this is a blank
+          rule to sign by hand, which is what the paper version always was. */}
+      <div className="doc-signs doc-signs-single">
+        <SignatureRule
+          label={`For ${company.legalName}`}
+          signature={company.signatureUrl}
+          signatureName={company.signatureName}
+        />
+      </div>
     </DocumentShell>
   );
 }
