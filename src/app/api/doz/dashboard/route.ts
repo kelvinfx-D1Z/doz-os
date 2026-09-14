@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, canSeeFinancials, isProjectManagerRole } from "@/lib/auth";
 import { collectableAmount } from "@/lib/received-allocation";
-import { isOnMyDay, dueRank } from "@/lib/task-buckets";
+import { isOnMyDay, isUpcoming, dueRank } from "@/lib/task-buckets";
 
 // CEO Command Center aggregate — company-wide data + per-user `myDay` block.
 // The company-wide payload is what the founder sees. Staff/Interns/Freelancers
@@ -252,7 +252,7 @@ export async function GET() {
       return da - db;
     });
 
-  const myDayTasks = myDayTasksRaw.slice(0, 12).map((t) => ({
+  const shapeMyTask = (t: (typeof myTasksAll)[number]) => ({
     id: t.id,
     title: t.title,
     description: t.description,
@@ -265,7 +265,18 @@ export async function GET() {
     assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name, role: t.assignee.role } : null,
     goal: t.goal ? { id: t.goal.id, title: t.goal.title } : null,
     project: t.project ? { id: t.project.id, name: t.project.name } : null,
-  }));
+  });
+  const myDayTasks = myDayTasksRaw.slice(0, 12).map(shapeMyTask);
+
+  // 1b. Work given to this person but due after today. Not "today", so it
+  // stays out of the list above — but it has to be somewhere on their
+  // dashboard. The founder assigned both interns a montage due in two days
+  // and they saw "No tasks due today" and nothing else.
+  const myUpcomingTasks = myTasksAll
+    .filter((t) => isUpcoming(t, todayEnd.getTime()))
+    .sort((a, b) => dueRank(a) - dueRank(b))
+    .slice(0, 8)
+    .map(shapeMyTask);
 
   // 2. Overdue count for the user's tasks.
   const myOverdueCount = myTasksAll.filter(
@@ -466,6 +477,7 @@ export async function GET() {
       currentUser,
       myDay: {
         tasks: myDayTasks,
+        upcomingTasks: myUpcomingTasks,
         taskCount: myDayTasks.length,
         overdueCount: myOverdueCount,
         doneToday: myDoneToday.length,
@@ -537,6 +549,7 @@ export async function GET() {
     currentUser,
     myDay: {
       tasks: myDayTasks,
+      upcomingTasks: myUpcomingTasks,
       taskCount: myDayTasks.length,
       overdueCount: myOverdueCount,
       doneToday: myDoneToday.length,

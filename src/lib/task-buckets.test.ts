@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketStaffTasks, isOnMyDay, dueRank, dueMs, isOpen } from "./task-buckets.ts";
+import { bucketStaffTasks, isOnMyDay, dueRank, dueMs, isOpen, isUpcoming, groupMyTasks } from "./task-buckets.ts";
 
 const NOW = new Date("2026-08-31T09:00:00.000Z").getTime();
 const DAY = 24 * 60 * 60 * 1000;
@@ -94,4 +94,57 @@ test("no tasks is an empty set, not a crash", () => {
   assert.equal(b.total, 0);
   assert.deepEqual(b.undated, []);
   assert.deepEqual(b.completed, []);
+});
+
+// ---- upcoming + the Tasks page grouping ----------------------------------
+
+
+const START = new Date("2026-09-14T00:00:00").getTime();
+const END = new Date("2026-09-14T23:59:59.999").getTime();
+const at = (iso: string | null, status = "TODO", completedAt: string | null = null) =>
+  ({ status, dueDate: iso, completedAt });
+
+test("THE INTERN CASE: a task due in two days is upcoming, not invisible", () => {
+  // Assigned 14 Sept, due 16 Sept. The dashboard showed today and overdue
+  // only, so both interns saw "No tasks due today" and nothing else.
+  const montage = at("2026-09-16T00:00:00");
+  assert.equal(isOnMyDay(montage, END), false, "correctly not today");
+  assert.equal(isUpcoming(montage, END), true, "but it must still be shown");
+});
+
+test("isUpcoming excludes done, undated, today and overdue work", () => {
+  assert.equal(isUpcoming(at("2026-09-16T00:00:00", "DONE"), END), false);
+  assert.equal(isUpcoming(at(null), END), false);
+  assert.equal(isUpcoming(at("2026-09-14T15:00:00"), END), false);
+  assert.equal(isUpcoming(at("2026-09-10T00:00:00"), END), false);
+});
+
+test("groupMyTasks puts every task in exactly one group", () => {
+  const tasks = [
+    at("2026-09-10T00:00:00"), at("2026-09-14T09:00:00"), at("2026-09-16T00:00:00"),
+    at(null), at("2026-09-01T00:00:00", "DONE", "2026-09-02T00:00:00"),
+  ];
+  const g = groupMyTasks(tasks, START, END);
+  assert.equal(g.overdue.length, 1);
+  assert.equal(g.today.length, 1);
+  assert.equal(g.upcoming.length, 1);
+  assert.equal(g.undated.length, 1);
+  assert.equal(g.done.length, 1);
+  const total = g.overdue.length + g.today.length + g.upcoming.length + g.undated.length + g.done.length;
+  assert.equal(total, tasks.length, "nothing dropped, nothing shown twice");
+});
+
+test("the day's boundaries are inclusive of today, exclusive of yesterday", () => {
+  const g = groupMyTasks([at("2026-09-14T00:00:00"), at("2026-09-13T23:59:59")], START, END);
+  assert.equal(g.today.length, 1);
+  assert.equal(g.overdue.length, 1);
+});
+
+test("upcoming sorts soonest first; done sorts most recently finished first", () => {
+  const g = groupMyTasks([
+    at("2026-09-20T00:00:00"), at("2026-09-15T00:00:00"),
+    at(null, "DONE", "2026-09-01T00:00:00"), at(null, "DONE", "2026-09-12T00:00:00"),
+  ], START, END);
+  assert.equal(g.upcoming[0].dueDate, "2026-09-15T00:00:00");
+  assert.equal(g.done[0].completedAt, "2026-09-12T00:00:00");
 });

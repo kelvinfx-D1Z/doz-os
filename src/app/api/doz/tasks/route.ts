@@ -11,6 +11,8 @@ import { getSessionUser } from "@/lib/auth";
 //           ?scope=my-day                         -> current user's tasks due today/overdue
 //           ?scope=week                           -> tasks due this week (Mon–Sun)
 //           ?assigneeId=xxx&scope=week            -> both filters combined
+//           ?status=open | done                   -> the Tasks page: open work,
+//                                                    or recently finished work
 //
 // POST   -> create a task. creatorId comes from the session.
 //           Body: { title, description?, priority?, category?,
@@ -151,7 +153,10 @@ export async function GET(req: Request) {
       // Tasks due today or overdue (not done)
       const dayEnd = endOfToday();
       where.status = { not: "DONE" };
-      where.dueDate = { lte: dayEnd };
+      // Undated open work belongs on the day too — same rule as the
+      // dashboard's isOnMyDay. `lte` alone never matches a null dueDate, so
+      // a task assigned without a deadline was missing from this list.
+      where.OR = [{ dueDate: { lte: dayEnd } }, { dueDate: null }];
     } else if (scope === "week") {
       // Tasks due this week (Mon–Sun)
       const wkStart = startOfWeek();
@@ -159,15 +164,29 @@ export async function GET(req: Request) {
       where.dueDate = { gte: wkStart, lte: wkEnd };
     }
 
+    // The Tasks page asks for open and finished work separately. Without
+    // this, the 200-row cap below applies to both at once — and "status asc"
+    // sorts DONE before TODO alphabetically, despite the comment, so a
+    // long history of finished tasks could push open ones off the end.
+    const statusFilter = url.searchParams.get("status");
+    if (statusFilter === "open") {
+      where.status = { not: "DONE" };
+    } else if (statusFilter === "done") {
+      where.status = "DONE";
+    }
+
     const tasks = await db.task.findMany({
       where,
       include: TASK_INCLUDE,
-      orderBy: [
-        { status: "asc" }, // DONE last
-        { priority: "asc" },
-        { dueDate: "asc" },
-      ],
-      take: 200, // bound the result set
+      orderBy:
+        statusFilter === "done"
+          ? [{ completedAt: "desc" }]
+          : [
+              { status: "asc" },
+              { priority: "asc" },
+              { dueDate: "asc" },
+            ],
+      take: statusFilter === "done" ? 60 : 200, // bound the result set
     });
 
     return NextResponse.json({ tasks: tasks.map(shapeTask) });

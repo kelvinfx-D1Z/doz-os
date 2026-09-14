@@ -87,3 +87,60 @@ export function isOnMyDay(task: BucketableTask, todayEnd: number): boolean {
   const d = dueMs(task);
   return d === null || d <= todayEnd;
 }
+
+/**
+ * Open work scheduled after today — the part `isOnMyDay` deliberately
+ * leaves out.
+ *
+ * Leaving it out of "today" is right. Leaving it out of the dashboard
+ * altogether was not: the founder assigned both interns a montage due in two
+ * days, the dashboard only listed today's and overdue work, and the interns
+ * saw "No tasks due today" with nothing to tell them work was waiting. A task
+ * someone has been given must be visible to them from the day it is given.
+ */
+export function isUpcoming(task: BucketableTask, todayEnd: number): boolean {
+  if (!isOpen(task)) return false;
+  const d = dueMs(task);
+  return d !== null && d > todayEnd;
+}
+
+export interface MyTaskGroups<T> {
+  overdue: T[];
+  today: T[];
+  upcoming: T[];
+  undated: T[];
+  done: T[];
+}
+
+/**
+ * Every task a person holds, each in exactly one group — the Tasks page.
+ *
+ * Unlike `bucketStaffTasks`, whose buckets overlap (today is inside thisWeek),
+ * these partition: nothing is shown twice and nothing is dropped. The day is
+ * passed in as [todayStart, todayEnd] so the caller decides whose "today" it
+ * is — the browser's, for the person looking at the page.
+ */
+export function groupMyTasks<T extends BucketableTask>(
+  tasks: T[],
+  todayStart: number,
+  todayEnd: number,
+): MyTaskGroups<T> {
+  const groups: MyTaskGroups<T> = { overdue: [], today: [], upcoming: [], undated: [], done: [] };
+  for (const t of tasks) {
+    if (!isOpen(t)) { groups.done.push(t); continue; }
+    const d = dueMs(t);
+    if (d === null) groups.undated.push(t);
+    else if (d < todayStart) groups.overdue.push(t);
+    else if (d <= todayEnd) groups.today.push(t);
+    else groups.upcoming.push(t);
+  }
+  const byDue = (a: T, b: T) => dueRank(a) - dueRank(b);
+  groups.overdue.sort(byDue);
+  groups.today.sort(byDue);
+  groups.upcoming.sort(byDue);
+  // Most recently finished first; the rest is history.
+  groups.done.sort((a, b) =>
+    (b.completedAt ? new Date(b.completedAt).getTime() : 0) -
+    (a.completedAt ? new Date(a.completedAt).getTime() : 0));
+  return groups;
+}

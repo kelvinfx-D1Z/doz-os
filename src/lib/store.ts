@@ -20,7 +20,8 @@ export type ModuleId =
   | "profile"
   | "messages"
   | "vendors"
-  | "documents";
+  | "documents"
+  | "tasks";
 
 interface AppState {
   activeModule: ModuleId;

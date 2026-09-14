@@ -225,6 +225,8 @@ interface MyDayTask {
 }
 interface MyDay {
   tasks: MyDayTask[];
+  /** Open work due after today. Absent from older API responses. */
+  upcomingTasks?: MyDayTask[];
   taskCount: number;
   overdueCount: number;
   doneToday: number;
@@ -2005,6 +2007,46 @@ function DailyReportBanner({
 }
 
 /* ---------- Shared: My Tasks list (with checkboxes) ------------- */
+/**
+ * Work already given to this person but due after today.
+ *
+ * Kept out of the "today" list on purpose, and shown right beneath it for
+ * the same reason: a task assigned on Monday and due Wednesday used to
+ * leave the assignee looking at "No tasks due today" with no sign that
+ * anything was waiting.
+ */
+function UpcomingTasks({
+  tasks,
+  handleToggleTask,
+  togglingId,
+  onViewAll,
+}: {
+  tasks: MyDayTask[];
+  handleToggleTask: (taskId: string, currentlyDone: boolean) => void;
+  togglingId: string | null;
+  onViewAll: () => void;
+}) {
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Coming up · {tasks.length}
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-primary"
+          onClick={onViewAll}
+        >
+          View all <ArrowRight className="h-3 w-3" />
+        </Button>
+      </div>
+      <MyTasksList tasks={tasks} handleToggleTask={handleToggleTask} togglingId={togglingId} />
+    </div>
+  );
+}
+
 function MyTasksList({
   tasks,
   handleToggleTask,
@@ -2252,7 +2294,7 @@ function InternDashboard({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
-                  onClick={() => setShowMyDay(true)}
+                  onClick={() => setModule("tasks")}
                 >
                   All my tasks <ArrowRight className="h-3 w-3" />
                 </Button>
@@ -2265,6 +2307,12 @@ function InternDashboard({
               onAdd={() => setShowQuickAdd(true)}
               emptyTitle="No tasks due today"
               emptyHint="Ask your supervisor for assignments, or add one yourself."
+            />
+            <UpcomingTasks
+              tasks={myDay.upcomingTasks ?? []}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onViewAll={() => setModule("tasks")}
             />
           </Card>
 
@@ -2550,7 +2598,7 @@ function StaffDashboard({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
-                  onClick={() => setShowMyDay(true)}
+                  onClick={() => setModule("tasks")}
                 >
                   All my tasks <ArrowRight className="h-3 w-3" />
                 </Button>
@@ -2563,6 +2611,12 @@ function StaffDashboard({
               onAdd={() => setShowQuickAdd(true)}
               emptyTitle="Nothing due today"
               emptyHint="You're all caught up — great headroom for deep work."
+            />
+            <UpcomingTasks
+              tasks={myDay.upcomingTasks ?? []}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onViewAll={() => setModule("tasks")}
             />
           </Card>
 
@@ -3004,7 +3058,7 @@ function FreelancerDashboard({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1 text-xs text-muted-foreground hover:text-primary"
-                  onClick={() => setShowMyDay(true)}
+                  onClick={() => setModule("tasks")}
                 >
                   All my tasks <ArrowRight className="h-3 w-3" />
                 </Button>
@@ -3017,6 +3071,12 @@ function FreelancerDashboard({
               onAdd={() => setShowQuickAdd(true)}
               emptyTitle="No tasks assigned to you"
               emptyHint="Reach out to the production manager if you're expecting work."
+            />
+            <UpcomingTasks
+              tasks={myDay.upcomingTasks ?? []}
+              handleToggleTask={handleToggleTask}
+              togglingId={togglingId}
+              onViewAll={() => setModule("tasks")}
             />
           </Card>
         </div>
