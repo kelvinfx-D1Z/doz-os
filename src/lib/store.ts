@@ -21,7 +21,8 @@ export type ModuleId =
   | "messages"
   | "vendors"
   | "documents"
-  | "tasks";
+  | "tasks"
+  | "playbook";
 
 interface AppState {
   activeModule: ModuleId;

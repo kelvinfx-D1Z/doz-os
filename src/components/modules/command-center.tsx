@@ -47,6 +47,7 @@ import { toast as sonnerToast } from "sonner";
 import { cn } from "@/lib/utils";
 import { FocusScoreCard } from "@/components/doz/focus-score-card";
 import { AiBriefingCard } from "@/components/doz/ai-briefing-card";
+import { PlaybookTodayCard } from "@/components/doz/playbook-today-card";
 import { DailyReportPrompt } from "@/components/doz/daily-report-prompt";
 import { DailyReportDialog } from "@/components/doz/daily-report-dialog";
 import {
@@ -877,6 +878,9 @@ export function CommandCenter() {
 
       {/* ---------- AI Morning Briefing (founder & staff only) ---------- */}
       {user?.role === "FOUNDER" && <AiBriefingCard />}
+
+      {/* ---------- Today, from the founder's own playbook ---------- */}
+      {user?.role === "FOUNDER" && <PlaybookTodayCard />}
 
       {/* ---------- KPI row ---------- */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">

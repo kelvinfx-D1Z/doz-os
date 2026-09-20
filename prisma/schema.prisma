@@ -76,6 +76,8 @@ model User {
   messagesSent     Message[] @relation("MessageSender")
   messagesReceived Message[] @relation("MessageRecipient")
   recoveryCodes    RecoveryCode[]
+  playbookBlocks   PlaybookBlockLog[]
+  playbookReviews  PlaybookReview[]
 }
 
 // ============================================================
@@ -1622,4 +1624,45 @@ model LoginAttempt {
 
   @@index([email, createdAt])
   @@index([ip, createdAt])
+}
+
+// ============================================================
+// THE FOUNDER'S WEEKLY OPERATING SYSTEM
+//
+// The playbook itself is code, not rows — see src/lib/founder-playbook.ts
+// for why. These two tables hold the only part that is genuinely data:
+// what he actually did, and what he answered on Sunday.
+// ============================================================
+
+/** One completed block on one day. Absence of a row means "not done". */
+model PlaybookBlockLog {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id])
+  /** Local calendar day, "2026-09-20" — his day, not the server's. */
+  day     String
+  /** A block id from the playbook. Validated against it before writing. */
+  blockId String
+  doneAt  DateTime @default(now())
+
+  @@unique([userId, day, blockId])
+  @@index([userId, day])
+}
+
+/** Sunday's four answers, filed against the Monday the week began. */
+model PlaybookReview {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  /** Monday of the week under review, "2026-09-14". */
+  weekStart String
+  /** { d1z, researchbrainie, fiestivo, masters } — answers as written. */
+  answers   String   @default("{}")
+  /** Next week's intentions, free text. */
+  nextWeek  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, weekStart])
+  @@index([userId])
 }

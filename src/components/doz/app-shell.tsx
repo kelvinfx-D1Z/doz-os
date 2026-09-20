@@ -33,6 +33,7 @@ import {
   Building2,
   FileText,
   ListTodo,
+  Compass,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -59,6 +60,7 @@ import { ViewAsBanner, ViewAsDialog } from "@/components/doz/view-as";
 import { RecoveryCodesDialog } from "@/components/doz/recovery-codes-dialog";
 import { CompanySettingsDialog } from "@/components/doz/company-settings-dialog";
 import { MyTasks } from "@/components/modules/my-tasks";
+import { Playbook } from "@/components/modules/playbook";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,6 +98,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, group: "Operate" },
   { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, group: "Operate" },
+  { id: "playbook", label: "Playbook", icon: <Compass className="h-4 w-4" />, group: "Operate" },
   { id: "planning", label: "Strategic Planning", icon: <Target className="h-4 w-4" />, group: "Operate" },
   { id: "routines", label: "Routines", icon: <Repeat className="h-4 w-4" />, group: "Operate" },
   { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, group: "Operate", hint: "AI" },
@@ -127,7 +130,7 @@ const NAV: NavItem[] = [
 //       OVERRIDES these role-based defaults. The founder can grant any
 //       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "tasks", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors", "documents"],
+  FOUNDER: ["command", "tasks", "playbook", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors", "documents"],
   STAFF: ["command", "tasks", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
   INTERN: ["command", "tasks", "field", "sop", "help", "profile", "messages"],
   FREELANCER: ["command", "tasks", "field", "projects", "help", "profile", "messages"],
@@ -159,6 +162,7 @@ function resolveAllowedModules(role: string, permissions?: string[] | null): Mod
 const MODULES: Record<ModuleId, React.ReactNode> = {
   command: <CommandCenter />,
   tasks: <MyTasks />,
+  playbook: <Playbook />,
   planning: <StrategicPlanning />,
   crm: <CrmSales />,
   projects: <ProjectsEvents />,
@@ -182,6 +186,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
 const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   command: { title: "CEO Command Center", subtitle: "Your single view to run the company" },
   tasks: { title: "Tasks", subtitle: "Everything assigned to you, in one place" },
+  playbook: { title: "Playbook", subtitle: "Four priorities. One rule. Seven days." },
   planning: { title: "Strategic Planning", subtitle: "Annual → Quarterly → Monthly → Weekly → Daily" },
   crm: { title: "CRM & Sales Engine", subtitle: "Leads, opportunities, proposals, pipeline" },
   projects: { title: "Projects & Event Operations", subtitle: "Deliver every event on time, on budget" },
@@ -266,8 +271,15 @@ export function AppShell() {
   // granted the "documents" permission — regardless of what a custom
   // permissions override otherwise resolves to.
   const canSeeDocuments = role === "FOUNDER" || (user.permissions ?? []).includes("documents");
+  // The Playbook is the founder's personal operating system — it names his
+  // Master's and his own ventures, and the Sunday review is him writing
+  // honestly about his week. Founder-only here and on every verb of the
+  // API, and never reachable through a custom permissions override.
   const visibleNav = NAV.filter(
-    (n) => allowed.includes(n.id) && (n.id !== "documents" || canSeeDocuments),
+    (n) =>
+      allowed.includes(n.id) &&
+      (n.id !== "documents" || canSeeDocuments) &&
+      (n.id !== "playbook" || role === "FOUNDER"),
   );
 
   // If the active module isn't allowed for this role, fall back to command
