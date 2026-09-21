@@ -9,22 +9,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SectionHeader } from "@/components/doz/ui-primitives";
 import { cn } from "@/lib/utils";
-import {
-  weekInOrder,
-  planForDate,
-  weekStart,
-  dayKey,
-  PRIORITIES,
-  THE_ONE_RULE,
-  REDEFINITIONS,
-  MONTHLY_TARGETS,
-  NOT_NOW,
-  REVIEW_QUESTIONS,
-  SUNDAY_GUARD,
-  type Block,
-  type DayPlan,
-  type Priority,
-} from "@/lib/founder-playbook";
+// Types only. The playbook's text arrives from the founder-only API; a value
+// import here would bundle it into the JavaScript every signed-in user
+// downloads. src/lib/founder-playbook-boundary.test.ts enforces this.
+import type { Block, DayPlan, Priority, PlaybookContent } from "@/lib/founder-playbook";
+import { weekStart, dayKey } from "@/lib/week-keys";
 import {
   Compass, Check, Loader2, Ban, Target, CalendarDays, HelpCircle, Moon, Save,
 } from "lucide-react";
@@ -35,24 +24,6 @@ import { toast } from "sonner";
 // Opens on today, because that is the only day he can act on. The rest of
 // the week, the scoreboard and the parking zone are behind tabs — present
 // when he wants them, not competing with the block he should be in now.
-
-const PRIORITY_STYLE: Record<Priority, string> = {
-  D1Z: "bg-primary/15 text-primary border-primary/30",
-  RESEARCHBRAINIE: "bg-violet-500/15 text-violet-300 border-violet-500/30",
-  FIESTIVO: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  MASTERS: "bg-teal-500/15 text-teal-300 border-teal-500/30",
-  FLEX: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-  RESET: "bg-muted text-muted-foreground border-border",
-};
-
-const PRIORITY_LABEL: Record<Priority, string> = {
-  D1Z: "D1Z",
-  RESEARCHBRAINIE: "ResearchBrainie",
-  FIESTIVO: "Fiestivo",
-  MASTERS: "Master's",
-  FLEX: "Flex",
-  RESET: "Reset",
-};
 
 interface ReviewState {
   answers: Record<string, string>;
@@ -76,7 +47,11 @@ export function Playbook() {
     [monday],
   );
 
-  const todayPlan = useMemo(() => planForDate(today), [today]);
+  const [content, setContent] = useState<PlaybookContent | null>(null);
+  // Labels and colours come with the content. Kept out of this file so the
+  // venture names never appear in the client bundle.
+  const tone = (p: Priority) => content?.tones[p] ?? "";
+  const label = (p: Priority) => content?.labels[p] ?? "";
   const [done, setDone] = useState<Set<string> | null>(null);
   const [review, setReview] = useState<ReviewState>({ answers: {}, nextWeek: "" });
   const [savingReview, setSavingReview] = useState(false);
@@ -91,6 +66,7 @@ export function Playbook() {
       );
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`);
+      setContent(j.content ?? null);
       setDone(new Set<string>(j.done ?? []));
       setReview({ answers: j.review?.answers ?? {}, nextWeek: j.review?.nextWeek ?? "" });
       setError(null);
@@ -190,8 +166,8 @@ export function Playbook() {
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {b.slot}
               </span>
-              <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", PRIORITY_STYLE[b.priority])}>
-                {PRIORITY_LABEL[b.priority]}
+              <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", tone(b.priority))}>
+                {label(b.priority)}
               </Badge>
               {b.duration && <span className="text-[11px] text-muted-foreground">{b.duration}</span>}
             </div>
@@ -231,8 +207,8 @@ export function Playbook() {
             {plan.budget && <span className="ml-1.5 text-muted-foreground/70">· {plan.budget}</span>}
           </p>
         </div>
-        <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", PRIORITY_STYLE[plan.priority])}>
-          {PRIORITY_LABEL[plan.priority]}
+        <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", tone(plan.priority))}>
+          {label(plan.priority)}
         </Badge>
       </div>
       {plan.question && (
@@ -251,15 +227,37 @@ export function Playbook() {
     </Card>
   );
 
-  const doneToday = todayPlan.blocks.filter((b) => done?.has(`${todayKey}|${b.id}`)).length;
+  const header = (
+    <SectionHeader
+      icon={<Compass className="h-4 w-4" />}
+      title="Playbook"
+      description="Four priorities. One rule. Seven days."
+    />
+  );
+  const todayPlan = content?.week.find((d) => d.weekday === today.getDay()) ?? null;
+
+  if (error) {
+    return (
+      <div className="space-y-5">
+        {header}
+        <Card className="p-6"><p className="text-sm text-destructive">{error}</p></Card>
+      </div>
+    );
+  }
+  if (!content || done === null || !todayPlan) {
+    return (
+      <div className="space-y-5">
+        {header}
+        <div className="space-y-3"><Skeleton className="h-40 w-full" /><Skeleton className="h-24 w-full" /></div>
+      </div>
+    );
+  }
+
+  const doneToday = todayPlan.blocks.filter((b) => done.has(`${todayKey}|${b.id}`)).length;
 
   return (
     <div className="space-y-5">
-      <SectionHeader
-        icon={<Compass className="h-4 w-4" />}
-        title="Playbook"
-        description="Four priorities. One rule. Seven days."
-      />
+      {header}
 
       {/* The one rule sits above everything, because everything else is
           downstream of it. */}
@@ -268,13 +266,13 @@ export function Playbook() {
           <Ban className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">The one rule</p>
-            <p className="mt-1 text-sm font-semibold">{THE_ONE_RULE.headline}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{THE_ONE_RULE.body}</p>
+            <p className="mt-1 text-sm font-semibold">{content.rule.headline}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{content.rule.body}</p>
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {PRIORITIES.map((p) => (
-            <div key={p.id} className={cn("rounded-md border px-3 py-2", PRIORITY_STYLE[p.id])}>
+          {content.priorities.map((p) => (
+            <div key={p.id} className={cn("rounded-md border px-3 py-2", tone(p.id))}>
               <p className="text-xs font-bold">{p.label}</p>
               <p className="text-[11px] opacity-80">{p.goal}</p>
             </div>
@@ -282,12 +280,7 @@ export function Playbook() {
         </div>
       </Card>
 
-      {error ? (
-        <Card className="p-6"><p className="text-sm text-destructive">{error}</p></Card>
-      ) : done === null ? (
-        <div className="space-y-3"><Skeleton className="h-40 w-full" /><Skeleton className="h-24 w-full" /></div>
-      ) : (
-        <Tabs defaultValue="today">
+      <Tabs defaultValue="today">
           <TabsList>
             <TabsTrigger value="today">Today</TabsTrigger>
             <TabsTrigger value="week">The week</TabsTrigger>
@@ -310,14 +303,14 @@ export function Playbook() {
             {todayPlan.weekday === 0 && (
               <Card className="flex items-start gap-3 border-border bg-muted/30 p-4">
                 <Moon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">{SUNDAY_GUARD}</p>
+                <p className="text-xs text-muted-foreground">{content.sundayGuard}</p>
               </Card>
             )}
           </TabsContent>
 
           <TabsContent value="week" className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-2">
-              {weekInOrder().map((plan) => {
+              {content.week.map((plan) => {
                 // Index within the Monday-first week, which is how the seven
                 // day-keys above are ordered.
                 const idx = plan.weekday === 0 ? 6 : plan.weekday - 1;
@@ -333,11 +326,11 @@ export function Playbook() {
                 title="Weekly review"
                 description={`Week of ${monday.toLocaleDateString(undefined, { day: "numeric", month: "long" })} — four questions`}
               />
-              {REVIEW_QUESTIONS.map((q) => (
+              {content.reviewQuestions.map((q) => (
                 <div key={q.key} className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", PRIORITY_STYLE[q.priority])}>
-                      {PRIORITY_LABEL[q.priority]}
+                    <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", tone(q.priority))}>
+                      {label(q.priority)}
                     </Badge>
                     <p className="text-xs font-medium">{q.question}</p>
                   </div>
@@ -373,10 +366,10 @@ export function Playbook() {
             <Card className="p-5">
               <SectionHeader icon={<Target className="h-4 w-4" />} title="A different definition of work" description="The question on the left is the one that feels like work" />
               <div className="mt-3 space-y-2">
-                {REDEFINITIONS.map((r) => (
+                {content.redefinitions.map((r) => (
                   <div key={r.priority} className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[120px_1fr_1fr] sm:items-center">
-                    <Badge variant="outline" className={cn("w-fit text-[9px] font-bold uppercase tracking-wide", PRIORITY_STYLE[r.priority])}>
-                      {PRIORITY_LABEL[r.priority]}
+                    <Badge variant="outline" className={cn("w-fit text-[9px] font-bold uppercase tracking-wide", tone(r.priority))}>
+                      {label(r.priority)}
                     </Badge>
                     <p className="text-xs text-muted-foreground line-through">{r.instead}</p>
                     <p className="text-xs font-semibold">{r.ask}</p>
@@ -388,10 +381,10 @@ export function Playbook() {
             <Card className="p-5">
               <SectionHeader title="Monthly targets" description="Keep the scoreboard small" icon={<Target className="h-4 w-4" />} />
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {MONTHLY_TARGETS.map((m) => (
+                {content.monthlyTargets.map((m) => (
                   <div key={m.priority} className="rounded-md border border-border p-3">
-                    <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", PRIORITY_STYLE[m.priority])}>
-                      {PRIORITY_LABEL[m.priority]}
+                    <Badge variant="outline" className={cn("text-[9px] font-bold uppercase tracking-wide", tone(m.priority))}>
+                      {label(m.priority)}
                     </Badge>
                     <ul className="mt-2 space-y-1">
                       {m.targets.map((t) => (
@@ -409,17 +402,16 @@ export function Playbook() {
             <Card className="p-5">
               <SectionHeader title="Ideas parking zone" description="Not now" icon={<Ban className="h-4 w-4" />} />
               <div className="mt-3 flex flex-wrap gap-2">
-                {NOT_NOW.items.map((i) => (
+                {content.notNow.items.map((i) => (
                   <Badge key={i} variant="outline" className="gap-1 border-destructive/30 bg-destructive/5 text-destructive">
                     <Ban className="h-3 w-3" /> {i}
                   </Badge>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">{NOT_NOW.note}</p>
+              <p className="mt-3 text-xs text-muted-foreground">{content.notNow.note}</p>
             </Card>
           </TabsContent>
         </Tabs>
-      )}
     </div>
   );
 }

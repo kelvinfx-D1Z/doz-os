@@ -18,6 +18,7 @@ const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALTLEN = 16;
 import {
   throttleState,
+  type HeaderSource,
   shouldRecordFailure,
   pruneBefore,
   clientIpFrom,
@@ -127,7 +128,10 @@ export const authOptions: NextAuthOptions = {
         // timing whether the address exists. Two limits: a strict one per
         // address, a looser one per origin to catch password spraying, which
         // no per-address count ever sees. See src/lib/login-throttle.ts.
-        const ip = clientIpFrom((req as { headers?: Headers } | undefined)?.headers ?? null);
+        // NextAuth v4 passes these as a plain object, not a Fetch Headers.
+        // Casting them to Headers is what hid "e.get is not a function" from
+        // the typechecker and locked everyone out; HeaderSource admits both.
+        const ip = clientIpFrom((req as { headers?: HeaderSource } | undefined)?.headers ?? null);
         let recent: { email: string; ip: string | null; createdAt: Date }[] = [];
         try {
           recent = await db.loginAttempt.findMany({

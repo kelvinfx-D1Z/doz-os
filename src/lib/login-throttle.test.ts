@@ -125,3 +125,46 @@ test("clientIpFrom takes the client, not the proxies behind it", () => {
   // A forged, oversized header is truncated rather than stored whole.
   assert.equal(clientIpFrom(h({ "x-forwarded-for": "x".repeat(500) }))?.length ?? 0, 64);
 });
+
+// ---- THE LOCKOUT ---------------------------------------------------------
+// NextAuth v4 passes `authorize` a plain object of headers. The original
+// clientIpFrom called `.get()` on it and threw "e.get is not a function" on
+// every sign-in in production. Every test above used the Headers shape, which
+// production never sends — so these lead with the shape it does.
+
+test("THE LOCKOUT: a plain header object, as NextAuth actually sends it", () => {
+  assert.equal(clientIpFrom({ "x-forwarded-for": "102.89.1.7, 10.0.0.1" }), "102.89.1.7");
+  assert.equal(clientIpFrom({ "x-real-ip": "41.58.2.9" }), "41.58.2.9");
+  assert.equal(clientIpFrom({ host: "doz-os.vercel.app" }), null);
+  assert.equal(clientIpFrom({}), null);
+});
+
+test("header names are matched case-insensitively in a plain object", () => {
+  assert.equal(clientIpFrom({ "X-Forwarded-For": "102.89.1.7" }), "102.89.1.7");
+});
+
+test("a multi-valued header takes its first value", () => {
+  assert.equal(clientIpFrom({ "x-forwarded-for": ["102.89.1.7", "10.0.0.1"] }), "102.89.1.7");
+});
+
+test("a real Fetch Headers instance still works", () => {
+  const real = new Headers({ "x-forwarded-for": "102.89.1.7, 10.0.0.1" });
+  assert.equal(clientIpFrom(real), "102.89.1.7");
+});
+
+test("NEVER THROWS: anything odd yields null, so a sign-in still goes ahead", () => {
+  // A throw here is not a missing rate-limit key; it is nobody able to sign in.
+  const hostile = [
+    undefined,
+    null,
+    { get: "not a function" },
+    { get: () => { throw new Error("boom"); } },
+    { "x-forwarded-for": 12345 },
+    { "x-forwarded-for": undefined },
+    { "x-forwarded-for": [] },
+  ];
+  for (const h of hostile) {
+    assert.doesNotThrow(() => clientIpFrom(h as never));
+    assert.equal(clientIpFrom(h as never), null);
+  }
+});

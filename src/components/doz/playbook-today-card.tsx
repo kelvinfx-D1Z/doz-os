@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAppStore, type ModuleId } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { planForDate, SUNDAY_GUARD } from "@/lib/founder-playbook";
+// Types only — the text comes from the founder-only API. See
+// src/lib/founder-playbook.ts, SERVER-ONLY.
+import type { DayPlan } from "@/lib/founder-playbook";
 import { Compass, ArrowRight, HelpCircle, Moon } from "lucide-react";
 
 // Today's line from the founder's playbook, on the dashboard he already
@@ -17,18 +19,30 @@ import { Compass, ArrowRight, HelpCircle, Moon } from "lucide-react";
 // a full checklist here would just be the Playbook page twice, and the
 // Command Center is already busy.
 
-const TONE: Record<string, string> = {
-  D1Z: "bg-primary/15 text-primary border-primary/30",
-  RESEARCHBRAINIE: "bg-violet-500/15 text-violet-300 border-violet-500/30",
-  FIESTIVO: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  MASTERS: "bg-teal-500/15 text-teal-300 border-teal-500/30",
-  FLEX: "bg-sky-500/15 text-sky-300 border-sky-500/30",
-  RESET: "bg-muted text-muted-foreground border-border",
-};
-
 export function PlaybookTodayCard() {
   const setModule = useAppStore((s) => s.setModule);
-  const plan = useMemo(() => planForDate(new Date()), []);
+  const [plan, setPlan] = useState<DayPlan | null>(null);
+  const [sundayGuard, setSundayGuard] = useState("");
+  const [tones, setTones] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/doz/playbook", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j?.content) return;
+        const weekday = new Date().getDay();
+        setPlan((j.content.week as DayPlan[]).find((d) => d.weekday === weekday) ?? null);
+        setSundayGuard(j.content.sundayGuard ?? "");
+        setTones(j.content.tones ?? {});
+      })
+      // A missing reminder is not worth an error on the dashboard; the
+      // Playbook page itself reports failures.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!plan) return null;
   const isSunday = plan.weekday === 0;
 
   return (
@@ -60,7 +74,7 @@ export function PlaybookTodayCard() {
       {plan.blocks.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {plan.blocks.map((b) => (
-            <Badge key={b.id} variant="outline" className={cn("gap-1.5 font-medium", TONE[b.priority])}>
+            <Badge key={b.id} variant="outline" className={cn("gap-1.5 font-medium", tones[b.priority])}>
               {b.title}
               {b.duration && <span className="opacity-70">· {b.duration}</span>}
             </Badge>
@@ -75,7 +89,7 @@ export function PlaybookTodayCard() {
         </div>
       )}
 
-      {isSunday && <p className="mt-3 text-xs text-muted-foreground">{SUNDAY_GUARD}</p>}
+      {isSunday && sundayGuard && <p className="mt-3 text-xs text-muted-foreground">{sundayGuard}</p>}
     </Card>
   );
 }

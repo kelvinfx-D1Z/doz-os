@@ -1,11 +1,29 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { isBlockId, REVIEW_QUESTIONS } from "@/lib/founder-playbook";
+import {
+  isBlockId,
+  weekInOrder,
+  PRIORITIES,
+  THE_ONE_RULE,
+  REDEFINITIONS,
+  MONTHLY_TARGETS,
+  NOT_NOW,
+  REVIEW_QUESTIONS,
+  SUNDAY_GUARD,
+  PRIORITY_LABELS,
+  PRIORITY_TONES,
+} from "@/lib/founder-playbook";
 
-// The founder's weekly operating system — his completions and his Sunday
-// review. The playbook content itself is not served from here; it is code
-// the client imports directly (src/lib/founder-playbook.ts).
+// The founder's weekly operating system — the playbook itself, his
+// completions, and his Sunday review.
+//
+// The CONTENT is served from here and nowhere else. It used to be imported
+// straight into client components, which put the whole text in the
+// JavaScript bundle every signed-in user downloads: the page and this API
+// were founder-only, but an intern could read the founder's week in
+// devtools without ever being shown it. Served from behind the gate below,
+// it never leaves the server for anyone else.
 //
 // FOUNDER ONLY, on every verb. This is not a company module: it names his
 // Master's, ResearchBrainie and Fiestivo, and the Sunday review is him
@@ -38,7 +56,24 @@ export async function GET(req: Request) {
   if (gate.error) return gate.error;
 
   const url = new URL(req.url);
-  const week = url.searchParams.get("week") ?? "";
+  const content = {
+    week: weekInOrder(),
+    priorities: PRIORITIES,
+    rule: THE_ONE_RULE,
+    redefinitions: REDEFINITIONS,
+    monthlyTargets: MONTHLY_TARGETS,
+    notNow: NOT_NOW,
+    reviewQuestions: REVIEW_QUESTIONS,
+    sundayGuard: SUNDAY_GUARD,
+    labels: PRIORITY_LABELS,
+    tones: PRIORITY_TONES,
+  };
+
+  // No week asked for: the content alone. The dashboard card needs today's
+  // line, not his ticks or his Sunday answers.
+  const week = url.searchParams.get("week");
+  if (week === null) return NextResponse.json({ content });
+
   const days = (url.searchParams.get("days") ?? "").split(",").filter((d) => DAY_RE.test(d));
   if (!DAY_RE.test(week)) {
     return NextResponse.json({ error: "week must be YYYY-MM-DD" }, { status: 400 });
@@ -65,6 +100,7 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json({
+    content,
     done: blocks.map((b) => `${b.day}|${b.blockId}`),
     review: review
       ? { weekStart: review.weekStart, answers: safeJson(review.answers), nextWeek: review.nextWeek }

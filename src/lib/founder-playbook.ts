@@ -19,9 +19,20 @@
 // not D1Z's. The API and the nav entry are FOUNDER-only, and no other role
 // can reach any of it. See the route for the enforcement.
 //
-// Pure and DB-free so the route, the UI and the tests share one answer to
-// "what is today?".
+// SERVER-ONLY. Only the API route may import this file's values; a client
+// component may `import type` from it and nothing else. Every client import
+// ships this text in the JavaScript bundle every signed-in user downloads —
+// an intern could read the founder's week in devtools without ever being
+// shown the page. src/lib/founder-playbook-boundary.test.ts enforces this.
+// The date helpers a client does need live in ./week-keys.ts, which carries
+// no content.
+//
+// Pure and DB-free so the route and the tests share one answer to "what is
+// today?".
 // ============================================================
+
+import { weekStart, dayKey } from "./week-keys.ts";
+export { weekStart, dayKey };
 
 /** The four things that get his time this year. Nothing else does. */
 export type Priority = "D1Z" | "RESEARCHBRAINIE" | "FIESTIVO" | "MASTERS" | "FLEX" | "RESET";
@@ -39,6 +50,31 @@ export const PRIORITIES: PriorityMeta[] = [
   { id: "FIESTIVO", label: "Fiestivo", goal: "Finish and launch" },
   { id: "MASTERS", label: "Master's", goal: "Read, understand, write" },
 ];
+
+/**
+ * Display labels and colours for every priority, served with the content.
+ *
+ * They live here, not in the client components, because a label map in a
+ * component is the venture names in the JavaScript bundle every user
+ * downloads — the one thing this module is kept server-side to prevent.
+ */
+export const PRIORITY_LABELS: Record<Priority, string> = {
+  D1Z: "D1Z",
+  RESEARCHBRAINIE: "ResearchBrainie",
+  FIESTIVO: "Fiestivo",
+  MASTERS: "Master's",
+  FLEX: "Flex",
+  RESET: "Reset",
+};
+
+export const PRIORITY_TONES: Record<Priority, string> = {
+  D1Z: "bg-primary/15 text-primary border-primary/30",
+  RESEARCHBRAINIE: "bg-violet-500/15 text-violet-300 border-violet-500/30",
+  FIESTIVO: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  MASTERS: "bg-teal-500/15 text-teal-300 border-teal-500/30",
+  FLEX: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  RESET: "bg-muted text-muted-foreground border-border",
+};
 
 export const THE_ONE_RULE = {
   headline: "No new major project. No FounderOS. No new SaaS. No major side venture.",
@@ -439,32 +475,25 @@ export function isBlockId(id: unknown): id is string {
   return typeof id === "string" && allBlockIds().includes(id);
 }
 
-/**
- * Monday of the week containing `date`, at local midnight — the key a
- * weekly review is stored under.
- *
- * Monday, not Sunday, because his week runs Monday to Sunday: the review
- * he writes on Sunday belongs to the week that has just happened, not to
- * the one starting that evening.
- */
-export function weekStart(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0 = Sunday
-  const backToMonday = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - backToMonday);
-  return d;
-}
-
-/** "2026-09-20" in local time — how a day's completions are keyed. */
-export function dayKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 /** The week in reading order, Monday first, Sunday last. */
 export function weekInOrder(): DayPlan[] {
   return [...WEEK].sort((a, b) => (a.weekday === 0 ? 7 : a.weekday) - (b.weekday === 0 ? 7 : b.weekday));
+}
+
+/**
+ * Everything the Playbook page renders, as the API serves it. Client code
+ * receives this over the wire from the founder-only route and may only
+ * `import type` it — see the SERVER-ONLY note at the top of this file.
+ */
+export interface PlaybookContent {
+  week: DayPlan[];
+  priorities: PriorityMeta[];
+  rule: typeof THE_ONE_RULE;
+  redefinitions: typeof REDEFINITIONS;
+  monthlyTargets: typeof MONTHLY_TARGETS;
+  notNow: typeof NOT_NOW;
+  reviewQuestions: typeof REVIEW_QUESTIONS;
+  sundayGuard: string;
+  labels: Record<Priority, string>;
+  tones: Record<Priority, string>;
 }

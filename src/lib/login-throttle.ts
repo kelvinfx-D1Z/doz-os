@@ -118,15 +118,57 @@ export function pruneBefore(now: number = Date.now()): Date {
  * are trivially forgeable, so only the first is used — and it is only ever a
  * rate-limit key, never an authorisation decision.
  */
-export function clientIpFrom(headers: {
-  get(name: string): string | null | undefined;
-} | null | undefined): string | null {
-  if (!headers) return null;
-  const fwd = headers.get("x-forwarded-for");
-  if (typeof fwd === "string" && fwd.trim()) {
+/**
+ * The shapes a request's headers actually arrive in.
+ *
+ * NextAuth v4 hands `authorize` a PLAIN OBJECT of headers — `{ "x-forwarded-for":
+ * "..." }` — not a Fetch `Headers` instance. This function originally accepted
+ * only the `Headers` shape and called `.get()` on whatever it was given, which
+ * threw "e.get is not a function" on every sign-in in production and locked
+ * every user out of the OS. The tests passed because they only ever built the
+ * `Headers` shape. Both are accepted now, and the plain object is the one the
+ * tests lead with, because it is the one production sends.
+ */
+export type HeaderSource =
+  | { get(name: string): string | null | undefined }
+  | Record<string, string | string[] | undefined>
+  | null
+  | undefined;
+
+/** Read one header from either shape, case-insensitively. Never throws. */
+function readHeader(headers: HeaderSource, name: string): string | null {
+  if (!headers || typeof headers !== "object") return null;
+  try {
+    const getter = (headers as { get?: unknown }).get;
+    if (typeof getter === "function") {
+      const v = (getter as (n: string) => unknown).call(headers, name);
+      return typeof v === "string" ? v : null;
+    }
+    const record = headers as Record<string, unknown>;
+    const key = Object.keys(record).find((k) => k.toLowerCase() === name);
+    const v = key === undefined ? undefined : record[key];
+    if (typeof v === "string") return v;
+    if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The client's IP, for rate-limiting only.
+ *
+ * Total by design: a rate-limit key is a nice-to-have, and a sign-in that
+ * cannot be keyed by IP must still go ahead — it is still limited per
+ * address. Anything unexpected here returns null rather than throwing,
+ * because a throw here is a company locked out of its own OS.
+ */
+export function clientIpFrom(headers: HeaderSource): string | null {
+  const fwd = readHeader(headers, "x-forwarded-for");
+  if (fwd && fwd.trim()) {
     const first = fwd.split(",")[0]?.trim();
     if (first) return first.slice(0, 64);
   }
-  const real = headers.get("x-real-ip");
-  return typeof real === "string" && real.trim() ? real.trim().slice(0, 64) : null;
+  const real = readHeader(headers, "x-real-ip");
+  return real && real.trim() ? real.trim().slice(0, 64) : null;
 }
