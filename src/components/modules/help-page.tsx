@@ -24,14 +24,12 @@ const ROLE_GUIDES: Record<string, { title: string; icon: React.ReactNode; sectio
         "Log your time at end of day (helps track delegation)",
       ]},
       { title: "Your Weekly Flow", items: [
-        "Monday: Read the Weekly CEO Review + assign intern tasks (Staff Hub)",
-        "Tuesday: Sales day — check CRM pipeline and follow up on proposals",
-        "Wednesday: Creative — review project deliverables",
-        "Thursday: Product — work on Fiestivo.com or FounderOS",
-        "Friday: Review — check financial dashboard, review intern reports",
+        "Your week lives in Playbook (sidebar) — each day's blocks, its question, and the Sunday review",
+        "Today's line from it sits on your Command Center every morning",
+        "Assign intern tasks from Staff Hub; they appear on the intern's dashboard and Tasks page",
       ]},
       { title: "Managing Your Team", items: [
-        "Staff Hub: Add staff, assign tasks, set pillar allocations (DOZ/Fiestivo/FounderOS)",
+        "Staff Hub: Add staff, assign tasks, set module access",
         "Use 'DIDI Assign' to describe work in natural language — DIDI breaks it into tasks",
         "Internship Program: Track milestone completion and submit daily standups",
         "Team Management: Add/edit/deactivate team members, change passwords",
@@ -81,7 +79,6 @@ const ROLE_GUIDES: Record<string, { title: string; icon: React.ReactNode; sectio
       { title: "Your Internship Journey", items: [
         "Internship Program: Track your milestones across 4 quarters",
         "Click milestones to mark them as In Progress or Completed",
-        "Your pillar allocation: 50% DOZ Studios, 30% Fiestivo, 20% FounderOS",
         "Monthly Learning Goals: focus on the current month's skill",
       ]},
       { title: "Learning Resources", items: [
@@ -93,7 +90,7 @@ const ROLE_GUIDES: Record<string, { title: string; icon: React.ReactNode; sectio
         "Monday: Team planning meeting (30 min)",
         "Tuesday: Learning day (2-hour training)",
         "Wednesday: Project work",
-        "Thursday: Innovation day (Fiestivo/FounderOS)",
+        "Thursday: Project work",
         "Friday: Reflection — what did I learn, build, struggle with?",
       ]},
     ],
@@ -150,7 +147,7 @@ const MODULE_GUIDES: { id: ModuleId; name: string; icon: React.ReactNode; desc: 
   { id: "procurement", name: "Procurement & Payments", icon: <Truck className="h-4 w-4" />, desc: "Vendors, expenses, payments, 3-way segregation (Requester ≠ Approver ≠ Payer)" },
   { id: "finance", name: "Financial Intelligence", icon: <Wallet className="h-4 w-4" />, desc: "P&L by project/client/service, invoices, reminders, budgets" },
   { id: "team", name: "Team Management", icon: <UserCog className="h-4 w-4" />, desc: "Add/edit/deactivate team members, change passwords, daily & weekly reports" },
-  { id: "staff-hub", name: "Staff Hub", icon: <Users2 className="h-4 w-4" />, desc: "Manage staff, assign tasks, DIDI creates activities, track pillar allocations" },
+  { id: "staff-hub", name: "Staff Hub", icon: <Users2 className="h-4 w-4" />, desc: "Manage staff, assign tasks, DIDI creates activities, set module access" },
   { id: "sop", name: "SOP & Knowledge", icon: <BookOpen className="h-4 w-4" />, desc: "Templates, checklists, policies, case studies, training materials" },
   { id: "updates", name: "Updates & Backups", icon: <Package className="h-4 w-4" />, desc: "Apply system updates and restore database backups (founder only)" },
 ];

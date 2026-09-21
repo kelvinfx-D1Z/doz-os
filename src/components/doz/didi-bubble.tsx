@@ -49,7 +49,7 @@ const PAGE_CONTEXT: Record<string, {
       "What can I delegate?",
       "Review my monthly scorecard",
     ],
-    dataHints: "founder milestones, quarterly progress, weekly schedule, monthly commitments, ecosystem pillars",
+    dataHints: "founder milestones, quarterly progress, weekly schedule, monthly commitments",
   },
   crm: {
     premise: "CRM & Sales — real customers vs potentials, pipeline, proposals, and follow-ups with team assignment.",
@@ -102,14 +102,14 @@ const PAGE_CONTEXT: Record<string, {
     dataHints: "financial data: revenue, expenses, profit, margin, outstanding invoices, overdue invoices, cash position, cash flow forecast, budgets",
   },
   "staff-hub": {
-    premise: "Staff Hub — manage your team, assign tasks, track responsibilities across DOZ Studios, Fiestivo, and FounderOS pillars.",
+    premise: "Staff Hub — manage your team, assign tasks, and track who is responsible for what.",
     suggestions: [
       "Who has the most overdue tasks?",
       "What should I delegate today?",
       "How are the interns doing?",
       "Create tasks for Akpala from a description",
     ],
-    dataHints: "staff data: team members, roles, pillar allocations, tasks per person, overdue tasks, intern progress",
+    dataHints: "staff data: team members, roles, tasks per person, overdue tasks, intern progress",
   },
   calendar: {
     premise: "Calendar — all projects, tasks, invoices, and follow-ups in a month grid view.",

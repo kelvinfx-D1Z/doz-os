@@ -147,18 +147,6 @@ const ROLE_ICONS: Record<string, React.ReactNode> = {
   INTERN: <GraduationCap className="h-4 w-4 text-violet-400" />,
 };
 
-const PILLAR_COLORS: Record<string, string> = {
-  DOZ_STUDIOS: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-  FIESTIVO: "bg-teal-500/10 text-teal-400 border-teal-500/30",
-  FOUNDEROS: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-};
-
-const PILLAR_NAMES: Record<string, string> = {
-  DOZ_STUDIOS: "DOZ Studios",
-  FIESTIVO: "Fiestivo.com",
-  FOUNDEROS: "FounderOS",
-};
-
 const PRIORITY_LABELS: Record<string, string> = {
   URGENT: "Urgent", HIGH: "High", MEDIUM: "Medium", LOW: "Low",
 };
@@ -352,31 +340,6 @@ function StaffCard({ staff, onToggleTask, onAssign, onDeactivate, onEditTask, on
           )}
         </div>
       </div>
-
-      {/* Pillar Allocations */}
-      {staff.roles.length > 0 && (
-        <div className="border-b border-border p-4">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pillar Allocation</p>
-          <div className="flex flex-wrap gap-2">
-            {staff.roles.map((r: any, i: number) => (
-              <div key={i} className={`rounded-lg border px-3 py-1.5 text-xs ${PILLAR_COLORS[r.pillar] || "bg-muted"}`}>
-                <span className="font-semibold">{PILLAR_NAMES[r.pillar] || r.pillar}</span>
-                <span className="ml-1.5 opacity-70">{r.percentage}%</span>
-              </div>
-            ))}
-          </div>
-          {staff.roles.some((r: any) => r.responsibilities.length > 0) && (
-            <div className="mt-3 space-y-1">
-              {staff.roles.map((r: any, i: number) => r.responsibilities.length > 0 && (
-                <div key={i}>
-                  <p className="text-[10px] font-medium text-muted-foreground">{PILLAR_NAMES[r.pillar] || r.pillar}:</p>
-                  <p className="text-xs text-muted-foreground">{r.responsibilities.join(" · ")}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Task Summary */}
       <div className="flex items-center gap-3 border-b border-border p-3 text-xs flex-wrap">

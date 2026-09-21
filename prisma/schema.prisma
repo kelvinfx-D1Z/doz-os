@@ -1075,10 +1075,13 @@ model ContentLog {
 // STAFF ROLES & RESPONSIBILITIES
 // ============================================================
 
+// RETIRED. Held "pillar allocations" across the founder's ventures. Nothing
+// reads or writes it any more and it holds no rows; kept only because
+// dropping a table is irreversible and gains nothing.
 model StaffRole {
   id          String   @id @default(cuid())
   userId      String
-  pillar      String   // DOZ_STUDIOS, FIESTIVO, FOUNDEROS
+  pillar      String
   percentage  Int      // 50, 30, 20
   responsibilities String // newline separated list
   createdAt   DateTime @default(now())

@@ -20,7 +20,7 @@ function sanitizePermissions(input: any): string[] | null {
   return filtered.length > 0 ? filtered : null;
 }
 
-// GET — staff overview with roles, responsibilities, and tasks.
+// GET — staff overview with roles and tasks.
 // FOUNDER sees ALL tasks for every staff member (including completed).
 // STAFF/INTERN only see their own open tasks (they cannot open this page
 // anyway — it's restricted — but the API stays safe by filtering to their id).
@@ -30,12 +30,11 @@ export async function GET() {
 
   const isFounder = user.role === "FOUNDER";
 
-  const [users, staffRoles, tasks] = await Promise.all([
+  const [users, tasks] = await Promise.all([
     db.user.findMany({
       where: { role: { in: ["FOUNDER", "STAFF", "INTERN"] } },
       orderBy: [{ role: "asc" }, { name: "asc" }],
     }),
-    db.staffRole.findMany(),
     db.task.findMany({
       // Founder sees every non-archived task; non-founders only see their own
       where: isFounder
@@ -75,7 +74,6 @@ export async function GET() {
   const DAY = 86400000;
   const now = Date.now();
   const staff = users.map(u => {
-    const roles = staffRoles.filter(r => r.userId === u.id);
     const userTasks = tasksByUser[u.id] || [];
     const doneToday = userTasks.filter(t => t.status === "DONE" && t.completedAt && new Date(t.completedAt).getTime() > now - DAY).length;
     return {
@@ -89,11 +87,6 @@ export async function GET() {
       isActive: u.isActive,
       // Per-user permissions (null = role defaults apply)
       permissions: parsePermissions(u.permissions),
-      roles: roles.map(r => ({
-        pillar: r.pillar,
-        percentage: r.percentage,
-        responsibilities: r.responsibilities ? r.responsibilities.split("\n").filter(Boolean) : [],
-      })),
       // Bucketed in src/lib/task-buckets.ts, which also carries the `undated`
       // bucket. Every bucket here used to require a dueDate, so a task
       // assigned without a deadline was created, counted in `total`, and shown
@@ -199,30 +192,6 @@ export async function POST(req: Request) {
       },
     });
     return NextResponse.json({ ok: true, task: created }, { status: 201 });
-  }
-
-  // Set staff role/responsibilities (pillars) — FOUNDER only.
-  if (body.action === "set_roles") {
-    if (user.role !== "FOUNDER") {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-    if (!body.userId || !body.roles) {
-      return NextResponse.json({ error: "userId and roles required" }, { status: 400 });
-    }
-    // Delete existing roles for this user
-    await db.staffRole.deleteMany({ where: { userId: body.userId } });
-    // Create new roles
-    for (const r of body.roles) {
-      await db.staffRole.create({
-        data: {
-          userId: body.userId,
-          pillar: r.pillar,
-          percentage: r.percentage,
-          responsibilities: Array.isArray(r.responsibilities) ? r.responsibilities.join("\n") : r.responsibilities || "",
-        },
-      });
-    }
-    return NextResponse.json({ ok: true });
   }
 
   // Toggle task status — assignee, creator, or FOUNDER can toggle.
