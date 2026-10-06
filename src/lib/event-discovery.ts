@@ -26,7 +26,7 @@
 // instruction.
 // ============================================================
 
-import { stripHtml, safeHttpUrl, isEnergyRelevant, containsTerm, TERM_LISTS } from "./energy-news.ts";
+import { stripHtml, safeHttpUrl, containsTerm, TERM_LISTS } from "./energy-news.ts";
 
 /**
  * Terms that mean the industry even on their own — everything except the
@@ -42,15 +42,46 @@ import { stripHtml, safeHttpUrl, isEnergyRelevant, containsTerm, TERM_LISTS } fr
 const HARD_SECTOR_TERMS = TERM_LISTS.ENERGY_TERMS.filter((t) => t !== "energy");
 
 /**
+ * Industry words that are something else entirely in an event listing.
+ *
+ * "Oil" is aromatherapy, anointing oil and cooking oil; a live African
+ * search returned an "Aromatherapy Class" and "BEFORE DAWN: GUARD THE OIL".
+ * "Upstream" is a psychology workshop called "Swimming Upstream". Each needs
+ * a companion below before it counts.
+ */
+const NEEDS_COMPANY = ["oil", "upstream", "downstream", "midstream"];
+
+/** What has to appear alongside one of the above for it to mean the sector. */
+const COMPANIONS = [
+  "gas", "crude", "petroleum", "refinery", "refineries", "barrel", "barrels",
+  "rig", "drilling", "exploration", "field", "offshore", "pipeline", "energy",
+  "industry", "sector", "opec", "nnpc", "nuprc", "licensing", "subsea", "lng",
+];
+
+/**
  * Whether a listing is an event in this industry.
  *
- * The title is read on the normal (event-mode) rules; the description only
- * counts when it names the sector outright.
+ * Three ways in, in order of confidence: a word that can only mean the
+ * sector; "oil" (or upstream/downstream) backed by a companion word; or the
+ * word "energy" in the TITLE. "Energy" in a description is usually about
+ * atmosphere — a live search returned "LAVISH FRIDAY", "Silk & Soul" and
+ * "Friday Tribal Jungle", all promising a high-energy night.
  */
 export function isEnergyEvent(title: string, summary: string | null): boolean {
-  if (isEnergyRelevant(title, "event")) return true;
-  if (!summary) return false;
-  return HARD_SECTOR_TERMS.some((term) => containsTerm(summary, term));
+  const text = `${title} ${summary ?? ""}`;
+  // "gas" lives on the news module's ambiguous list because of "tear gas",
+  // but in an event listing it is the sector — "Oil & Gas Week", "Gas Expo".
+  // Without this it counted for nothing and real events were dropped.
+  if (containsTerm(text, "gas") && !text.toLowerCase().includes("tear gas")) return true;
+  const unambiguous = HARD_SECTOR_TERMS.filter((t) => !NEEDS_COMPANY.includes(t));
+  if (unambiguous.some((term) => containsTerm(text, term))) return true;
+  if (
+    NEEDS_COMPANY.some((term) => containsTerm(text, term)) &&
+    COMPANIONS.some((c) => containsTerm(text, c))
+  ) {
+    return true;
+  }
+  return containsTerm(title, "energy");
 }
 
 export interface DiscoverySource {
@@ -59,16 +90,21 @@ export interface DiscoverySource {
   /** Shown to the reader as where this was found. */
   site: string;
   /** Rough geography, for the Nigeria-first filter on the page. */
-  region: "Nigeria" | "Africa" | "Global";
+  region: "Nigeria" | "Africa";
 }
 
 /**
  * The searches that are read on each refresh.
  *
+ * Nigeria and the nearer African markets only — the founder's own scope:
+ * "limit it to Nigeria and a bit of Africa." The American, British, Emirati
+ * and online listings were dropped: they were four fifths of what was found
+ * and none of it was work D1Z could reach.
+ *
  * Eventbrite publishes a schema.org ItemList of Events on its search pages
- * and its robots.txt does not disallow them. Nigeria first, then the
- * markets D1Z's clients actually travel to — ADIPEC in Abu Dhabi, Africa
- * Energy Week in Cape Town — then the global and online listings.
+ * and its robots.txt does not disallow them. Angola, Senegal, Ivory Coast,
+ * Uganda and Morocco were each tried and returned nothing, so they are not
+ * kept here as fetches that cost time and find no events.
  */
 export const DISCOVERY_SOURCES: DiscoverySource[] = [
   { url: "https://www.eventbrite.com/d/nigeria/energy/", site: "Eventbrite", region: "Nigeria" },
@@ -76,12 +112,11 @@ export const DISCOVERY_SOURCES: DiscoverySource[] = [
   { url: "https://www.eventbrite.com/d/nigeria/power/", site: "Eventbrite", region: "Nigeria" },
   { url: "https://www.eventbrite.com/d/nigeria/conference/", site: "Eventbrite", region: "Nigeria" },
   { url: "https://www.eventbrite.com/d/south-africa/energy-conference/", site: "Eventbrite", region: "Africa" },
+  { url: "https://www.eventbrite.com/d/south-africa/oil--gas/", site: "Eventbrite", region: "Africa" },
   { url: "https://www.eventbrite.com/d/ghana/energy/", site: "Eventbrite", region: "Africa" },
   { url: "https://www.eventbrite.com/d/kenya/energy/", site: "Eventbrite", region: "Africa" },
-  { url: "https://www.eventbrite.com/d/united-arab-emirates/energy-conference/", site: "Eventbrite", region: "Global" },
-  { url: "https://www.eventbrite.com/d/united-kingdom/energy-conference/", site: "Eventbrite", region: "Global" },
-  { url: "https://www.eventbrite.com/d/united-states/energy-conference/", site: "Eventbrite", region: "Global" },
-  { url: "https://www.eventbrite.com/d/online/energy-conference/", site: "Eventbrite", region: "Global" },
+  { url: "https://www.eventbrite.com/d/tanzania/energy/", site: "Eventbrite", region: "Africa" },
+  { url: "https://www.eventbrite.com/d/egypt/energy/", site: "Eventbrite", region: "Africa" },
 ];
 
 export interface DiscoveredEvent {

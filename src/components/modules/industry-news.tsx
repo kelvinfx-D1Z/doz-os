@@ -49,7 +49,9 @@ interface NewsRow {
   createdAt: string;
 }
 
-type Region = "Nigeria" | "Africa" | "Everywhere";
+// Nigeria, or Nigeria plus the nearer African markets. There is no third
+// option any more: the search no longer leaves the continent.
+type Region = "Nigeria" | "Africa";
 
 interface Payload {
   news: NewsRow[];
@@ -108,7 +110,7 @@ export function IndustryNews() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [region, setRegion] = useState<Region>("Everywhere");
+  const [region, setRegion] = useState<Region>("Africa");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async (force = false) => {
@@ -177,16 +179,13 @@ export function IndustryNews() {
     // A hand-added event has no region; it is the founder's own sector list,
     // so it belongs in every view rather than being filtered out of sight.
     const inRegion = (e: NewsRow) =>
-      region === "Everywhere" ||
-      !e.region ||
-      (region === "Nigeria" ? e.region === "Nigeria" : e.region === "Nigeria" || e.region === "Africa");
+      !e.region || (region === "Nigeria" ? e.region === "Nigeria" : true);
     return {
       upcoming: ahead.filter(inRegion),
       past: rows.filter((e) => e.eventStart && new Date(e.eventEnd ?? e.eventStart) < today).reverse(),
       counts: {
         Nigeria: ahead.filter((e) => !e.region || e.region === "Nigeria").length,
-        Africa: ahead.filter((e) => !e.region || e.region === "Nigeria" || e.region === "Africa").length,
-        Everywhere: ahead.length,
+        Africa: ahead.length,
       },
     };
   }, [data, region]);
@@ -291,7 +290,7 @@ export function IndustryNews() {
       <SectionHeader
         icon={<Newspaper className="h-4 w-4" />}
         title="Industry News"
-        description="Nigerian energy sector — headlines from the papers, and what's coming up"
+        description="Nigerian energy sector — headlines from the papers, and events across Nigeria and Africa"
         action={
           <div className="flex items-center gap-2">
             {data?.canCurate && (
@@ -353,7 +352,7 @@ export function IndustryNews() {
             <TabsContent value="events" className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-md border border-border p-0.5">
-                  {(["Nigeria", "Africa", "Everywhere"] as Region[]).map((r) => (
+                  {(["Nigeria", "Africa"] as Region[]).map((r) => (
                     <button
                       key={r}
                       type="button"
@@ -363,7 +362,7 @@ export function IndustryNews() {
                         region === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {r} · {counts[r]}
+                      {r === "Africa" ? "Nigeria + Africa" : r} · {counts[r]}
                     </button>
                   ))}
                 </div>
@@ -374,9 +373,9 @@ export function IndustryNews() {
                     icon={<CalendarDays className="h-8 w-8" />}
                     title="No events listed yet"
                     hint={
-                      region === "Everywhere"
-                        ? "Press Refresh to search the listing sites for events in this industry."
-                        : `Nothing found in ${region} yet — try Everywhere, or press Refresh.`
+                      region === "Nigeria"
+                        ? "Nothing listed in Nigeria yet — try Nigeria + Africa, or press Refresh."
+                        : "Press Refresh to search the listing sites for events in this industry."
                     }
                   />
                 </Card>

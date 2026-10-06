@@ -135,7 +135,7 @@ test("a plain-string address still yields a city", () => {
 // ---- untrusted input ----------------------------------------------------
 
 test("UNTRUSTED: a javascript: link on an event never becomes a link", () => {
-  const e = normaliseEvent({ name: "Oil summit", startDate: "2026-11-10", url: "javascript:alert(1)" }, SRC, opts);
+  const e = normaliseEvent({ name: "Oil & Gas summit", startDate: "2026-11-10", url: "javascript:alert(1)" }, SRC, opts);
   assert.equal(e?.url, null, "the event is still shown, just without a link");
 });
 
@@ -216,9 +216,20 @@ test("every discovery source is an https URL on a site that allows it", () => {
 });
 
 test("Nigerian searches are read first, so they win any dedupe", () => {
-  const firstGlobal = DISCOVERY_SOURCES.findIndex((s) => s.region === "Global");
+  const firstAfrica = DISCOVERY_SOURCES.findIndex((s) => s.region === "Africa");
   const lastNigeria = DISCOVERY_SOURCES.map((s) => s.region).lastIndexOf("Nigeria");
-  assert.ok(lastNigeria < firstGlobal, "Nigeria before Global in the list");
+  assert.ok(lastNigeria < firstAfrica, "Nigeria before the rest of Africa in the list");
+});
+
+test("THE SCOPE IS NIGERIA AND AFRICA — nothing further afield", () => {
+  // "Limit it to Nigeria and a bit of Africa." The American, British,
+  // Emirati and online searches were four fifths of everything found and
+  // none of it was work D1Z could reach.
+  const regions = new Set(DISCOVERY_SOURCES.map((s) => s.region));
+  assert.deepEqual([...regions].sort(), ["Africa", "Nigeria"]);
+  for (const s of DISCOVERY_SOURCES) {
+    assert.doesNotMatch(s.url, /united-states|united-kingdom|united-arab-emirates|\/online\//, s.url);
+  }
 });
 
 test("THE NIGHTLIFE CASE: 'high energy' in a party listing is not this industry", () => {
@@ -243,4 +254,33 @@ test("a description still qualifies an event when it names the sector", () => {
 test("and a plain energy title still passes on its own", () => {
   assert.ok(isEnergyEvent("Lagos Energy Summit 2026", null));
   assert.ok(isEnergyEvent("Amped and Wired 2026: Energy and AI", "A day of talks."));
+});
+
+test("THE AROMATHERAPY CASE: 'oil' alone is not this industry", () => {
+  // Real results from live Kenyan and South African searches. In an event
+  // listing "oil" is as often essential, anointing or cooking oil.
+  assert.equal(isEnergyEvent("Aromatherapy Class", "Blend your own essential oils."), false);
+  assert.equal(isEnergyEvent("BEFORE DAWN: GUARD THE OIL", "A night of worship and prayer."), false);
+  assert.equal(isEnergyEvent("Swimming Upstream - Worldwork + Process", "A psychology workshop."), false);
+});
+
+test("but oil with a companion word is the sector", () => {
+  assert.ok(isEnergyEvent("Nigeria Oil & Gas Week", null));
+  assert.ok(isEnergyEvent("Oil & Gas Processing & AIM Workshop", null));
+  assert.ok(isEnergyEvent("Crude oil licensing round briefing", null));
+  assert.ok(isEnergyEvent("Upstream investment forum", "Offshore exploration and field development."));
+});
+
+test("unambiguous sector words still stand alone", () => {
+  for (const t of ["Solar Expo Lagos", "National Grid Summit", "LNG Shipping Forum", "Refinery Operators Workshop"]) {
+    assert.ok(isEnergyEvent(t, null), t);
+  }
+});
+
+test("'gas' counts for an event even though the news list treats it warily", () => {
+  // It sits on the news module's ambiguous list because of "tear gas". An
+  // event listing that says gas means the sector, and briefly did not count.
+  assert.ok(isEnergyEvent("Gas Expo", null));
+  assert.ok(isEnergyEvent("West African Gas Summit", null));
+  assert.equal(isEnergyEvent("Protest anniversary: tear gas and the right to march", null), false);
 });
