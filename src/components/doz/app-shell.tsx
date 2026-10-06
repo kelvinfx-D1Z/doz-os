@@ -34,6 +34,7 @@ import {
   FileText,
   ListTodo,
   Compass,
+  Newspaper,
 } from "lucide-react";
 import { CommandCenter } from "@/components/modules/command-center";
 import { StrategicPlanning } from "@/components/modules/strategic-planning";
@@ -61,6 +62,7 @@ import { RecoveryCodesDialog } from "@/components/doz/recovery-codes-dialog";
 import { CompanySettingsDialog } from "@/components/doz/company-settings-dialog";
 import { MyTasks } from "@/components/modules/my-tasks";
 import { Playbook } from "@/components/modules/playbook";
+import { IndustryNews } from "@/components/modules/industry-news";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -99,6 +101,7 @@ const NAV: NavItem[] = [
   { id: "command", label: "Command Center", icon: <LayoutDashboard className="h-4 w-4" />, group: "Operate" },
   { id: "tasks", label: "Tasks", icon: <ListTodo className="h-4 w-4" />, group: "Operate" },
   { id: "playbook", label: "Playbook", icon: <Compass className="h-4 w-4" />, group: "Operate" },
+  { id: "news", label: "Industry News", icon: <Newspaper className="h-4 w-4" />, group: "Operate" },
   { id: "planning", label: "Strategic Planning", icon: <Target className="h-4 w-4" />, group: "Operate" },
   { id: "routines", label: "Routines", icon: <Repeat className="h-4 w-4" />, group: "Operate" },
   { id: "ai", label: "AI Chief of Staff", icon: <Sparkles className="h-4 w-4" />, group: "Operate", hint: "AI" },
@@ -130,13 +133,13 @@ const NAV: NavItem[] = [
 //       OVERRIDES these role-based defaults. The founder can grant any
 //       module to any user individually.
 const ROLE_MODULES: Record<string, ModuleId[]> = {
-  FOUNDER: ["command", "tasks", "playbook", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors", "documents"],
-  STAFF: ["command", "tasks", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
-  INTERN: ["command", "tasks", "field", "sop", "help", "profile", "messages"],
-  FREELANCER: ["command", "tasks", "field", "projects", "help", "profile", "messages"],
+  FOUNDER: ["command", "tasks", "news", "playbook", "planning", "routines", "ai", "field", "crm", "marketing", "projects", "procurement", "finance", "team", "staff-hub", "sop", "help", "updates", "profile", "messages", "vendors", "documents"],
+  STAFF: ["command", "tasks", "news", "planning", "routines", "field", "crm", "marketing", "projects", "procurement", "finance", "sop", "help", "profile", "messages", "vendors"],
+  INTERN: ["command", "tasks", "news", "field", "sop", "help", "profile", "messages"],
+  FREELANCER: ["command", "tasks", "news", "field", "projects", "help", "profile", "messages"],
   // A Production Manager runs the job on the ground: their projects, the cost
   // sheet, and the vendors on it. No CRM, no finance, no company figures.
-  PRODUCTION_MANAGER: ["command", "tasks", "field", "projects", "vendors", "sop", "help", "profile", "messages"],
+  PRODUCTION_MANAGER: ["command", "tasks", "news", "field", "projects", "vendors", "sop", "help", "profile", "messages"],
 };
 
 // Resolve a user's effective module list.
@@ -153,7 +156,11 @@ function resolveAllowedModules(role: string, permissions?: string[] | null): Mod
       // see. A custom permission list written before the Tasks page
       // existed would otherwise hide it from exactly the people it is for.
       const withLanding = filtered.includes("command") ? filtered : (["command", ...filtered] as ModuleId[]);
-      return withLanding.includes("tasks") ? withLanding : (["command", "tasks", ...withLanding.filter((m) => m !== "command")] as ModuleId[]);
+      // "tasks" and "news" are everyone's: nobody should be assigned work
+      // they cannot see, and the sector's news carries nothing private.
+      const always: ModuleId[] = ["command", "tasks", "news"];
+      const missing = always.filter((m) => !withLanding.includes(m));
+      return missing.length === 0 ? withLanding : ([...missing, ...withLanding] as ModuleId[]);
     }
   }
   return ROLE_MODULES[role] ?? ROLE_MODULES.FOUNDER;
@@ -163,6 +170,7 @@ const MODULES: Record<ModuleId, React.ReactNode> = {
   command: <CommandCenter />,
   tasks: <MyTasks />,
   playbook: <Playbook />,
+  news: <IndustryNews />,
   planning: <StrategicPlanning />,
   crm: <CrmSales />,
   projects: <ProjectsEvents />,
@@ -187,6 +195,7 @@ const MODULE_META: Record<ModuleId, { title: string; subtitle: string }> = {
   command: { title: "CEO Command Center", subtitle: "Your single view to run the company" },
   tasks: { title: "Tasks", subtitle: "Everything assigned to you, in one place" },
   playbook: { title: "Playbook", subtitle: "Four priorities. One rule. Seven days." },
+  news: { title: "Industry News", subtitle: "Nigerian energy sector — headlines and events" },
   planning: { title: "Strategic Planning", subtitle: "Annual → Quarterly → Monthly → Weekly → Daily" },
   crm: { title: "CRM & Sales Engine", subtitle: "Leads, opportunities, proposals, pipeline" },
   projects: { title: "Projects & Event Operations", subtitle: "Deliver every event on time, on budget" },

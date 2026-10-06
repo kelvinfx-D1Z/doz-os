@@ -1135,15 +1135,51 @@ model FounderMilestone {
   updatedAt   DateTime @updatedAt
 }
 
+// ============================================================
+// INDUSTRY NEWS AND EVENTS — the Nigerian energy sector
+//
+// One table, two kinds of row. A story is ingested from a named outlet's
+// feed; an event is entered by hand, because no feed publishes Nigerian
+// energy conferences reliably and a date invented for one would send
+// somebody to an empty hall.
+//
+// Nothing here is written by an AI. Every row carries its source and, for a
+// story, a link back to the outlet that reported it.
+// ============================================================
 model IndustryNews {
   id          String   @id @default(cuid())
+  /** NEWS (ingested from a feed) or EVENT (entered by a person). */
+  kind        String   @default("NEWS")
   title       String
-  url         String
+  /** The outlet's own link. Events may have none, so this is optional now. */
+  url         String?
+  /** The outlet, or the person's name for a hand-entered row. */
   source      String
-  category    String
+  category    String   @default("ENERGY")
   summary     String?
   publishedAt DateTime?
+  /** Dedupe key: host + path, so one story is not carried twice. */
+  dedupeKey   String?  @unique
+  // ---- events only ----
+  eventStart  DateTime?
+  eventEnd    DateTime?
+  venue       String?
+  city        String?
+  /** Who added it, for a hand-entered row. Null for ingested stories. */
+  addedById   String?
   createdAt   DateTime @default(now())
+
+  @@index([kind, publishedAt])
+  @@index([kind, eventStart])
+}
+
+/** When each feed was last fetched, and how it went. One row per feed URL. */
+model NewsFeedState {
+  feedUrl     String   @id
+  lastRunAt   DateTime @default(now())
+  lastOk      Boolean  @default(true)
+  lastError   String?
+  itemsStored Int      @default(0)
 }
 
 // ============================================================

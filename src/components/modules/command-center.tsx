@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { FocusScoreCard } from "@/components/doz/focus-score-card";
 import { AiBriefingCard } from "@/components/doz/ai-briefing-card";
 import { PlaybookTodayCard } from "@/components/doz/playbook-today-card";
+import { IndustryNewsCard } from "@/components/doz/industry-news-card";
 import { DailyReportPrompt } from "@/components/doz/daily-report-prompt";
 import { DailyReportDialog } from "@/components/doz/daily-report-dialog";
 import {
@@ -881,6 +882,9 @@ export function CommandCenter() {
 
       {/* ---------- Today, from the founder's own playbook ---------- */}
       {user?.role === "FOUNDER" && <PlaybookTodayCard />}
+
+      {/* ---------- Nigerian energy sector — the same for every role ---------- */}
+      <IndustryNewsCard />
 
       {/* ---------- KPI row ---------- */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -2320,6 +2324,9 @@ function InternDashboard({
             />
           </Card>
 
+          {/* The sector everyone here works in, on everyone's dashboard. */}
+          <IndustryNewsCard />
+
           {/* Your Weekly Objective */}
           <Card className="p-5">
             <SectionHeader
@@ -2623,6 +2630,9 @@ function StaffDashboard({
               onViewAll={() => setModule("tasks")}
             />
           </Card>
+
+          {/* The sector everyone here works in, on everyone's dashboard. */}
+          <IndustryNewsCard />
 
           {/* Pending Approvals — I can action */}
           <Card className="p-5">
@@ -3083,6 +3093,9 @@ function FreelancerDashboard({
               onViewAll={() => setModule("tasks")}
             />
           </Card>
+
+          {/* The sector everyone here works in, on everyone's dashboard. */}
+          <IndustryNewsCard />
         </div>
 
         {/* RIGHT */}
