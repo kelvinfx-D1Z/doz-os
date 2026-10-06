@@ -88,10 +88,11 @@ const ENERGY_TERMS = [
  * news. `AMBIGUOUS_TERMS` is the only place either word is matched, and a
  * test below asserts the two lists never overlap again.
  */
-const AMBIGUOUS_TERMS: Array<{ term: string; notWhen: string[] }> = [
+const AMBIGUOUS_TERMS: Array<{ term: string; notWhen: string[]; newsOnly?: boolean }> = [
   { term: "gas", notWhen: ["tear gas"] },
   // Political "power": power tussle, balance of power, power of incumbency.
-  { term: "power", notWhen: ["power tussle", "power play", "power of incumbency", "balance of power", "power grab"] },
+  // Never counted for an EVENT — see isEnergyRelevant.
+  { term: "power", newsOnly: true, notWhen: ["power tussle", "power play", "power of incumbency", "balance of power", "power grab"] },
 ];
 
 /**
@@ -139,14 +140,25 @@ function decodeEntities(s: string): string {
  * not fire on "rigging" — which, in Nigerian political coverage, it would do
  * constantly.
  */
-export function isEnergyRelevant(text: string): boolean {
+export function isEnergyRelevant(text: string, mode: "news" | "event" = "news"): boolean {
   let haystack = ` ${text.toLowerCase()} `;
   for (const phrase of DECOY_PHRASES) haystack = haystack.split(phrase).join(" ");
-  for (const { term, notWhen } of AMBIGUOUS_TERMS) {
+  for (const { term, notWhen, newsOnly } of AMBIGUOUS_TERMS) {
+    // "power" earns its place in a newspaper — "power sector debt", "20 hours
+    // of power daily". In an event title it is overwhelmingly religious or
+    // motivational: a live search returned "Night Of Power 2026 (The Mighty
+    // Hand of God)" and "The girl I am: The power I possess". So an event
+    // has to say energy, oil, gas or grid, not merely "power".
+    if (newsOnly && mode === "event") continue;
     if (!wordIn(haystack, term)) continue;
     if (!notWhen.some((phrase) => haystack.includes(phrase))) return true;
   }
   return ENERGY_TERMS.some((term) => wordIn(haystack, term));
+}
+
+/** Whether `term` appears in `text` as a whole word. Exported for events. */
+export function containsTerm(text: string, term: string): boolean {
+  return wordIn(` ${text.toLowerCase()} `, term);
 }
 
 function wordIn(haystackLowerPadded: string, term: string): boolean {

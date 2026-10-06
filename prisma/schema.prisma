@@ -1165,6 +1165,11 @@ model IndustryNews {
   eventEnd    DateTime?
   venue       String?
   city        String?
+  country     String?
+  /** Nigeria | Africa | Global — which search found it, for the page filter. */
+  region      String?
+  /** The listing site an event was discovered on. Null when a person added it. */
+  foundOn     String?
   /** Who added it, for a hand-entered row. Null for ingested stories. */
   addedById   String?
   createdAt   DateTime @default(now())

@@ -277,3 +277,36 @@ test("but a story about BOTH sectors still counts, on its own 'oil'", () => {
     true,
   );
 });
+
+test("EVENT MODE: 'power' alone is not an energy event", () => {
+  // Real results from a live Eventbrite "power" search in Nigeria. In a
+  // newspaper "power" is usually the grid; in an event title it is usually
+  // a church service.
+  assert.equal(isEnergyRelevant("Night Of Power 2026 (The Mighty Hand of God)", "event"), false);
+  assert.equal(isEnergyRelevant("The girl I am: The power I possess", "event"), false);
+  assert.equal(isEnergyRelevant("Liberation Power Conference 2026", "event"), false);
+});
+
+test("but the same word still counts in a news headline", () => {
+  assert.equal(isEnergyRelevant("Power sector debt hits N4 trillion", "news"), true);
+  assert.equal(isEnergyRelevant("Band A customers to get 20 hours of power daily", "news"), true);
+});
+
+test("real energy events pass in event mode", () => {
+  for (const name of [
+    "Lagos Energy Summit 2026: Transforming the grid",
+    "Energy & AI Conference and Exhibition",
+    "ADIPEC 2026 - Global Energy Network Drinks Reception",
+    "Nigeria Oil & Gas Week",
+    "IBC SOLAR Technical Training",
+  ]) {
+    assert.equal(isEnergyRelevant(name, "event"), true, name);
+  }
+});
+
+test("events that merely turned up in an energy search are rejected", () => {
+  // All real results from Eventbrite's Nigeria energy and oil--gas searches.
+  for (const name of ["AFRO HOUSE FUSION", "LAVISH FRIDAY", "Bulletproof & Security Tech Abuja Expo", "AgriValue Nigeria Summit 2026"]) {
+    assert.equal(isEnergyRelevant(name, "event"), false, name);
+  }
+});

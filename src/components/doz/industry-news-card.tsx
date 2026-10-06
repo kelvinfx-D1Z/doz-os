@@ -23,6 +23,8 @@ interface Row {
   eventStart: string | null;
   venue: string | null;
   city: string | null;
+  country: string | null;
+  region: string | null;
 }
 
 function when(iso: string | null): string {
@@ -64,9 +66,11 @@ export function IndustryNewsCard() {
         setNews((j.news ?? []).slice(0, 3));
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        setNextEvent(
-          (j.events ?? []).find((e: Row) => e.eventStart && new Date(e.eventStart) >= today) ?? null,
-        );
+        // Nigeria first. The listings run heavily to American and online
+        // webinars, and a Lagos summit next week matters more here than a
+        // Houston networking evening that happens to be sooner.
+        const ahead = (j.events ?? []).filter((e: Row) => e.eventStart && new Date(e.eventStart) >= today);
+        setNextEvent(ahead.find((e: Row) => !e.region || e.region === "Nigeria") ?? ahead[0] ?? null);
         setLoaded(true);
         // The dashboard never fetches the outlets itself — five of these
         // cards racing to refresh would hammer every paper at once. The
@@ -139,9 +143,9 @@ export function IndustryNewsCard() {
               <span className="text-[11px] font-medium">{eventWhen(nextEvent.eventStart)}</span>
             </div>
             <p className="mt-0.5 text-xs font-medium">{nextEvent.title}</p>
-            {(nextEvent.venue || nextEvent.city) && (
+            {(nextEvent.venue || nextEvent.city || nextEvent.country) && (
               <p className="text-[10px] text-muted-foreground">
-                {[nextEvent.venue, nextEvent.city].filter(Boolean).join(", ")}
+                {[nextEvent.venue, nextEvent.city, nextEvent.country].filter(Boolean).join(", ")}
               </p>
             )}
           </div>

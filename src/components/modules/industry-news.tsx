@@ -42,8 +42,14 @@ interface NewsRow {
   eventEnd: string | null;
   venue: string | null;
   city: string | null;
+  country: string | null;
+  region: string | null;
+  /** The listing site it was discovered on. Null when a person added it. */
+  foundOn: string | null;
   createdAt: string;
 }
+
+type Region = "Nigeria" | "Africa" | "Everywhere";
 
 interface Payload {
   news: NewsRow[];
@@ -102,6 +108,7 @@ export function IndustryNews() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [region, setRegion] = useState<Region>("Everywhere");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async (force = false) => {
@@ -162,15 +169,27 @@ export function IndustryNews() {
     }
   }
 
-  const { upcoming, past } = useMemo(() => {
+  const { upcoming, past, counts } = useMemo(() => {
     const rows = data?.events ?? [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const ahead = rows.filter((e) => !e.eventStart || new Date(e.eventEnd ?? e.eventStart) >= today);
+    // A hand-added event has no region; it is the founder's own sector list,
+    // so it belongs in every view rather than being filtered out of sight.
+    const inRegion = (e: NewsRow) =>
+      region === "Everywhere" ||
+      !e.region ||
+      (region === "Nigeria" ? e.region === "Nigeria" : e.region === "Nigeria" || e.region === "Africa");
     return {
-      upcoming: rows.filter((e) => !e.eventStart || new Date(e.eventEnd ?? e.eventStart) >= today),
+      upcoming: ahead.filter(inRegion),
       past: rows.filter((e) => e.eventStart && new Date(e.eventEnd ?? e.eventStart) < today).reverse(),
+      counts: {
+        Nigeria: ahead.filter((e) => !e.region || e.region === "Nigeria").length,
+        Africa: ahead.filter((e) => !e.region || e.region === "Nigeria" || e.region === "Africa").length,
+        Everywhere: ahead.length,
+      },
     };
-  }, [data]);
+  }, [data, region]);
 
   const newsRow = (n: NewsRow) => {
     const host = hostOf(n.url);
@@ -241,12 +260,14 @@ export function IndustryNews() {
             <p className="mt-1.5 text-sm font-semibold">{e.title}</p>
             {e.summary && <p className="mt-1 text-xs text-muted-foreground">{e.summary}</p>}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-              {(e.venue || e.city) && (
+              {(e.venue || e.city || e.country) && (
                 <span className="flex items-center gap-1">
-                  <MapPin className="h-3 w-3" /> {[e.venue, e.city].filter(Boolean).join(", ")}
+                  <MapPin className="h-3 w-3" /> {[e.venue, e.city, e.country].filter(Boolean).join(", ")}
                 </span>
               )}
-              <span>Added by {e.source}</span>
+              {/* Where it came from, plainly: a listing someone published, or
+                  a colleague who checked the date themselves. */}
+              <span>{e.foundOn ? `Found on ${e.foundOn}` : `Added by ${e.source}`}</span>
               {e.url && (
                 <a href={e.url} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center gap-1 hover:text-primary hover:underline">
                   <ExternalLink className="h-3 w-3" /> Details
@@ -330,15 +351,32 @@ export function IndustryNews() {
             </TabsContent>
 
             <TabsContent value="events" className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-md border border-border p-0.5">
+                  {(["Nigeria", "Africa", "Everywhere"] as Region[]).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRegion(r)}
+                      className={cn(
+                        "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                        region === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {r} · {counts[r]}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {upcoming.length === 0 ? (
                 <Card className="p-6">
                   <EmptyState
                     icon={<CalendarDays className="h-8 w-8" />}
                     title="No events listed yet"
                     hint={
-                      data.canCurate
-                        ? "Add the conferences and summits worth knowing about — NOG Energy Week, the Nigeria International Energy Summit, OTL Africa Downstream and the rest. They are entered by hand so the dates are ones someone has checked."
-                        : "Nothing has been added yet. The founder and staff keep this list."
+                      region === "Everywhere"
+                        ? "Press Refresh to search the listing sites for events in this industry."
+                        : `Nothing found in ${region} yet — try Everywhere, or press Refresh.`
                     }
                   />
                 </Card>

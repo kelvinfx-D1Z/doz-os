@@ -12,6 +12,14 @@ import {
   MAX_SUMMARY,
   type SourcedItem,
 } from "@/lib/energy-news";
+import {
+  DISCOVERY_SOURCES,
+  discoverFromHtml,
+  dedupeEvents,
+  eventKey,
+  byDate,
+  type DiscoveredEvent,
+} from "@/lib/event-discovery";
 
 // Nigerian energy sector news and events.
 //
@@ -38,7 +46,9 @@ function canCurate(role: string): boolean {
   return role === "FOUNDER" || role === "STAFF";
 }
 
-async function fetchFeed(url: string): Promise<string | null> {
+type FetchKind = "feed" | "page";
+
+async function fetchFeed(url: string, kind: FetchKind = "feed"): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FEED_TIMEOUT_MS);
   try {
@@ -47,7 +57,10 @@ async function fetchFeed(url: string): Promise<string | null> {
       headers: {
         // Some outlets refuse an unidentified client outright.
         "User-Agent": "Mozilla/5.0 (compatible; DOZ-OS/1.0; +https://doz-os.vercel.app)",
-        Accept: "application/rss+xml, application/xml, text/xml, */*",
+        Accept:
+          kind === "feed"
+            ? "application/rss+xml, application/xml, text/xml, */*"
+            : "text/html,application/xhtml+xml,*/*",
       },
       cache: "no-store",
     });
@@ -58,6 +71,76 @@ async function fetchFeed(url: string): Promise<string | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Read the event listings and store what is new.
+ *
+ * Events are discovered from organisers' own schema.org listings — see
+ * src/lib/event-discovery.ts for what is and is not read. A row added by a
+ * person is never touched here: discovery only ever inserts, and only
+ * events it has not already stored.
+ */
+async function refreshEvents(): Promise<{ added: number; failed: string[] }> {
+  const results = await Promise.allSettled(
+    DISCOVERY_SOURCES.map(async (source) => {
+      const html = await fetchFeed(source.url, "page");
+      if (html === null) throw new Error("unreachable");
+      return discoverFromHtml(html, source);
+    }),
+  );
+
+  const failed: string[] = [];
+  const found: DiscoveredEvent[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.status === "fulfilled") found.push(...r.value);
+    else failed.push(DISCOVERY_SOURCES[i].site);
+  }
+
+  const fresh = dedupeEvents(found).sort(byDate);
+  if (fresh.length === 0) return { added: 0, failed: [...new Set(failed)] };
+
+  // Against what is already stored, by the same key the discovery uses, so
+  // a conference does not reappear every three hours.
+  const existing = await db.industryNews.findMany({
+    where: { kind: "EVENT" },
+    select: { title: true, eventStart: true },
+  });
+  const known = new Set(
+    existing
+      .filter((e) => e.eventStart)
+      .map((e) => eventKey({ title: e.title, startDate: e.eventStart as Date })),
+  );
+
+  const rows = fresh
+    .filter((e) => !known.has(eventKey(e)))
+    .map((e) => ({
+      kind: "EVENT",
+      title: e.title,
+      url: e.url,
+      // The site it was found on, so a reader can judge it. A person's name
+      // goes here instead when they add one by hand.
+      source: e.site,
+      category: "ENERGY",
+      summary: e.summary,
+      publishedAt: null,
+      eventStart: e.startDate,
+      eventEnd: e.endDate,
+      venue: e.venue,
+      city: e.city,
+      country: e.country,
+      region: e.region,
+      foundOn: e.site,
+      addedById: null,
+      // Events dedupe on title and date, not on URL, so they take no
+      // dedupeKey — two listings of one conference have different links.
+      dedupeKey: null,
+    }));
+
+  if (rows.length === 0) return { added: 0, failed: [...new Set(failed)] };
+  const res = await db.industryNews.createMany({ data: rows, skipDuplicates: true });
+  return { added: res.count, failed: [...new Set(failed)] };
 }
 
 /**
@@ -161,8 +244,13 @@ export async function GET(req: Request) {
   // 53 seconds — and it would have done so on five dashboards at once.
   const force = new URL(req.url).searchParams.get("refresh") === "1";
   let refreshed: { added: number; failed: string[] } | null = null;
+  let eventsFound: { added: number; failed: string[] } | null = null;
   if (force) {
-    refreshed = await refreshFeeds().catch(() => null);
+    // News and events are independent: one source refusing us must not cost
+    // the other its refresh.
+    const [news, events] = await Promise.allSettled([refreshFeeds(), refreshEvents()]);
+    refreshed = news.status === "fulfilled" ? news.value : null;
+    eventsFound = events.status === "fulfilled" ? events.value : null;
   }
   const stale = await needsRefresh();
 
@@ -195,6 +283,7 @@ export async function GET(req: Request) {
     // showing less news than yesterday with no reason given.
     unreachable: feedStates.filter((f) => !f.lastOk).map((f) => f.feedUrl),
     refreshed,
+    eventsFound,
     canCurate: canCurate(user.role),
     sources: FEEDS.map((f) => f.name),
   });
