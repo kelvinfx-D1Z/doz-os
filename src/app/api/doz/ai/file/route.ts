@@ -3,7 +3,13 @@ import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { geminiText, isGeminiConfigured } from "@/lib/gemini";
 import { syncProjectBudget } from "@/lib/project-figures";
-import { parseCostingSheet, categoriseLines, describeSheet } from "@/lib/costing-sheet";
+import {
+  parseCostingSheet,
+  categoriseLines,
+  describeSheet,
+  describeImport,
+  type ImportMode,
+} from "@/lib/costing-sheet";
 import {
   buildFilingPlan,
   isPostable,
@@ -126,6 +132,7 @@ export async function POST(req: Request) {
   // A pasted costing sheet is arithmetic, not prose — read by the parser,
   // never by the model. See src/lib/costing-sheet.ts.
   if (body.step === "sheet") return readSheet(body);
+  if (body.step === "sheet_target") return sheetTarget(body);
   if (body.step === "sheet_commit") return commitSheet(body, user.id, user.role);
   if (body.step === "commit") return commit(body, user.id, user.role);
   return draft(body);
@@ -380,6 +387,11 @@ async function commitSheet(body: Record<string, unknown>, userId: string, role: 
   // what actually arrived, so a line lost in transit cannot pass unnoticed.
   const total = Math.round(lines.reduce((s, l) => s + l.quantity * l.days * l.unitPrice, 0) * 100) / 100;
 
+  // "Replace" is the corrected sheet; "add" is a second day's costs. The
+  // default is add, because it destroys nothing — replacing is only ever
+  // done because he asked for it on a screen that told him what it removes.
+  const mode: ImportMode = body.mode === "replace" ? "replace" : "add";
+
   const result = await db.$transaction(async (tx) => {
     let project = projectId
       ? await tx.project.findUnique({ where: { id: projectId }, select: { id: true, name: true, code: true } })
@@ -404,6 +416,14 @@ async function commitSheet(body: Record<string, unknown>, userId: string, role: 
       createdProject = true;
     }
 
+    let removed = 0;
+    if (mode === "replace" && !createdProject) {
+      // Inside the same transaction as the insert, so the project is never
+      // left with its old sheet deleted and its new one missing.
+      const gone = await tx.projectService.deleteMany({ where: { projectId: project.id } });
+      removed = gone.count;
+    }
+
     await tx.projectService.createMany({
       data: lines.map((l) => ({
         projectId: project!.id,
@@ -420,7 +440,7 @@ async function commitSheet(body: Record<string, unknown>, userId: string, role: 
     // Project.budget becomes the sum of the sheet, by the same rule every
     // other cost line in this system follows.
     const budget = await syncProjectBudget(tx, project.id);
-    return { project, createdProject, budget };
+    return { project, createdProject, budget, removed };
   }, { timeout: 60_000 }).catch((e) => {
     if (e instanceof NotFound) return { error: e.message };
     throw e;
@@ -435,7 +455,40 @@ async function commitSheet(body: Record<string, unknown>, userId: string, role: 
     projectCode: result.project.code,
     createdProject: result.createdProject,
     lineCount: lines.length,
+    removed: result.removed,
+    mode,
     total,
     budget: result.budget,
+  });
+}
+
+
+/**
+ * What this sheet would do to a project that already has a cost sheet.
+ *
+ * Asked as soon as he picks the project, so the choice between replacing
+ * and adding is made with both figures on screen rather than after the
+ * fact.
+ */
+async function sheetTarget(body: Record<string, unknown>) {
+  const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+  const incomingTotal = Number(body.incomingTotal) || 0;
+  const incomingCount = Math.max(0, Math.trunc(Number(body.incomingCount) || 0));
+  if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+
+  const [project, existing] = await Promise.all([
+    db.project.findUnique({ where: { id: projectId }, select: { id: true, name: true, code: true, budget: true } }),
+    db.projectService.findMany({
+      where: { projectId },
+      select: { serviceName: true, totalPrice: true, clientPrice: true, vendorId: true },
+    }),
+  ]);
+  if (!project) return NextResponse.json({ error: "That project no longer exists" }, { status: 404 });
+
+  return NextResponse.json({
+    project,
+    existingCount: existing.length,
+    replace: describeImport("replace", existing, incomingTotal, incomingCount),
+    add: describeImport("add", existing, incomingTotal, incomingCount),
   });
 }

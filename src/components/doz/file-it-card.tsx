@@ -57,6 +57,23 @@ interface Sheet {
   disagreements: Array<{ name: string; stated: number; computed: number }>;
 }
 
+interface ImportEffect {
+  mode: "replace" | "add";
+  existingCount: number;
+  existingTotal: number;
+  resultingCount: number;
+  resultingTotal: number;
+  removedCount: number;
+  warnings: string[];
+}
+
+interface TargetInfo {
+  project: { id: string; name: string; code: string | null; budget: number };
+  existingCount: number;
+  replace: ImportEffect;
+  add: ImportEffect;
+}
+
 interface Plan {
   note: string;
   projectName: string;
@@ -75,6 +92,8 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
   const [text, setText] = useState("");
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [sheetSummary, setSheetSummary] = useState("");
+  const [target, setTarget] = useState<TargetInfo | null>(null);
+  const [importMode, setImportMode] = useState<"replace" | "add">("add");
   const [plan, setPlan] = useState<Plan | null>(null);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [reading, setReading] = useState(false);
@@ -167,6 +186,29 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
     }
   }
 
+  // As soon as a project is picked, find out what this sheet would do to it.
+  async function inspectTarget(projectId: string) {
+    setTarget(null);
+    if (!projectId || !sheet) return;
+    try {
+      const res = await fetch("/api/doz/ai/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "sheet_target",
+          projectId,
+          incomingTotal: sheet.computedTotal,
+          incomingCount: sheet.lines.length,
+        }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`);
+      setTarget(j as TargetInfo);
+    } catch {
+      // The choice still works without the preview; it just has less to say.
+    }
+  }
+
   async function uploadSheet() {
     if (!sheet || filing) return;
     setFiling(true);
@@ -176,6 +218,7 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "sheet_commit",
+          mode: importMode,
           projectId: chosenProjectId || undefined,
           newProjectName: chosenProjectId ? undefined : newProjectName,
           lines: sheet.lines,
@@ -184,7 +227,9 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`);
       toast.success(`${j.lineCount} lines uploaded to ${j.projectCode ?? j.projectName}`, {
-        description: `Project cost now ${formatNGN(j.budget ?? j.total)}.`,
+        description:
+          `${j.removed ? `${j.removed} old line${j.removed === 1 ? "" : "s"} replaced. ` : ""}` +
+          `Project cost now ${formatNGN(j.budget ?? j.total)}.`,
       });
       reset();
       onFiled?.();
@@ -200,6 +245,8 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
     setPlan(null);
     setSheet(null);
     setSheetSummary("");
+    setTarget(null);
+    setImportMode("add");
     setLines([]);
     setChosenProjectId("");
     setNewProjectName("");
@@ -276,7 +323,10 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
           summary={sheetSummary}
           projects={projects}
           chosenProjectId={chosenProjectId}
-          setChosenProjectId={setChosenProjectId}
+          setChosenProjectId={(v) => { setChosenProjectId(v); void inspectTarget(v); }}
+          target={target}
+          importMode={importMode}
+          setImportMode={setImportMode}
           newProjectName={newProjectName}
           setNewProjectName={setNewProjectName}
           filing={filing}
@@ -439,6 +489,9 @@ function SheetReview({
   projects,
   chosenProjectId,
   setChosenProjectId,
+  target,
+  importMode,
+  setImportMode,
   newProjectName,
   setNewProjectName,
   filing,
@@ -450,6 +503,9 @@ function SheetReview({
   projects: ProjectRef[];
   chosenProjectId: string;
   setChosenProjectId: (v: string) => void;
+  target: TargetInfo | null;
+  importMode: "replace" | "add";
+  setImportMode: (v: "replace" | "add") => void;
   newProjectName: string;
   setNewProjectName: (v: string) => void;
   filing: boolean;
@@ -504,6 +560,44 @@ function SheetReview({
           )}
         </div>
       </div>
+
+      {/* THE SECOND PASTE. A project with a cost sheet already on it has to
+          be told what this one is: the corrected sheet, or more work. */}
+      {target && target.existingCount > 0 && (
+        <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+          <p className="text-xs font-medium">
+            {target.project.name} already has {target.existingCount} cost line
+            {target.existingCount === 1 ? "" : "s"} worth {formatNGN(target.add.existingTotal)}.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(["replace", "add"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setImportMode(m)}
+                className={cn(
+                  "flex-1 rounded-md border px-3 py-2 text-left text-xs transition-colors",
+                  importMode === m ? "border-primary bg-primary/10" : "border-border hover:border-primary/50",
+                )}
+              >
+                <span className="font-semibold">
+                  {m === "replace" ? "Replace the cost sheet" : "Add to what is there"}
+                </span>
+                <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                  {m === "replace"
+                    ? `Project becomes ${formatNGN(target.replace.resultingTotal)}`
+                    : `Project becomes ${formatNGN(target.add.resultingTotal)}`}
+                </span>
+              </button>
+            ))}
+          </div>
+          {(importMode === "replace" ? target.replace : target.add).warnings.map((w) => (
+            <p key={w} className={cn("text-[11px]", importMode === "replace" ? "text-destructive" : "text-muted-foreground")}>
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
 
       <div className="max-h-[340px] overflow-y-auto rounded-md border border-border">
         <table className="w-full text-xs">
@@ -579,7 +673,8 @@ function SheetReview({
         <Button variant="outline" size="sm" onClick={onCancel} disabled={filing}>Cancel</Button>
         <Button size="sm" className="gap-1.5" disabled={!ready} onClick={onUpload}>
           {filing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Upload {sheet.lines.length} lines
+          {target && target.existingCount > 0 && importMode === "replace" ? "Replace with" : "Upload"}{" "}
+          {sheet.lines.length} lines
         </Button>
       </div>
     </div>

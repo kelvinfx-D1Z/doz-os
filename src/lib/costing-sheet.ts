@@ -47,7 +47,9 @@ export interface SheetLine {
   section: string | null;
   unitCost: number;
   quantity: number;
-  /** quantity x unitCost — recomputed here, never taken from the cell. */
+  /** From a "2 DAYS" header, or the sheet's own days column. */
+  days: number;
+  /** quantity x days x unitCost — recomputed here, never taken from a cell. */
   amount: number;
   /** The line total his sheet showed, when it showed one. */
   statedAmount: number | null;
@@ -72,6 +74,71 @@ export interface CostingSheet {
   disagreements: Array<{ name: string; stated: number; computed: number }>;
 }
 
+/**
+ * Where the figures sit on THIS sheet.
+ *
+ * His September sheet is name / unit cost / quantity, but his other sheets
+ * are not all laid out that way, and a sheet that lists only an amount is
+ * common. So the column header row is read when there is one, and the
+ * positional default is the fallback.
+ */
+export interface Columns {
+  name: number;
+  unitCost: number | null;
+  quantity: number | null;
+  amount: number | null;
+  days: number | null;
+}
+
+const DEFAULT_COLUMNS: Columns = { name: 0, unitCost: 1, quantity: 2, amount: 3, days: null };
+
+const COLUMN_WORDS: Array<[keyof Columns, RegExp]> = [
+  ["unitCost", /unit\s*(cost|price|rate)|rate\/day|cost\/day|unit$|^rate$/i],
+  ["quantity", /^q(ty|uantity)\b|^no\.?$|^number$|^units?$/i],
+  ["amount", /^(amount|total|line\s*total|sub\s*total|value)\b/i],
+  ["days", /^days?\b|^no\.?\s*of\s*days/i],
+  ["name", /^(type|item|description|particulars|service)\b/i],
+];
+
+/** Read a header row, when the sheet has one. Null when it is not a header. */
+export function readColumns(cells: string[]): Columns | null {
+  const found: Partial<Columns> = {};
+  let hits = 0;
+  cells.forEach((cell, i) => {
+    const text = cell.trim();
+    if (!text || parseCell(text) !== null) return;
+    for (const [key, pattern] of COLUMN_WORDS) {
+      if (found[key] === undefined && pattern.test(text)) {
+        found[key] = i;
+        hits++;
+        break;
+      }
+    }
+  });
+  // One stray word is not a header row; a cost or amount column plus one
+  // other heading is.
+  if (hits < 2 || (found.unitCost === undefined && found.amount === undefined)) return null;
+  return {
+    name: found.name ?? 0,
+    unitCost: found.unitCost ?? null,
+    quantity: found.quantity ?? null,
+    amount: found.amount ?? null,
+    days: found.days ?? null,
+  };
+}
+
+/** "1 DAY", "2 DAYS", "3 Days" anywhere on a row — the sheet's day count. */
+export function readDays(cells: string[]): number | null {
+  for (const cell of cells) {
+    const m = /^(\d+)\s*days?$/i.exec(cell.trim());
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 1 && n <= 60) return n;
+    }
+  }
+  return null;
+}
+
 const TOTAL_WORDS = /^(grand\s+)?total\b/i;
 const RECEIVED_WORDS = /^received\b/i;
 const BALANCE_WORDS = /^balance\b/i;
@@ -93,6 +160,10 @@ export function parseCostingSheet(text: string): CostingSheet {
   let statedTotal: number | null = null;
   let received: number | null = null;
   let section: string | null = null;
+  // Set from the sheet's own header row, if it has one; otherwise the
+  // positional layout his September sheet uses.
+  let columns: Columns = DEFAULT_COLUMNS;
+  let days = 1;
 
   const rows = String(text ?? "").split(/\r?\n/);
 
@@ -112,6 +183,20 @@ export function parseCostingSheet(text: string): CostingSheet {
       continue;
     }
 
+    // A header row tells us where the figures are. It is also where "1 DAY"
+    // lives on his sheet, so the day count is read from the same place.
+    const headerColumns = readColumns(cells);
+    if (headerColumns) {
+      columns = headerColumns;
+      days = readDays(cells) ?? days;
+      continue;
+    }
+    const rowDays = readDays(cells);
+    if (rowDays && !parseCell(cells[columns.unitCost ?? 1])) {
+      // A bare "2 DAYS" banner above a block.
+      days = rowDays;
+      continue;
+    }
     if (HEADER_WORDS.test(name) && !parseCell(cells[1])) continue;
 
     if (TOTAL_WORDS.test(name)) {
@@ -127,7 +212,15 @@ export function parseCostingSheet(text: string): CostingSheet {
     }
     if (BALANCE_WORDS.test(name)) continue;
 
-    const unitCost = parseCell(cells[1]);
+    const quantityCell = columns.quantity === null ? null : parseCell(cells[columns.quantity]);
+    const amountCell = columns.amount === null ? null : parseCell(cells[columns.amount]);
+    let unitCost = columns.unitCost === null ? null : parseCell(cells[columns.unitCost]);
+    // A sheet that lists only an amount is still a cost sheet: the amount
+    // becomes the unit cost of a single unit, so the figure survives intact.
+    if ((unitCost === null || unitCost <= 0) && amountCell !== null && amountCell > 0 && columns.unitCost === null) {
+      unitCost = quantityCell && quantityCell > 0 ? amountCell / quantityCell : amountCell;
+    }
+
     // THE RULE: a price makes it an item; no price makes it context.
     if (unitCost === null || unitCost <= 0) {
       const rest = cells.slice(1);
@@ -148,19 +241,23 @@ export function parseCostingSheet(text: string): CostingSheet {
       continue;
     }
 
-    const quantity = Math.max(1, Math.trunc(parseCell(cells[2]) ?? 1));
-    const amount = Math.round(quantity * unitCost * 100) / 100;
+    const quantity = Math.max(1, Math.trunc(quantityCell ?? 1));
+    const lineDays = Math.max(1, Math.trunc((columns.days === null ? null : parseCell(cells[columns.days])) ?? days));
+    const amount = Math.round(quantity * lineDays * unitCost * 100) / 100;
 
     // His sheet's own line total, where it has one, so a typo in either is
     // visible instead of being overwritten. Counted from the column AFTER
     // quantity — reading the quantity itself as the total made every line
     // with a quantity above one look like a mistake.
-    const stated = numbers.slice(2).find((n): n is number => n !== null && n > 0) ?? null;
+    const stated =
+      amountCell !== null && amountCell > 0 && columns.amount !== columns.unitCost
+        ? amountCell
+        : numbers.slice(2).find((n): n is number => n !== null && n > 0) ?? null;
     if (stated !== null && Math.abs(stated - amount) > 1) {
       disagreements.push({ name, stated, computed: amount });
     }
 
-    lines.push({ name, section, unitCost, quantity, amount, statedAmount: stated, category: null });
+    lines.push({ name, section, unitCost, quantity, days: lineDays, amount, statedAmount: stated, category: null });
   }
 
   // The first non-empty row is the sheet's own title, when it is not data.
@@ -281,4 +378,98 @@ export function describeSheet(sheet: CostingSheet): string {
   if (sheet.reconciles) return `${n} lines, ${money} — matches the total on your sheet.`;
   const stated = `₦${Math.round(sheet.statedTotal).toLocaleString("en-NG")}`;
   return `${n} lines come to ${money}, but your sheet says ${stated}. Check before importing.`;
+}
+
+// ============================================================
+// IMPORTING ONTO A PROJECT THAT ALREADY HAS A COST SHEET
+//
+// The second paste is the dangerous one. A founder who corrects a figure in
+// Excel and pastes the sheet again means "this is the cost sheet now" — but
+// the obvious implementation appends, and the job quietly costs twice what
+// it costs. So the import asks, and shows what each answer does.
+//
+// Replacing is not free either: a line may already carry a client price set
+// during markup, or a vendor it was assigned to. Those are not on the Excel
+// sheet and cannot come back, so they are counted and named before anything
+// is deleted.
+// ============================================================
+
+export type ImportMode = "replace" | "add";
+
+export interface ExistingLine {
+  serviceName: string;
+  totalPrice: number;
+  clientPrice?: number | null;
+  vendorId?: string | null;
+}
+
+export interface ImportEffect {
+  mode: ImportMode;
+  /** Lines on the project before this import. */
+  existingCount: number;
+  existingTotal: number;
+  /** Lines after it. */
+  resultingCount: number;
+  resultingTotal: number;
+  /** Lines that would be deleted, and what they carry that Excel does not. */
+  removedCount: number;
+  losesClientPrices: number;
+  losesVendors: number;
+  /** Said plainly, for the screen. */
+  warnings: string[];
+}
+
+/**
+ * What each answer would do to the project, in figures.
+ *
+ * Both modes are offered because both are real: a corrected sheet replaces,
+ * and a second day's costs are added. Neither is assumed.
+ */
+export function describeImport(
+  mode: ImportMode,
+  existing: ExistingLine[],
+  incomingTotal: number,
+  incomingCount: number,
+): ImportEffect {
+  const existingTotal = Math.round(existing.reduce((s, l) => s + (l.totalPrice ?? 0), 0) * 100) / 100;
+  const losesClientPrices = mode === "replace" ? existing.filter((l) => l.clientPrice != null).length : 0;
+  const losesVendors = mode === "replace" ? existing.filter((l) => l.vendorId).length : 0;
+  const removedCount = mode === "replace" ? existing.length : 0;
+
+  const warnings: string[] = [];
+  if (mode === "replace" && existing.length > 0) {
+    warnings.push(
+      `Replaces the ${existing.length} cost line${existing.length === 1 ? "" : "s"} already on this project (${naira(existingTotal)}).`,
+    );
+    if (losesClientPrices > 0) {
+      warnings.push(
+        `${losesClientPrices} of them carr${losesClientPrices === 1 ? "ies a client price" : "y client prices"} set during markup. That is not on your Excel sheet and cannot be put back.`,
+      );
+    }
+    if (losesVendors > 0) {
+      warnings.push(`${losesVendors} are assigned to a vendor; that assignment goes too.`);
+    }
+  }
+  if (mode === "add" && existing.length > 0) {
+    warnings.push(
+      `Adds to the ${existing.length} line${existing.length === 1 ? "" : "s"} already there — the project would cost ${naira(existingTotal + incomingTotal)}. If this sheet is a correction rather than extra work, choose Replace.`,
+    );
+  }
+
+  return {
+    mode,
+    existingCount: existing.length,
+    existingTotal,
+    resultingCount: mode === "replace" ? incomingCount : existing.length + incomingCount,
+    resultingTotal:
+      Math.round((mode === "replace" ? incomingTotal : existingTotal + incomingTotal) * 100) / 100,
+    removedCount,
+    losesClientPrices,
+    losesVendors,
+    warnings,
+  };
+}
+
+function naira(n: number): string {
+  return `₦${Math.round(n).toLocaleString("en-NG")}`;
 }

@@ -7,6 +7,7 @@ import {
   parseCostingSheet,
   categoriseLines,
   describeSheet,
+  describeImport,
 } from "./costing-sheet.ts";
 
 // The founder's real sheet, pasted from Excel exactly as he sent it.
@@ -258,4 +259,122 @@ test("the real sheet imports with every line in a department", () => {
   assert.equal(spend["Branding & Print"], 1_398_400);
   assert.equal(spend["Logistics & Welfare"], 120_000, "two transport runs");
   assert.equal(Object.values(spend).reduce((a, b) => a + b, 0), 4_643_400);
+});
+
+// ---- other sheets, other layouts ----------------------------------------
+
+test("A SHEET WITH ITS COLUMNS IN A DIFFERENT ORDER still reads", () => {
+  // Not every sheet is name / unit cost / quantity. The header row says
+  // where the figures are, so the layout does not have to be guessed.
+  const sheet = parseCostingSheet([
+    "Description\tQty\tRate\tAmount",
+    "LED wall\t4\t150,000.00\t600,000.00",
+    "Sound system\t1\t350,000.00\t350,000.00",
+    "TOTAL\t\t\t950,000.00",
+  ].join("\n"));
+  assert.equal(sheet.lines.length, 2);
+  assert.equal(sheet.lines[0].quantity, 4);
+  assert.equal(sheet.lines[0].unitCost, 150_000);
+  assert.equal(sheet.computedTotal, 950_000);
+  assert.equal(sheet.reconciles, true);
+});
+
+test("A SHEET WITH ONLY AN AMOUNT COLUMN keeps the figure intact", () => {
+  // Plenty of sheets list what a thing cost and nothing else.
+  const sheet = parseCostingSheet([
+    "Item\tAmount",
+    "Stage build\t1,200,000.00",
+    "Catering\t350,000.00",
+    "TOTAL\t1,550,000.00",
+  ].join("\n"));
+  assert.equal(sheet.lines.length, 2);
+  assert.equal(sheet.lines[0].unitCost, 1_200_000);
+  assert.equal(sheet.lines[0].quantity, 1);
+  assert.equal(sheet.computedTotal, 1_550_000);
+  assert.equal(sheet.reconciles, true);
+});
+
+test("an amount with a quantity gives the unit cost back", () => {
+  const sheet = parseCostingSheet(["Item\tQty\tAmount", "Chairs\t10\t150,000.00"].join("\n"));
+  assert.equal(sheet.lines[0].unitCost, 15_000);
+  assert.equal(sheet.lines[0].quantity, 10);
+  assert.equal(sheet.lines[0].amount, 150_000);
+});
+
+test("A TWO-DAY JOB DOUBLES WHAT A DAY RATE EARNS", () => {
+  // "2 DAYS" on the header is the difference between N400,000 and N800,000.
+  const sheet = parseCostingSheet([
+    "Type\tUnit Cost/Day\tQuantity\t\t2 DAYS",
+    "LIGHT\t400,000.00\t1",
+  ].join("\n"));
+  assert.equal(sheet.lines[0].days, 2);
+  assert.equal(sheet.lines[0].amount, 800_000);
+});
+
+test("a days column beats the sheet-wide day count, line by line", () => {
+  const sheet = parseCostingSheet([
+    "Item\tRate\tQty\tDays",
+    "Camera\t30,000.00\t2\t3",
+    "Edit suite\t50,000.00\t1\t1",
+  ].join("\n"));
+  assert.equal(sheet.lines[0].amount, 180_000, "2 cameras x 3 days x 30,000");
+  assert.equal(sheet.lines[1].amount, 50_000);
+});
+
+test("his September sheet is unchanged by all of that", () => {
+  // The layout detection must not disturb the sheet it was built for.
+  const sheet = parseCostingSheet(SHEET);
+  assert.equal(sheet.lines.length, 20);
+  assert.equal(sheet.computedTotal, 4_643_400);
+  assert.equal(sheet.lines.every((l) => l.days === 1), true, "'1 DAY' on his header");
+});
+
+test("a row of words is not mistaken for a header", () => {
+  const sheet = parseCostingSheet(["Notes for the crew\tbring spares", "Camera\t30,000.00\t2"].join("\n"));
+  assert.equal(sheet.lines.length, 1);
+  assert.equal(sheet.lines[0].name, "Camera");
+});
+
+// ---- pasting onto a project that already has a cost sheet ---------------
+
+const EXISTING = [
+  { serviceName: "LED screen", totalPrice: 1_350_000, clientPrice: 250_000, vendorId: "v1" },
+  { serviceName: "Sound", totalPrice: 350_000, clientPrice: null, vendorId: null },
+  { serviceName: "Lights", totalPrice: 400_000, clientPrice: null, vendorId: "v2" },
+];
+
+test("THE SECOND PASTE: adding is spelled out, because it doubles the job", () => {
+  // A founder who corrects a figure and pastes again means "this is the
+  // sheet now". Appending silently would make the job cost twice as much.
+  const add = describeImport("add", EXISTING, 4_643_400, 20);
+  assert.equal(add.existingTotal, 2_100_000);
+  assert.equal(add.resultingTotal, 6_743_400);
+  assert.equal(add.resultingCount, 23);
+  assert.ok(add.warnings.some((w) => /correction rather than extra work/.test(w)));
+});
+
+test("REPLACING NAMES WHAT IT DESTROYS", () => {
+  // A client price set during markup is not on the Excel sheet and cannot
+  // come back from it.
+  const replace = describeImport("replace", EXISTING, 4_643_400, 20);
+  assert.equal(replace.resultingTotal, 4_643_400);
+  assert.equal(replace.resultingCount, 20);
+  assert.equal(replace.removedCount, 3);
+  assert.equal(replace.losesClientPrices, 1);
+  assert.equal(replace.losesVendors, 2);
+  assert.ok(replace.warnings.some((w) => /client price/.test(w)));
+  assert.ok(replace.warnings.some((w) => /vendor/.test(w)));
+});
+
+test("an empty project warns about nothing", () => {
+  const fresh = describeImport("replace", [], 4_643_400, 20);
+  assert.deepEqual(fresh.warnings, []);
+  assert.equal(fresh.resultingTotal, 4_643_400);
+  assert.equal(fresh.removedCount, 0);
+});
+
+test("adding to an empty project is just the sheet", () => {
+  const fresh = describeImport("add", [], 950_000, 2);
+  assert.equal(fresh.resultingTotal, 950_000);
+  assert.deepEqual(fresh.warnings, []);
 });
