@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { formatNGN } from "@/lib/format";
 import {
-  Sparkles, Loader2, Check, AlertTriangle, FolderPlus, Wand2, X,
+  Sparkles, Loader2, Check, AlertTriangle, FolderPlus, Wand2, X, Table2, MessageSquare, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +37,26 @@ interface ProjectRef {
   code?: string | null;
 }
 
+interface SheetLine {
+  name: string;
+  section: string | null;
+  unitCost: number;
+  quantity: number;
+  amount: number;
+  category: string | null;
+}
+
+interface Sheet {
+  title: string | null;
+  lines: SheetLine[];
+  computedTotal: number;
+  statedTotal: number | null;
+  reconciles: boolean;
+  received: number | null;
+  uncosted: string[];
+  disagreements: Array<{ name: string; stated: number; computed: number }>;
+}
+
 interface Plan {
   note: string;
   projectName: string;
@@ -50,7 +70,11 @@ interface Plan {
 }
 
 export function FileItCard({ onFiled }: { onFiled?: () => void }) {
+  // Two ways in: a sentence, or the costing sheet he already keeps in Excel.
+  const [mode, setMode] = useState<"sentence" | "sheet">("sentence");
   const [text, setText] = useState("");
+  const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [sheetSummary, setSheetSummary] = useState("");
   const [plan, setPlan] = useState<Plan | null>(null);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [reading, setReading] = useState(false);
@@ -120,9 +144,62 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
     }
   }
 
+  async function readSheet() {
+    if (!text.trim() || reading) return;
+    setReading(true);
+    try {
+      const res = await fetch("/api/doz/ai/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "sheet", text }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`);
+      setSheet(j.sheet as Sheet);
+      setSheetSummary(j.summary ?? "");
+      setProjects(j.projects ?? []);
+      setNewProjectName((j.sheet?.title as string | null) ?? "");
+      setChosenProjectId("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't read that sheet", { duration: 8000 });
+    } finally {
+      setReading(false);
+    }
+  }
+
+  async function uploadSheet() {
+    if (!sheet || filing) return;
+    setFiling(true);
+    try {
+      const res = await fetch("/api/doz/ai/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "sheet_commit",
+          projectId: chosenProjectId || undefined,
+          newProjectName: chosenProjectId ? undefined : newProjectName,
+          lines: sheet.lines,
+        }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.error || `Failed (${res.status})`);
+      toast.success(`${j.lineCount} lines uploaded to ${j.projectCode ?? j.projectName}`, {
+        description: `Project cost now ${formatNGN(j.budget ?? j.total)}.`,
+      });
+      reset();
+      onFiled?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't upload that sheet", { duration: 10000 });
+    } finally {
+      setFiling(false);
+    }
+  }
+
   function reset() {
     setText("");
     setPlan(null);
+    setSheet(null);
+    setSheetSummary("");
     setLines([]);
     setChosenProjectId("");
     setNewProjectName("");
@@ -148,25 +225,65 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
         </div>
       </div>
 
-      {!plan ? (
+      {!plan && !sheet ? (
         <div className="mt-3 space-y-2">
+          <div className="flex rounded-md border border-border p-0.5">
+            {([["sentence", "A sentence", MessageSquare], ["sheet", "Paste a costing sheet", Table2]] as const).map(
+              ([id, label, Icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => { setMode(id); setText(""); }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    mode === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-3 w-3" /> {label}
+                </button>
+              ),
+            )}
+          </div>
           <Textarea
-            rows={2}
+            rows={mode === "sheet" ? 6 : 2}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="I have paid 4 million for the PTDF event already. This covers screens, sound and lights."
+            className={mode === "sheet" ? "font-mono text-[11px]" : undefined}
+            placeholder={
+              mode === "sheet"
+                ? "Select the whole costing sheet in Excel, copy, and paste it here — headings, quantities, totals and all."
+                : "I have paid 4 million for the PTDF event already. This covers screens, sound and lights."
+            }
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void read();
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void (mode === "sheet" ? readSheet() : read());
             }}
           />
           <div className="flex justify-end">
-            <Button size="sm" className="gap-1.5" disabled={!text.trim() || reading} onClick={read}>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!text.trim() || reading}
+              onClick={() => void (mode === "sheet" ? readSheet() : read())}
+            >
               {reading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
               Read it
             </Button>
           </div>
         </div>
-      ) : (
+      ) : sheet ? (
+        <SheetReview
+          sheet={sheet}
+          summary={sheetSummary}
+          projects={projects}
+          chosenProjectId={chosenProjectId}
+          setChosenProjectId={setChosenProjectId}
+          newProjectName={newProjectName}
+          setNewProjectName={setNewProjectName}
+          filing={filing}
+          onCancel={reset}
+          onUpload={uploadSheet}
+        />
+      ) : plan ? (
         <div className="mt-4 space-y-4">
           {/* What it understood, in his own sentence. */}
           <div className="rounded-md border border-border bg-muted/30 p-3">
@@ -304,7 +421,167 @@ export function FileItCard({ onFiled }: { onFiled?: () => void }) {
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
     </Card>
+  );
+}
+
+/**
+ * What the paste came to, before anything is written.
+ *
+ * The reconciliation line is the important part: his sheet states a total,
+ * and this says whether the parse agrees with it. If it does not, he sees
+ * both figures rather than a silent preference for ours.
+ */
+function SheetReview({
+  sheet,
+  summary,
+  projects,
+  chosenProjectId,
+  setChosenProjectId,
+  newProjectName,
+  setNewProjectName,
+  filing,
+  onCancel,
+  onUpload,
+}: {
+  sheet: Sheet;
+  summary: string;
+  projects: ProjectRef[];
+  chosenProjectId: string;
+  setChosenProjectId: (v: string) => void;
+  newProjectName: string;
+  setNewProjectName: (v: string) => void;
+  filing: boolean;
+  onCancel: () => void;
+  onUpload: () => void;
+}) {
+  const uncategorised = sheet.lines.filter((l) => !l.category).length;
+  const ready = Boolean(chosenProjectId || newProjectName.trim()) && sheet.lines.length > 0 && !filing;
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div
+        className={cn(
+          "flex items-start gap-3 rounded-md border p-3",
+          sheet.reconciles ? "border-primary/30 bg-primary/5" : "border-destructive/40 bg-destructive/5",
+        )}
+      >
+        {sheet.reconciles ? (
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        ) : (
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        )}
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{summary}</p>
+          {sheet.title && <p className="text-[11px] text-muted-foreground">{sheet.title}</p>}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Project</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={chosenProjectId}
+            onChange={(e) => { setChosenProjectId(e.target.value); if (e.target.value) setNewProjectName(""); }}
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+          >
+            <option value="">New project…</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.code ? `${p.code} — ${p.name}` : p.name}</option>
+            ))}
+          </select>
+          {!chosenProjectId && (
+            <div className="flex min-w-[240px] flex-1 items-center gap-2">
+              <FolderPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <Input
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="Name the project"
+                className="h-8 text-xs"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="max-h-[340px] overflow-y-auto rounded-md border border-border">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-muted/60 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="p-2 text-left font-semibold">Item</th>
+              <th className="p-2 text-left font-semibold">Department</th>
+              <th className="p-2 text-right font-semibold">Unit</th>
+              <th className="p-2 text-right font-semibold">Qty</th>
+              <th className="p-2 text-right font-semibold">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sheet.lines.map((l, i) => (
+              <tr key={`${l.name}-${i}`} className="border-t border-border">
+                <td className="p-2">{l.name}</td>
+                <td className="p-2">
+                  {l.category ? (
+                    <Badge variant="outline" className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                      {l.category}
+                    </Badge>
+                  ) : (
+                    <span className="text-[10px] text-amber-400">uncategorised</span>
+                  )}
+                </td>
+                <td className="p-2 text-right tabular-nums">{formatNGN(l.unitCost)}</td>
+                <td className="p-2 text-right tabular-nums">{l.quantity}</td>
+                <td className="p-2 text-right font-medium tabular-nums">{formatNGN(l.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="sticky bottom-0 bg-muted/60">
+            <tr className="border-t border-border">
+              <td className="p-2 font-semibold" colSpan={4}>Total</td>
+              <td className="p-2 text-right font-bold tabular-nums">{formatNGN(sheet.computedTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {!sheet.reconciles && sheet.statedTotal !== null && (
+        <p className="text-[11px] text-destructive">
+          Your sheet says {formatNGN(sheet.statedTotal)}; these lines come to {formatNGN(sheet.computedTotal)}.
+          Check the sheet before uploading — nothing here changes your figures.
+        </p>
+      )}
+
+      {sheet.disagreements.length > 0 && (
+        <div className="space-y-1">
+          {sheet.disagreements.map((d) => (
+            <p key={d.name} className="text-[11px] text-amber-400">
+              {d.name}: your sheet shows {formatNGN(d.stated)}, but quantity × unit cost is {formatNGN(d.computed)}.
+            </p>
+          ))}
+        </div>
+      )}
+
+      {uncategorised > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {uncategorised} line{uncategorised === 1 ? "" : "s"} did not match a department and will import as
+          uncategorised — you can set them on the cost sheet.
+        </p>
+      )}
+
+      {sheet.uncosted.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Carrying no cost on your sheet, so not imported: {sheet.uncosted.slice(0, 8).join(", ")}
+          {sheet.uncosted.length > 8 ? ` and ${sheet.uncosted.length - 8} more` : ""}.
+        </p>
+      )}
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={filing}>Cancel</Button>
+        <Button size="sm" className="gap-1.5" disabled={!ready} onClick={onUpload}>
+          {filing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          Upload {sheet.lines.length} lines
+        </Button>
+      </div>
+    </div>
   );
 }

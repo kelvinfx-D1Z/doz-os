@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { geminiText, isGeminiConfigured } from "@/lib/gemini";
 import { syncProjectBudget } from "@/lib/project-figures";
+import { parseCostingSheet, categoriseLines, describeSheet } from "@/lib/costing-sheet";
 import {
   buildFilingPlan,
   isPostable,
@@ -122,6 +123,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // A pasted costing sheet is arithmetic, not prose — read by the parser,
+  // never by the model. See src/lib/costing-sheet.ts.
+  if (body.step === "sheet") return readSheet(body);
+  if (body.step === "sheet_commit") return commitSheet(body, user.id, user.role);
   if (body.step === "commit") return commit(body, user.id, user.role);
   return draft(body);
 }
@@ -312,3 +317,125 @@ async function commit(body: Record<string, unknown>, userId: string, role: strin
 }
 
 class NotFound extends Error {}
+
+
+// ============================================================
+// A PASTED COSTING SHEET
+//
+// His own Excel sheet, pasted whole. Read by the parser above, checked
+// against the TOTAL he typed at the bottom, then written as a project with
+// every line on it.
+// ============================================================
+
+/** Step one: read the paste, show what it found, write nothing. */
+async function readSheet(body: Record<string, unknown>) {
+  const text = typeof body.text === "string" ? body.text.slice(0, 200_000) : "";
+  if (!text.trim()) return NextResponse.json({ error: "Paste the sheet first" }, { status: 400 });
+
+  const sheet = parseCostingSheet(text);
+  const [catalogue, categories, projects] = await Promise.all([
+    db.serviceItem.findMany({ select: { name: true, category: { select: { name: true } } } }),
+    db.serviceCategory.findMany({ select: { name: true }, orderBy: { sortOrder: "asc" } }),
+    db.project.findMany({ select: { id: true, name: true, code: true }, orderBy: { createdAt: "desc" }, take: 200 }),
+  ]);
+
+  const lines = categoriseLines(
+    sheet.lines,
+    catalogue.map((c) => ({ name: c.name, category: c.category.name })),
+    categories.map((c) => c.name),
+  );
+
+  return NextResponse.json({
+    sheet: { ...sheet, lines },
+    summary: describeSheet(sheet),
+    projects,
+    categories: categories.map((c) => c.name),
+  });
+}
+
+/** Step two: create the project and every costed line, as reviewed. */
+async function commitSheet(body: Record<string, unknown>, userId: string, role: string) {
+  const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+  const newProjectName = typeof body.newProjectName === "string" ? body.newProjectName.trim().slice(0, 200) : "";
+  if (!projectId && !newProjectName) {
+    return NextResponse.json({ error: "Pick a project, or name a new one" }, { status: 400 });
+  }
+
+  const raw = Array.isArray(body.lines) ? (body.lines as Array<Record<string, unknown>>).slice(0, 400) : [];
+  const lines = raw
+    .map((l) => ({
+      serviceName: String(l.name ?? l.serviceName ?? "").trim().slice(0, 200),
+      category: String(l.category ?? "").trim().slice(0, 120) || "Uncategorised",
+      quantity: Math.max(1, Math.trunc(Number(l.quantity) || 1)),
+      days: Math.max(1, Math.trunc(Number(l.days) || 1)),
+      unitPrice: Math.max(0, Number(l.unitCost ?? l.unitPrice) || 0),
+    }))
+    .filter((l) => l.serviceName && l.unitPrice > 0);
+
+  if (lines.length === 0) {
+    return NextResponse.json({ error: "Nothing on that sheet carries a cost" }, { status: 400 });
+  }
+
+  // The founder was shown a total; this is the same arithmetic, redone on
+  // what actually arrived, so a line lost in transit cannot pass unnoticed.
+  const total = Math.round(lines.reduce((s, l) => s + l.quantity * l.days * l.unitPrice, 0) * 100) / 100;
+
+  const result = await db.$transaction(async (tx) => {
+    let project = projectId
+      ? await tx.project.findUnique({ where: { id: projectId }, select: { id: true, name: true, code: true } })
+      : null;
+    if (projectId && !project) throw new NotFound("That project no longer exists");
+
+    let createdProject = false;
+    if (!project) {
+      const year = new Date().getFullYear();
+      const count = await tx.project.count();
+      project = await tx.project.create({
+        data: {
+          name: newProjectName,
+          code: `EVT-${year}-${String(count + 1).padStart(3, "0")}`,
+          serviceType: "EVENT_PRODUCTION",
+          status: "PLANNING",
+          createdById: userId,
+          approvalStatus: role === "FOUNDER" ? "APPROVED" : "PENDING",
+        },
+        select: { id: true, name: true, code: true },
+      });
+      createdProject = true;
+    }
+
+    await tx.projectService.createMany({
+      data: lines.map((l) => ({
+        projectId: project!.id,
+        serviceName: l.serviceName,
+        category: l.category,
+        quantity: l.quantity,
+        days: l.days,
+        unitPrice: l.unitPrice,
+        totalPrice: l.quantity * l.days * l.unitPrice,
+        createdBy: userId,
+      })),
+    });
+
+    // Project.budget becomes the sum of the sheet, by the same rule every
+    // other cost line in this system follows.
+    const budget = await syncProjectBudget(tx, project.id);
+    return { project, createdProject, budget };
+  }, { timeout: 60_000 }).catch((e) => {
+    if (e instanceof NotFound) return { error: e.message };
+    throw e;
+  });
+
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: 404 });
+
+  return NextResponse.json({
+    ok: true,
+    projectId: result.project.id,
+    projectName: result.project.name,
+    projectCode: result.project.code,
+    createdProject: result.createdProject,
+    lineCount: lines.length,
+    total,
+    budget: result.budget,
+  });
+}
