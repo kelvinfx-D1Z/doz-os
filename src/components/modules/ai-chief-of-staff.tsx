@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatCard, SectionHeader, EmptyState } from "@/components/doz/ui-primitives";
+import { FileItCard } from "@/components/doz/file-it-card";
 import { formatNGN, relativeTime } from "@/lib/format";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -374,6 +375,11 @@ export function AiChiefOfStaff() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* ----- LEFT COLUMN ----- */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Say what happened; it proposes the filing and waits to be told
+              yes. First thing on the page, because it is the thing he
+              actually came here to do. */}
+          <FileItCard />
+
           {/* === AI Console === */}
           <Card className="p-5">
             <SectionHeader
