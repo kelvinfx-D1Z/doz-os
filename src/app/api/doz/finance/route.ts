@@ -322,6 +322,12 @@ export async function GET(req: Request) {
       code: i.code ?? "—",
       amount: i.amount,
       tax: i.tax,
+      // Shipped so the client can show the BALANCE against what the invoice
+      // will actually collect. Government clients (MDAs) withhold VAT and WHT
+      // at source, so face value overstates the debt by the withheld 12.5%.
+      // Stripping this field forced the Financial Intelligence tables to fall
+      // back to `amount` and overstate every government invoice.
+      expectedCash: i.expectedCash,
       amountPaid: i.amountPaid,
       status: i.status,
       issuedDate: i.issuedDate,

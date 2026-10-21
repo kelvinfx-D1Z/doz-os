@@ -23,6 +23,7 @@ import {
   MiniBar,
 } from "@/components/doz/ui-primitives";
 import { ReceiptUpload } from "@/components/doz/receipt-upload";
+import { collectableAmount } from "@/lib/received-allocation";
 import { formatNGN, formatDate, formatPct, relativeTime, isOverdue } from "@/lib/format";
 import {
   ResponsiveContainer,
@@ -80,6 +81,8 @@ interface Invoice {
   code: string;
   amount: number;
   tax: number;
+  /** amount - withholding tax. 0 means WHT does not apply — see collectableAmount. */
+  expectedCash: number;
   amountPaid: number;
   status: string;
   issuedDate: string;
@@ -458,7 +461,10 @@ export function Financial() {
                             </div>
                             <div className="text-right">
                               <p className="text-xs font-semibold text-rose-300">
-                                {formatNGN(inv.amount - inv.amountPaid, true)}
+                                {/* What is still collectable, not face value: a
+                                    government client withholds VAT and WHT at
+                                    source, so `amount` overstates the debt. */}
+                                {formatNGN(Math.max(0, collectableAmount(inv) - inv.amountPaid), true)}
                               </p>
                               <p className="text-[10px] text-muted-foreground">due {formatDate(inv.dueDate)}</p>
                             </div>
@@ -1452,7 +1458,10 @@ function InvoicesTable({ rows }: { rows: Invoice[] }) {
             <TableBody>
               {rows.map((inv) => {
                 const overdue = inv.status === "OVERDUE" || (inv.status !== "PAID" && inv.dueDate && isOverdue(inv.dueDate));
-                const balance = inv.amount - inv.amountPaid;
+                // Balance against collectableAmount, not `amount`: a fully
+                // settled government invoice sits at amountPaid === expectedCash
+                // and would otherwise show a phantom 12.5% still outstanding.
+                const balance = Math.max(0, collectableAmount(inv) - inv.amountPaid);
                 return (
                   <TableRow
                     key={inv.id}
