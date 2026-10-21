@@ -21,6 +21,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VendorApplications } from "@/components/doz/vendor-applications";
+import { useAppStore } from "@/lib/store";
 import { AddVendorForm } from "@/components/doz/vendor-apply";
 import {
   Table,
@@ -57,6 +58,7 @@ interface Stats {
   overduePayments: number;
   segregationViolations: number;
   avgVendorRating: number;
+  pendingVendorApplications: number;
 }
 
 interface Vendor {
@@ -979,6 +981,18 @@ export function Procurement() {
   const [acting, setActing] = useState<string | null>(null);
   const [showApply, setShowApply] = useState(false);
 
+  // A caller may have sent us here to land on a specific tab (the Command
+  // Center's vendor-application card asks for "onboarding"). Read it once on
+  // mount and clear it, so coming back to Procurement later opens the default
+  // tab again. Safe as a plain defaultValue because app-shell mounts only the
+  // active module, so this component remounts on every navigation here.
+  const requestedTab = useAppStore((st) => st.procurementTab);
+  const setProcurementTab = useAppStore((st) => st.setProcurementTab);
+  const [initialTab] = useState(() => requestedTab ?? "approvals");
+  useEffect(() => {
+    if (requestedTab) setProcurementTab(null);
+  }, [requestedTab, setProcurementTab]);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -1157,7 +1171,7 @@ export function Procurement() {
         />
       </div>
 
-      <Tabs defaultValue="approvals" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="h-9 w-full justify-start overflow-x-auto">
           <TabsTrigger value="approvals" className="gap-1.5 text-xs">
             <Shield className="h-3.5 w-3.5" />
@@ -1183,6 +1197,14 @@ export function Procurement() {
           <TabsTrigger value="onboarding" className="gap-1.5 text-xs">
             <Plus className="h-3.5 w-3.5" />
             Onboarding
+            {stats.pendingVendorApplications > 0 && (
+              <Badge
+                variant="outline"
+                className="ml-1 h-4 border-amber-500/40 px-1 text-[10px] text-amber-400"
+              >
+                {stats.pendingVendorApplications}
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 

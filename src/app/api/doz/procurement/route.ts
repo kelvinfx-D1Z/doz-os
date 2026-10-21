@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   if ("error" in auth) return auth.error;
   const now = new Date();
 
-  const [vendors, rfqs, purchaseOrders, paymentRequests, approvals] = await Promise.all([
+  const [vendors, rfqs, purchaseOrders, paymentRequests, approvals, pendingVendorApplications] = await Promise.all([
     db.vendor.findMany({
       include: {
         _count: { select: { quotes: true, pos: true } },
@@ -53,6 +53,11 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
+    // Drives the count badge on the Onboarding tab. The tab is labelled
+    // "Onboarding" with a + icon, so it read as "add a vendor" rather than
+    // "applications are waiting" — a pending submission was invisible until
+    // you happened to open it.
+    db.vendorApplication.count({ where: { status: "PENDING" } }),
   ]);
 
   // ---------- Stats ----------
@@ -102,6 +107,7 @@ export async function GET(req: Request) {
       overduePayments: overduePayments.length,
       segregationViolations,
       avgVendorRating: Number(avgVendorRating.toFixed(2)),
+      pendingVendorApplications,
     },
     vendors: vendors.map((v) => ({
       id: v.id,

@@ -17,6 +17,10 @@ function endOfToday(): Date {
   const n = new Date();
   return new Date(n.getFullYear(), n.getMonth(), n.getDate(), 23, 59, 59, 999);
 }
+/** Midnight on the day of `d` — so "days waiting" counts whole days, not hours. */
+function startOfToday0(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
 
 export async function GET() {
   // ---------------------------------------------------------------
@@ -47,6 +51,7 @@ export async function GET() {
     aiInsights,
     activityLogs,
     approvals,
+    vendorApplications,
     // ---- user-scoped data (fetched in parallel) ------------------
     myTasksAll,        // all tasks assigned to current user (for due-today / overdue filtering)
     myDoneToday,       // tasks completed by current user today
@@ -78,6 +83,25 @@ export async function GET() {
     db.aIInsight.findMany({ orderBy: { createdAt: "desc" } }),
     db.activityLog.findMany({ include: { user: true }, orderBy: { createdAt: "desc" }, take: 20 }),
     db.approval.findMany({ where: { decision: "PENDING" }, include: { approver: true } }),
+    // Vendor onboarding applications awaiting a decision. These used to live
+    // ONLY in Procurement > Onboarding, so a submission sat there with no
+    // signal anywhere on the Command Center and the founder never knew it was
+    // waiting. Oldest first — the one that has waited longest is the one to
+    // action. Bank details are deliberately NOT selected; approving happens in
+    // Procurement, and the dashboard has no need for payment information.
+    db.vendorApplication.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        companyName: true,
+        category: true,
+        contactName: true,
+        phone: true,
+        email: true,
+        createdAt: true,
+      },
+    }),
 
     // ---- user-scoped queries -----------------------------------
     db.task.findMany({
@@ -181,6 +205,25 @@ export async function GET() {
   const topPriorities = dueTodayOrOverdue.slice(0, 5);
 
   const pendingApprovals = paymentRequests.filter((p) => p.status === "PENDING");
+
+  // Vendor applications are a SECOND, separate approval queue. `pendingApprovals`
+  // above is payment requests only, which is why a pending vendor application
+  // produced no dashboard signal at all. Kept as its own list rather than merged
+  // into pendingApprovals: the two are actioned in different places and the
+  // payment-request card's Approve/Reject buttons post payment-request codes.
+  const pendingVendorApplications = vendorApplications.map((a) => ({
+    id: a.id,
+    companyName: a.companyName,
+    category: a.category,
+    contactName: a.contactName,
+    phone: a.phone,
+    email: a.email,
+    createdAt: a.createdAt,
+    daysWaiting: Math.max(
+      0,
+      Math.floor((todayStart.getTime() - startOfToday0(a.createdAt).getTime()) / 86400000),
+    ),
+  }));
 
   const openOpps = opportunities.filter((o) => !["WON", "LOST"].includes(o.stage));
   const pipelineValue = openOpps.reduce((s, o) => s + o.value, 0);
@@ -514,6 +557,7 @@ export async function GET() {
         cashPosition: money ? cashPosition : undefined,
         pendingApprovals: pendingApprovals.length,
         pendingPaymentsValue: money ? pendingApprovals.reduce((s, p) => s + p.amount, 0) : undefined,
+        pendingVendorApplications: pendingVendorApplications.length,
         openTasks: tasks.filter((t) => t.status !== "DONE").length,
         overdueTasks: tasks.filter((t) => t.status !== "DONE" && t.dueDate && new Date(t.dueDate) < now).length,
         activeProjects: projects.filter((p) => ["PLANNING", "CONFIRMED", "IN_PROGRESS"].includes(p.status)).length,
@@ -526,6 +570,7 @@ export async function GET() {
       weeklyGoal,
       goals: goals.filter((g) => g.status === "ACTIVE"),
       pendingApprovals,
+      pendingVendorApplications,
       upcoming,
       openOpps: openOpps.slice(0, 8),
       outstandingInvoices,
@@ -574,6 +619,7 @@ export async function GET() {
     weeklyGoal: null,
     goals: [],
     pendingApprovals: [],
+    pendingVendorApplications: [],
     upcoming: [],
     openOpps: [],
     outstandingInvoices: [],

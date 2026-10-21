@@ -64,6 +64,7 @@ import {
   CircleDollarSign,
   ListTodo,
   ArrowRight,
+  Truck,
   Check,
   X,
   ClipboardList,
@@ -112,6 +113,7 @@ interface DashboardData {
     cashPosition: number;
     pendingApprovals: number;
     pendingPaymentsValue: number;
+    pendingVendorApplications: number;
     openTasks: number;
     overdueTasks: number;
     activeProjects: number;
@@ -140,6 +142,18 @@ interface DashboardData {
     status: string;
     requester: { name: string } | null;
     project: { name: string } | null;
+  }>;
+  // Vendor onboarding queue — separate from the payment-request approvals
+  // above, and actioned in Procurement > Onboarding rather than inline here.
+  pendingVendorApplications: Array<{
+    id: string;
+    companyName: string;
+    category: string;
+    contactName: string;
+    phone: string | null;
+    email: string | null;
+    createdAt: string;
+    daysWaiting: number;
   }>;
   upcoming: Array<{ type: "TASK" | "EVENT" | "INVOICE"; title: string; due: string; id: string }>;
   openOpps: Array<{
@@ -452,6 +466,8 @@ export function CommandCenter() {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useCurrentUser();
+  const setModule = useAppStore((s) => s.setModule);
+  const setProcurementTab = useAppStore((s) => s.setProcurementTab);
 
   // Task interaction state
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -782,6 +798,10 @@ export function CommandCenter() {
   }
 
   // ---------- FOUNDER (or unknown role) — company-wide layout ----------
+  // Vendor applications waiting on the founder. Defaulted because a cached or
+  // older payload (and the non-founder response) may not carry the field.
+  const vendorApplications = data.pendingVendorApplications ?? [];
+
   // First critical AI insight -> alert banner
   const criticalInsight =
     data.aiInsights.find((i) => i.severity === "CRITICAL") ?? data.aiInsights[0] ?? null;
@@ -790,6 +810,10 @@ export function CommandCenter() {
   const summaryParts: string[] = [];
   summaryParts.push(`${data.topPriorities.length} priorities`);
   if (stats.pendingApprovals > 0) summaryParts.push(`${stats.pendingApprovals} pending approvals`);
+  if (vendorApplications.length > 0)
+    summaryParts.push(
+      `${vendorApplications.length} vendor application${vendorApplications.length === 1 ? "" : "s"}`,
+    );
   if (stats.overdueCount > 0) summaryParts.push(`${formatNGN(stats.overdueAmount, true)} overdue`);
   if (stats.overdueTasks > 0) summaryParts.push(`${stats.overdueTasks} overdue tasks`);
   const aiSummary = summaryParts.join(", ");
@@ -1122,6 +1146,65 @@ export function CommandCenter() {
               ))}
             </div>
           </Card>
+
+          {/* Vendor Applications — the second approval queue. Hidden when the
+              queue is empty: an always-on empty card would just add noise to a
+              dashboard that already has plenty. */}
+          {vendorApplications.length > 0 && (
+            <Card className="p-5">
+              <SectionHeader
+                title="Vendor Applications"
+                description="New vendors waiting for your approval"
+                icon={<Truck className="h-4 w-4" />}
+                action={
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-400">
+                    {vendorApplications.length} pending
+                  </Badge>
+                }
+              />
+              <div className="mt-3 max-h-72 space-y-2 overflow-y-auto scroll-thin pr-1">
+                {vendorApplications.map((v) => (
+                  <div
+                    key={v.id}
+                    className="flex items-start justify-between gap-3 rounded-md border border-border bg-card/40 p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold">{v.companyName}</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {v.category.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {v.contactName}
+                        {v.phone ? ` · ${v.phone}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {v.daysWaiting === 0
+                          ? "Submitted today"
+                          : `Waiting ${v.daysWaiting} day${v.daysWaiting === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 gap-1 px-2 text-xs"
+                      onClick={() => {
+                        // Approving needs the CAC number, bank details and
+                        // references, which this card deliberately does not
+                        // carry — so hand off to the full review panel instead
+                        // of approving blind from a summary.
+                        setProcurementTab("onboarding");
+                        setModule("procurement");
+                      }}
+                    >
+                      Review <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* Revenue Pipeline / Service Mix */}
           <Card className="p-5">
