@@ -46,12 +46,16 @@ export function SignIn() {
           <form onSubmit={handleSignIn} className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="email" className="text-xs">Email</Label>
+              {/* The company's addresses are @d1zmedia.com. This placeholder
+                  said @digitonezero.com — the old company name — and the
+                  founder duly typed founder@digitonezero.com five times,
+                  locking out an address that never had an account. */}
               <Input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@digitonezero.com"
+                placeholder="you@d1zmedia.com"
                 className="h-9"
                 required
               />
